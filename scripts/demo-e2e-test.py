@@ -266,26 +266,19 @@ def print_chain_trace():
     print(r"""
     Resolution trace:
 
-      data-pipeline  <team/data>
+      python-data-pipeline  <team/data>
        |
-       +-- includes: docker-build, k8s-apply
-       +-- optional: slack-notify
+       +-- optional: docker-build, slack-notify
        |
        +-- docker-build  <shared>
        |    (leaf -- no further deps)
        |
-       +-- k8s-apply  <shared>
-       |    |
-       |    +-- includes: secret-management
-       |    |
-       |    +-- secret-management  <shared>
-       |         (leaf -- no further deps)
-       |
-       +-- slack-notify  <shared>  [optional]
+       +-- slack-notify  <shared>
             (leaf -- no further deps)
 
-    Order: data-pipeline -> docker-build -> k8s-apply -> secret-management
-           (then optional: slack-notify if resolvable)
+    Note: python-data-pipeline declares optional_includes only;
+    its dependencies (docker-build, slack-notify) are loaded
+    when resolvable, but skipped silently if missing.
     """)
 
 
@@ -364,13 +357,20 @@ def scenario_b(reg: SkillRegistry, all_skills: list):
     print("    Namespace:     team/data")
     print("    Current files: pipelines/etl/pipeline.py, docker/Dockerfile,")
     print("                   deploy/k8s/deploy.yaml")
-    print("    Goal:          Show deep dependency chain resolution:")
-    print("                   pipeline -> docker-build, k8s-apply")
-    print("                   k8s-apply -> secret-management")
-    print("                   optional: slack-notify")
+    print("    Goal:          Show dependency resolution with optional_includes:")
+    print("                   python-data-pipeline -> docker-build (optional)")
+    print("                   python-data-pipeline -> slack-notify (optional)")
+    print("                   optional deps are loaded if resolvable, skipped if not")
 
     _files_b = ["pipelines/etl/pipeline.py", "docker/Dockerfile",
                 "deploy/k8s/deploy.yaml"]
+
+    subheader("Step 1 -- filter_by_context (namespace + path filter)")
+
+    candidates = reg.filter_by_context(
+        namespace="team/data",
+        current_files=_files_b,
+    )
     print(f"\n    Skills surviving both filters ({len(candidates)} of "
           f"{len(all_skills)} total):\n")
     for s in candidates:
@@ -381,8 +381,8 @@ def scenario_b(reg: SkillRegistry, all_skills: list):
             tag.append(f"optional: {', '.join(s.optional_includes)}")
         print(f"      PASS  {s.name:<28}  {'; '.join(tag)}")
 
-    print(f"\n    Note: docker-build is included by data-pipeline, but also")
-    print(f"    matches Dockerfile in current_files -- confirm both paths work.")
+    print(f"\n    Note: docker-build is also independently matched via")
+    print(f"    docker/Dockerfile in current_files -- confirming that")
 
     subheader("Step 2 -- Dependency chain resolution (detailed trace)")
 
@@ -400,23 +400,25 @@ def scenario_c(reg: SkillRegistry, all_skills: list):
     header("Scenario C:  Full-Stack Development  [cross-namespace]")
     print("  Context:")
     print("    Namespace:     (none -- cross-namespace)")
-    print("    Current files: api.go, App.tsx, migration.sql")
+    print("    Current files: api/handler.go, web/App.tsx,")
+    print("                   db/migrations/001.up.sql")
     print("    Goal:          Show how cross-namespace filtering works")
     print("                   when namespace='' and only path patterns apply.")
+
+    _files_c = ["api/handler.go", "web/App.tsx", "db/migrations/001.up.sql"]
 
     subheader("Step 1 -- filter_by_context (path-only filter)")
 
     candidates = reg.filter_by_context(
         namespace="",
-        current_files=["api.go", "App.tsx", "migration.sql"],
+        current_files=_files_c,
     )
     print(f"\n    Skills matching any of the current files "
           f"({len(candidates)} of {len(all_skills)} total):\n")
     for s in candidates:
         matched_patterns = []
         for pat in s.paths:
-            for f in ["api.go", "App.tsx", "migration.sql"]:
-                import fnmatch
+            for f in _files_c:
                 if fnmatch.fnmatch(f, pat):
                     matched_patterns.append(f"{f} ~ {pat}")
         ns_label = s.namespace if s.namespace else "(global)"
@@ -440,10 +442,10 @@ def scenario_c(reg: SkillRegistry, all_skills: list):
     loaded = reg.load_for_task(candidate_names)
     print_skill_table(loaded, "Final loaded set")
 
-    print(f"    Note: {len(all_skills)} skills loaded with no namespace filter.")
-    print(f"    Global skills (code-review-checklist, security-best-practices)")
-    print(f"    are always candidates because they have no namespace and no")
-    print(f"    path restriction -- they appear in every scenario.\n")
+    print(f"    Note: All {len(all_skills)} skills considered by path filter")
+    print(f"    (no namespace scoping). Skills without path restrictions")
+    print(f"    (e.g., slack-notify with paths=[]) are always candidates")
+    print(f"    and appear in every cross-namespace scenario.\n")
 
     print_token_budget(loaded, all_skills, "Full-stack session")
 
@@ -487,11 +489,14 @@ def main():
 
     scenarios = [
         ("Frontend (team/frontend)", "team/frontend",
-         ["App.tsx", "Button.tsx", "index.css"]),
+         ["src/components/App.tsx", "src/components/Button.tsx",
+          "src/styles/index.css"]),
         ("Data pipeline (team/data)", "team/data",
-         ["pipeline.py", "Dockerfile", "deploy.yaml"]),
+         ["pipelines/etl/pipeline.py", "docker/Dockerfile",
+          "deploy/k8s/deploy.yaml"]),
         ("Full-stack (cross-namespace)", "",
-         ["api.go", "App.tsx", "migration.sql"]),
+         ["api/handler.go", "web/App.tsx",
+          "db/migrations/001.up.sql"]),
     ]
 
     baseline_tok = estimate_tokens(all_skills)

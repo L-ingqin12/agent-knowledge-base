@@ -366,13 +366,16 @@ EXPLAIN
 # ===========================================================================
 # 6. Cleanup (unless --keep)
 # ===========================================================================
+bold="$(printf '\e[1m')" dim="$(printf '\e[2m')" reset="$(printf '\e[0m')"
 if [ "$KEEP" = "--keep" ]; then
-  announce "Temp directory left at \e[1m$DEMO_DIR\e[0m for inspection"
-  printf '  tree: \e[2mfind %s -type f | sort\e[0m\n' "$DEMO_DIR"
+  printf '\n  %sTemp directory left at %s%s%s for inspection%s\n' \
+    "==> " "${bold}" "$DEMO_DIR" "${reset}" "${reset}"
+  printf '  tree: %sfind %s -type f | sort%s\n' "${dim}" "$DEMO_DIR" "${reset}"
 else
   rm -rf "$DEMO_DIR"
-  announce "Cleaned up \e[1m$DEMO_DIR\e[0m"
-  printf '  Pass \e[1m--keep\e[0m as the first argument to preserve it.\n'
+  printf '\n  %sCleaned up %s%s%s%s\n' \
+    "==> " "${bold}" "$DEMO_DIR" "${reset}" "${reset}"
+  printf '  Pass %s--keep%s as the first argument to preserve it.\n' "${bold}" "${reset}"
 fi
 
 printf '\n\e[1;32mDone.\e[0m\n'
