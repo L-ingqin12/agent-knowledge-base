@@ -183,3 +183,4 @@
 - [[claude-socket-error-elimination]] — 四层防御体系
 - [[claude-interruption-resilience]] — 中断恢复方案
 - [[hermes-parallel-task-communication]] — delegate_task vs Kanban 能力边界
+- [[interactive-aware-subagent-plan-2026-07-03]] — Phase 2b: 交互感知动态资源分配（PreToolUse/Stop hook 状态机）
