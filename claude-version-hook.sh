@@ -18,7 +18,7 @@ set -e
 STATE_FILE="$HOME/.claude/version-state.json"
 DUMP_DIR="$HOME/.permafrost/dumps"
 ALIGN_SRC="$HOME/.claude/plugins/cache/permafrost/permafrost/0.3.0/proxy/permafrost_align.py"
-ALIGN_REPO="$HOME/workspace/claude-code-knowledge/patches/permafrost_align.py"
+ALIGN_REPO="$HOME/workspace/agent-knowledge-base/patches/permafrost_align.py"
 CC_VERSION=$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+')
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -130,8 +130,11 @@ update_patch() {
     fi
 
     warn "检测到新工具: $exclude"
-    warn "当前 _ANCHOR_TOOLS 已覆盖这些工具 → 新版 normalize_tools 会自动剥离"
-    warn "如命中率持续下降，需手动确认补丁是否生效"
+    warn "自动触发补丁强制恢复 + permafrost 重启..."
+    # 更新补丁文件 + 清缓存 + 触发重启
+    bash /root/claude-permafrost-deploy.sh force 2>/dev/null && \
+        log "补丁已恢复，permafrost 已重启" || \
+        warn "自动重启失败，请手动: bash /root/claude-permafrost-deploy.sh force"
 }
 
 # ── 主入口 ────────────────────────────────────────────────────────
