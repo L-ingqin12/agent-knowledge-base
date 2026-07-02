@@ -70,3 +70,34 @@
   - 阶段4 生产部署+逃生: ✅ 部署成功(timeout=90s,retries=1), API正常, 逃生恢复原始参数
 - **结论**: 补丁安全, 部署/逃生有效, 生产已恢复原始状态
 - **逃生**: `bash deployments/proxy-timeout-fix/rollback.sh`
+
+### proxy-timeout-fix (部署)
+- **时间**: 2026-06-23T11:51+08:00
+- **操作**: 部署
+- **变更**: timeout 180s→90s, retries 3→1, backoff env var化
+- **备份**: /root/workspace/claude-code-knowledge/deployments/proxy-timeout-fix/backups/proxy.js.20260623-115104
+- **逃生**: `bash deployments/proxy-timeout-fix/rollback.sh`
+
+## 2026-07-03
+
+### proxy.js 状态归档
+- **时间**: 2026-07-03
+- **操作**: 归档当前生产 proxy.js 状态至仓库
+- **变更**: 将生产部署路径 `/root/claude-resilience-proxy.js` (含 timeout-fix 生产调优版) 同步至仓库
+- **md5**: `d129c2e139ff5d2610abcdb913c5fa14` (部署) → 同步至仓库
+- **关键参数**:
+  - RETRIES: env `PROXY_RETRIES` 默认 1
+  - BACKOFF: env `PROXY_BACKOFF_MS` 默认 1000ms
+  - timeout: env `PROXY_TIMEOUT_MS` 默认 90000ms
+  - abort: 已加入 retryable 列表
+- **代理链路**: CC → permafrost (:8788) → proxy (:8787) → DeepSeek
+  - permafrost_proxy.py 运行中 (PID 30738)
+  - proxy.js 运行中 (端口 :8787)
+- **逃生通道**:
+  - L1: `bash /root/claude-permafrost-rollback.sh` → permafrost 绕过 proxy
+  - L2: 直连 DeepSeek
+- **已知问题**: 
+  - `ANTHROPIC_BASE_URL=http://127.0.0.1:8788` (permafrost 端口), 非直接 :8787
+  - CC v2.1.198 → v2.1.199 升级失败 (`install_failed`, 已记录于 `2026-07-02T15:39:40.687Z`)
+  - SessionStart hook 可用: `bash /root/claude-version-hook.sh full`
+- **commit**: (本次提交)

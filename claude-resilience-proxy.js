@@ -12,8 +12,8 @@ const { URL } = require('url');
 const PORT = parseInt(process.env.PROXY_PORT || '8787');
 const TARGET = process.env.PROXY_TARGET || 'https://api.deepseek.com/anthropic';
 const TARGET_URL = new URL(TARGET);
-const RETRIES = 3;
-const BACKOFF = [1000, 3000, 8000];
+const RETRIES = parseInt(process.env.PROXY_RETRIES || "1");
+const BACKOFF = (process.env.PROXY_BACKOFF_MS || "1000").split(",").map(Number);
 
 function doRequest(opts, body, retries) {
   return new Promise((resolve, reject) => {
@@ -23,7 +23,7 @@ function doRequest(opts, body, retries) {
       path: TARGET_URL.pathname + opts.path,
       method: opts.method,
       headers: { ...opts.headers, host: TARGET_URL.hostname },
-      timeout: 180000,
+      timeout: parseInt(process.env.PROXY_TIMEOUT_MS || "90000"),
     }, (res) => {
       let data = [];
       res.on('data', c => data.push(c));
