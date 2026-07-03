@@ -184,3 +184,4 @@
 - [[claude-interruption-resilience]] — 中断恢复方案
 - [[hermes-parallel-task-communication]] — delegate_task vs Kanban 能力边界
 - [[interactive-aware-subagent-plan-2026-07-03]] — Phase 2b: 交互感知动态资源分配（PreToolUse/Stop hook 状态机）
+- [[resource-class-scheduling-plan-2026-07-03]] — Phase 2d: 资源类别感知调度（cpu/io/net/mem 文件锁 + wrapper 脚本）
