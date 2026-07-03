@@ -22,9 +22,8 @@ set +e
 # ── 配置常量 ────────────────────────────────────────────────────────
 MIN_MEM_GREEN=1200          # MB, 允许全部并发
 MIN_MEM_RED=800             # MB, 拒绝新子代理
-MAX_TOTAL_PROCS=4           # 含父进程的 claude 进程总数上限
-MAX_IDLE_CONCURRENT=2       # idle 状态最大并发子代理
-MAX_YELLOW_CONCURRENT=1     # 黄色内存状态最大并发
+MAX_TOTAL_PROCS=4           # 含父进程的 claude 进程总数上限 (idle)
+MAX_INTERACTIVE_PROCS=3     # 含父进程的进程总数上限 (interactive, 仅1个子代理)
 ORPHAN_AGE=120              # 孤儿进程最小存活秒数
 STATE_TTL=120               # 状态文件过期秒数
 STATE_FILE="/root/.claude/session-state.json"
@@ -131,17 +130,16 @@ do_cleanup() {
     echo "cleanup: $cleaned orphans terminated"
 }
 
-# count: 检查进程数上限
+# count: 检查进程数上限 (独立使用默认 MAX_TOTAL_PROCS, check() 内动态调整)
 do_count() {
-    local total current
+    local total
     total=$(count_claude_procs)
-    current=$((total > 0 ? total : 1))  # 至少算自身
 
-    if [ "$current" -ge "$MAX_TOTAL_PROCS" ] 2>/dev/null; then
-        echo "count: DENY ($current running, max $MAX_TOTAL_PROCS)"
+    if [ "$total" -ge "$MAX_TOTAL_PROCS" ] 2>/dev/null; then
+        echo "count: DENY ($total running, max $MAX_TOTAL_PROCS)"
         return 2
     fi
-    echo "count: OK ($current running)"
+    echo "count: OK ($total running)"
     return 0
 }
 
@@ -268,9 +266,9 @@ do_status() {
     echo "MemAvail=${mem}MB SwapUsed=${swap}% ClaudeProcs=${procs} MemLevel=${mem_level} State=${state_info}"
 }
 
-# check: 组合门控 (PreToolUse hook 调用)
+# check: 组合门控 (Agent tool PreToolUse hook 调用)
 do_check() {
-    local result
+    local result max_procs is_interactive
 
     # 1. 清理孤儿
     do_cleanup >/dev/null 2>&1 || true
@@ -281,19 +279,20 @@ do_check() {
         return 2
     fi
 
-    # 3. 交互状态检查 (Phase 2b)
+    # 3. 交互状态 → 降低并发上限 (不拒绝, 用户主动请求的 spawn 应允许)
+    is_interactive=0
     if ! do_read_state >/dev/null 2>&1; then
-        local reason
-        reason=$(do_read_state 2>&1)
-        echo "{\"status\":\"DENY\",\"reason\":\"interactive state\",\"detail\":\"$reason\",\"action\":\"retry_when_idle\"}"
-        return 2
+        is_interactive=1
+        max_procs=$MAX_INTERACTIVE_PROCS
+    else
+        max_procs=$MAX_TOTAL_PROCS
     fi
 
     # 4. 进程数检查
-    result=$(do_count)
-    local count_rc=$?
-    if [ "$count_rc" -eq 2 ]; then
-        echo "{\"status\":\"DENY\",\"reason\":\"process limit\",\"detail\":\"$result\",\"action\":\"wait_or_reduce\"}"
+    local total
+    total=$(count_claude_procs)
+    if [ "$total" -ge "$max_procs" ] 2>/dev/null; then
+        echo "{\"status\":\"DENY\",\"reason\":\"process limit ($total >= $max_procs)\",\"action\":\"wait_or_reduce\",\"interactive\":$is_interactive}"
         return 2
     fi
 
@@ -301,17 +300,17 @@ do_check() {
     result=$(do_memcheck)
     local mem_rc=$?
     if [ "$mem_rc" -eq 2 ]; then
-        echo "{\"status\":\"DENY\",\"reason\":\"memory low\",\"detail\":\"$result\",\"action\":\"clean_orphans_first\"}"
+        echo "{\"status\":\"DENY\",\"reason\":\"memory critical\",\"detail\":\"$result\",\"action\":\"clean_orphans_first\"}"
         return 2
     elif [ "$mem_rc" -eq 1 ]; then
-        echo "{\"status\":\"WARN\",\"reason\":\"memory moderate\",\"detail\":\"$result\",\"action\":\"reduce_concurrency\"}"
+        echo "{\"status\":\"WARN\",\"reason\":\"memory moderate\",\"detail\":\"$result\",\"action\":\"reduce_concurrency\",\"interactive\":$is_interactive}"
         set_cooldown
         return 1
     fi
 
     # 6. 通过
     set_cooldown
-    echo "{\"status\":\"OK\",\"reason\":\"resources sufficient\",\"detail\":\"$result\"}"
+    echo "{\"status\":\"OK\",\"reason\":\"resources sufficient\",\"detail\":\"$result\",\"interactive\":$is_interactive}"
     return 0
 }
 

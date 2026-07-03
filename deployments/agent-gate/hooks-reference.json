@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh cleanup 2>/dev/null || true; bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-idle 2>/dev/null || true"
+            "command": "bash /root/claude-agent-gate.sh cleanup 2>/dev/null || true; bash /root/claude-agent-gate.sh mark-idle 2>/dev/null || true"
           }
         ]
       }
@@ -32,17 +32,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-interactive 2>/dev/null || true"
+            "command": "bash /root/claude-agent-gate.sh mark-interactive 2>/dev/null || true"
           }
         ]
       },
       {
-        "//": "仅 delegate_task 工具: 门控检查 — 子代理 spawning 前执行组合门控",
-        "matcher": "delegate_task",
+        "//": "仅 Agent 工具 (subagent spawn): 门控检查 — interactive降并发(3进程/1子代理), idle全速(4进程/2子代理)",
+        "matcher": "Agent",
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh check 2>/dev/null || true"
+            "command": "bash /root/claude-agent-gate.sh check 2>/dev/null || true"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-idle 2>/dev/null || true"
+            "command": "bash /root/claude-agent-gate.sh mark-idle 2>/dev/null || true"
           }
         ]
       }
