@@ -12,6 +12,10 @@
 #   mark-idle        — 标记空闲状态 (Stop hook)
 #   read-state       — 读取交互状态 (含过期检测)
 #   prioritize       — 根据状态 renice/ionice 子代理
+#   acquire          — 获取资源锁 (Phase 2d)
+#   release          — 释放资源锁 (Phase 2d)
+#   lock-status      — 查看资源锁状态 (Phase 2d)
+#   detect           — 检测命令资源类别 (Phase 2d)
 # ============================================================================
 # 退出代码:
 #   0 = 通过 (可 spawn) | 1 = 警告 (降级) | 2 = 拒绝 (不 spawn)
@@ -29,6 +33,15 @@ STATE_TTL=120               # 状态文件过期秒数
 STATE_FILE="/root/.claude/session-state.json"
 COOLDOWN_FILE="/tmp/claude-agent-gate-cooldown"
 COOLDOWN_SEC=5              # spawn 冷却窗口 (缓解竞态)
+
+# Phase 2d: 资源类锁
+RESOURCE_LOCK_DIR="/tmp/claude-resource-locks"
+RESOURCE_PATTERNS_CONF="/root/.claude/resource-patterns.conf"
+LOCK_TTL=600                # 锁文件过期秒数 (10min)
+NET_MAX=2                   # 网络类最大并发
+SPIN_INTERVAL=0.5           # 自旋等待间隔秒数
+SPIN_DEFAULT_TIMEOUT=30     # 默认自旋超时秒数
+CPU_LOAD_THRESHOLD=4.0      # loadavg 阈值 (自动检测用)
 
 # ── 工具函数 ────────────────────────────────────────────────────────
 
@@ -84,6 +97,154 @@ check_cooldown() {
 # 设置冷却时间戳
 set_cooldown() {
     now_ts > "$COOLDOWN_FILE" 2>/dev/null || true
+}
+
+# ── Phase 2d: 资源锁工具函数 ──────────────────────────────────────
+
+# 确保锁目录存在
+lock_dir_init() {
+    mkdir -p "$RESOURCE_LOCK_DIR" 2>/dev/null || true
+}
+
+# 读取锁文件内容 "PID EPOCH"
+lock_read() {
+    local lockfile="$1"
+    [ -f "$lockfile" ] && cat "$lockfile" 2>/dev/null || echo ""
+}
+
+# 原子写入锁文件 (tmpfile + mv 防撕裂)
+lock_write() {
+    local lockfile="$1" pid="$2"
+    local tmpfile="${lockfile}.tmp.$$"
+    echo "$pid $(now_ts)" > "$tmpfile" 2>/dev/null && mv "$tmpfile" "$lockfile" 2>/dev/null || true
+}
+
+# 删除锁文件
+lock_remove() {
+    rm -f "$1" 2>/dev/null || true
+}
+
+# 检查 PID 是否存活
+lock_pid_alive() {
+    kill -0 "$1" 2>/dev/null
+}
+
+# 获取锁对应的资源类名
+lock_class_from_file() {
+    basename "$1" | sed 's/\..*//'
+}
+
+# 检查指定资源类的锁是否被活跃进程持有
+# 返回: 0=被持有 (held), 1=空闲 (free)
+lock_is_held() {
+    local class="$1"
+    local lockfile="$RESOURCE_LOCK_DIR/${class}.lock"
+    local content pid ts age
+
+    # net 类是计数器, 特殊处理
+    if [ "$class" = "net" ]; then
+        local countfile="$RESOURCE_LOCK_DIR/net.count"
+        local count
+        count=$(cat "$countfile" 2>/dev/null || echo 0)
+        [ "$count" -ge "$NET_MAX" ] 2>/dev/null && return 0
+        return 1
+    fi
+
+    # mem 用 .flag
+    [ "$class" = "mem" ] && lockfile="$RESOURCE_LOCK_DIR/mem.flag"
+
+    content=$(lock_read "$lockfile")
+    [ -z "$content" ] && return 1  # 锁文件不存在 = 空闲
+
+    pid=$(echo "$content" | awk '{print $1}')
+    ts=$(echo "$content" | awk '{print $2}')
+    age=$(($(now_ts) - ts))
+
+    # 过期检测
+    [ "$age" -gt "$LOCK_TTL" ] 2>/dev/null && { lock_remove "$lockfile"; return 1; }
+
+    # PID 存活检测
+    lock_pid_alive "$pid" 2>/dev/null || { lock_remove "$lockfile"; return 1; }
+
+    return 0  # 被活跃进程持有
+}
+
+# 检查锁是否被自身持有 (重入检测)
+lock_is_held_by_me() {
+    local class="$1"
+    local lockfile="$RESOURCE_LOCK_DIR/${class}.lock"
+    [ "$class" = "mem" ] && lockfile="$RESOURCE_LOCK_DIR/mem.flag"
+
+    local content pid
+    content=$(lock_read "$lockfile")
+    [ -z "$content" ] && return 1
+    pid=$(echo "$content" | awk '{print $1}')
+    [ "$pid" = "$$" ] && return 0
+    return 1
+}
+
+# 清理过期/僵尸锁
+lock_cleanup_stale() {
+    lock_dir_init
+    for lockfile in "$RESOURCE_LOCK_DIR"/*.lock "$RESOURCE_LOCK_DIR"/*.flag; do
+        [ -f "$lockfile" ] || continue
+        local content pid ts age
+        content=$(lock_read "$lockfile")
+        [ -z "$content" ] && { lock_remove "$lockfile"; continue; }
+        pid=$(echo "$content" | awk '{print $1}')
+        ts=$(echo "$content" | awk '{print $2}')
+        age=$(($(now_ts) - ts))
+        if [ "$age" -gt "$LOCK_TTL" ] 2>/dev/null || ! lock_pid_alive "$pid" 2>/dev/null; then
+            lock_remove "$lockfile"
+        fi
+    done
+    # net.count 不自动清理 (计数器, 靠 release 递减)
+}
+
+# 读取 loadavg (1min)
+read_loadavg() {
+    awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0
+}
+
+# 检测命令的资源类别
+# 输入: 命令字符串
+# 输出: cpu|io|net|mem|light (或空)
+detect_class() {
+    local cmd="$1"
+    local conf="${RESOURCE_PATTERNS_CONF}"
+
+    # 优先从配置文件读取
+    if [ -f "$conf" ]; then
+        while IFS= read -r line; do
+            case "$line" in
+                ""|\#*) continue ;;
+                cpu:*)
+                    echo "$line" | grep -qE "^cpu:" && echo "$cmd" | grep -qE "$(echo "$line" | sed 's/^cpu://')" 2>/dev/null && { echo "cpu"; return 0; } ;;
+                io:*)
+                    echo "$line" | grep -qE "^io:" && echo "$cmd" | grep -qE "$(echo "$line" | sed 's/^io://')" 2>/dev/null && { echo "io"; return 0; } ;;
+                net:*)
+                    echo "$line" | grep -qE "^net:" && echo "$cmd" | grep -qE "$(echo "$line" | sed 's/^net://')" 2>/dev/null && { echo "net"; return 0; } ;;
+                mem:*)
+                    echo "$line" | grep -qE "^mem:" && echo "$cmd" | grep -qE "$(echo "$line" | sed 's/^mem://')" 2>/dev/null && { echo "mem"; return 0; } ;;
+            esac
+        done < "$conf"
+    fi
+
+    # 回退: 内建默认模式
+    if echo "$cmd" | grep -qE '(npm|yarn|pnpm) (install|build|rebuild|add|update)|pip(3)? install|cmake |make\b|(gcc|g\+\+|clang)\b|npx (tsc|build|webpack|vite build)|cargo (build|install)'; then
+        echo "cpu"; return 0
+    fi
+    if echo "$cmd" | grep -qE 'grep\s+-r\s+/|find\s+/|rsync|dd\b|tar\s+-[cx]'; then
+        echo "io"; return 0
+    fi
+    if echo "$cmd" | grep -qE 'curl\s+.*-[oO]\s|wget\b|git\s+(clone|pull)|pip3? download'; then
+        echo "net"; return 0
+    fi
+    if echo "$cmd" | grep -qE 'python3? .*(train|model)|ffmpeg\b|convert\b'; then
+        echo "mem"; return 0
+    fi
+
+    echo "light"
 }
 
 # ── 子命令实现 ──────────────────────────────────────────────────────
@@ -263,7 +424,18 @@ do_status() {
         mem_level="GREEN"
     fi
 
-    echo "MemAvail=${mem}MB SwapUsed=${swap}% ClaudeProcs=${procs} MemLevel=${mem_level} State=${state_info}"
+    # 资源锁摘要 — 仅在有 subagent 时读取
+    if [ "$procs" -gt 1 ] 2>/dev/null; then
+        local locks_summary cpu_locked io_locked net_count_val
+        [ -f "$RESOURCE_LOCK_DIR/cpu.lock" ] && cpu_locked="CPU:locked" || cpu_locked="CPU:free"
+        [ -f "$RESOURCE_LOCK_DIR/io.lock" ] && io_locked="IO:locked" || io_locked="IO:free"
+        net_count_val=$(cat "$RESOURCE_LOCK_DIR/net.count" 2>/dev/null || echo 0)
+        locks_summary="Locks=[${cpu_locked} ${io_locked} NET:${net_count_val}/${NET_MAX}]"
+    else
+        local locks_summary="Locks=[skipped:single]"
+    fi
+
+    echo "MemAvail=${mem}MB SwapUsed=${swap}% ClaudeProcs=${procs} MemLevel=${mem_level} State=${state_info} $locks_summary"
 }
 
 # check: 组合门控 (Agent tool PreToolUse hook 调用)
@@ -308,10 +480,234 @@ do_check() {
         return 1
     fi
 
-    # 6. 通过
+    # 6. 资源锁冲突检查 (Phase 2d) — 仅在有 subagent 时执行
+    if [ "$total" -gt 1 ] 2>/dev/null; then
+        local lock_json
+        lock_json=$(do_lock_status --json 2>/dev/null)
+        # 检查 cpu/io/mem 锁是否被其他 PID 持有
+        if echo "$lock_json" | grep -qE '"(cpu|io|mem)":\{'; then
+            local held_class
+            held_class=$(echo "$lock_json" | grep -oE '"(cpu|io|mem)":\{[^}]*"pid":[0-9]+' | head -1 | grep -oE '"(cpu|io|mem)"' | tr -d '"')
+            if [ -n "$held_class" ]; then
+                echo "{\"status\":\"DENY\",\"reason\":\"resource $held_class busy\",\"action\":\"wait_10s_retry\",\"locks\":$lock_json,\"interactive\":$is_interactive}"
+                return 2
+            fi
+        fi
+        # 检查 net 是否饱和
+        local net_count
+        net_count=$(echo "$lock_json" | grep -oE '"net":\{[^}]*"count":([0-9]+)' | grep -oE '"count":[0-9]+' | grep -oE '[0-9]+')
+        if [ -n "$net_count" ] && [ "$net_count" -ge "$NET_MAX" ] 2>/dev/null; then
+            echo "{\"status\":\"WARN\",\"reason\":\"network saturated ($net_count/$NET_MAX)\",\"action\":\"reduce_net_concurrency\",\"locks\":$lock_json,\"interactive\":$is_interactive}"
+            set_cooldown
+            return 1
+        fi
+        # 合并锁状态到输出
+        local lock_part=",\"locks\":$lock_json"
+    else
+        local lock_part=""
+    fi
+
+    # 7. 通过
     set_cooldown
-    echo "{\"status\":\"OK\",\"reason\":\"resources sufficient\",\"detail\":\"$result\",\"interactive\":$is_interactive}"
+    echo "{\"status\":\"OK\",\"reason\":\"resources sufficient\",\"detail\":\"$result\"$lock_part,\"interactive\":$is_interactive}"
     return 0
+}
+
+# ── Phase 2d 子命令 ─────────────────────────────────────────────────
+
+do_acquire() {
+    local class wait_sec lockfile pid_file
+    class=""
+    wait_sec=0
+
+    # 解析参数: acquire <class> [--wait N] | acquire <class> [N]
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --wait) wait_sec="${2:-$SPIN_DEFAULT_TIMEOUT}"; shift 2 ;;
+            --try-only) wait_sec=0; shift ;;
+            [0-9]*) wait_sec="$1"; shift ;;
+            *) class="$1"; shift ;;
+        esac
+    done
+
+    [ -z "$class" ] && { echo "acquire: missing class"; return 2; }
+
+    # 快速路径: 无 subagent 时跳过锁 (非 fan-out 模式零开销)
+    local total_procs
+    total_procs=$(count_claude_procs)
+    if [ "$total_procs" -le 1 ] 2>/dev/null; then
+        echo "acquire: $class skipped (single process, no contention)"
+        return 0
+    fi
+
+    lock_dir_init
+    lock_cleanup_stale
+
+    case "$class" in
+        cpu|io) lockfile="$RESOURCE_LOCK_DIR/${class}.lock" ;;
+        net)    pid_file="$RESOURCE_LOCK_DIR/net.count" ;;
+        mem)    lockfile="$RESOURCE_LOCK_DIR/mem.flag" ;;
+        auto)
+            # 自动检测: 优先 $CC_TOOL_INPUT, 其次 loadavg
+            if [ -n "${CC_TOOL_INPUT:-}" ]; then
+                class=$(detect_class "$CC_TOOL_INPUT")
+            fi
+            if [ "$class" = "auto" ] || [ "$class" = "light" ]; then
+                local loadavg
+                loadavg=$(read_loadavg)
+                if [ "$(echo "$loadavg > $CPU_LOAD_THRESHOLD" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+                    class="cpu"
+                else
+                    echo "acquire: auto → light (loadavg=${loadavg}, no lock needed)"
+                    return 0
+                fi
+            fi
+            ;;
+        *)  echo "acquire: unknown class '$class'"; return 2 ;;
+    esac
+
+    # 重入检测: 同一 PID 已持有同类锁 → 直接返回
+    if [ "$class" != "net" ]; then
+        lock_is_held_by_me "$class" && { echo "acquire: $class already held by $$ (re-entrant)"; return 0; }
+    fi
+
+    # 自旋等待
+    local deadline elapsed
+    deadline=$(($(now_ts) + wait_sec))
+
+    while true; do
+        # net: 计数器递增
+        if [ "$class" = "net" ]; then
+            local count
+            count=$(cat "$pid_file" 2>/dev/null || echo 0)
+            if [ "$count" -lt "$NET_MAX" ] 2>/dev/null; then
+                echo $((count + 1)) > "$pid_file" 2>/dev/null
+                echo "acquire: net count=$((count + 1))/$NET_MAX"
+                return 0
+            fi
+        else
+            # cpu/io/mem: 互斥锁
+            if ! lock_is_held "$class"; then
+                lock_write "$lockfile" "$$"
+                echo "acquire: $class locked by $$"
+                return 0
+            fi
+        fi
+
+        # 超时检查
+        elapsed=$(($(now_ts) - (deadline - wait_sec)))
+        [ "$elapsed" -ge "$wait_sec" ] 2>/dev/null && break
+
+        sleep "$SPIN_INTERVAL" 2>/dev/null || sleep 1
+    done
+
+    # 超时: 返回忙, 不阻塞调用者
+    echo "acquire: $class BUSY (waited ${wait_sec}s), proceeding anyway"
+    return 1
+}
+
+do_release() {
+    local target="$1"
+
+    lock_dir_init
+
+    if [ "$target" = "all" ]; then
+        local released=0
+        # 释放 cpu/io/mem 锁
+        for lockfile in "$RESOURCE_LOCK_DIR"/*.lock "$RESOURCE_LOCK_DIR"/*.flag; do
+            [ -f "$lockfile" ] || continue
+            local content pid
+            content=$(lock_read "$lockfile")
+            pid=$(echo "$content" | awk '{print $1}')
+            if [ "$pid" = "$$" ]; then
+                lock_remove "$lockfile"
+                released=$((released + 1))
+            fi
+        done
+        # 释放 net 计数 (如果当前 PID 有计数)
+        local net_pids="$RESOURCE_LOCK_DIR/net.pids"
+        if [ -f "$net_pids" ]; then
+            grep -v "^$$$" "$net_pids" > "${net_pids}.tmp" 2>/dev/null && mv "${net_pids}.tmp" "$net_pids"
+            local new_count
+            new_count=$(wc -l < "$net_pids" 2>/dev/null || echo 0)
+            echo "$new_count" > "$RESOURCE_LOCK_DIR/net.count" 2>/dev/null
+        fi
+        echo "release: all locks released ($released)"
+        return 0
+    fi
+
+    if [ "$target" = "acquired" ]; then
+        # PostToolUse hook: 释放当前 PID 的最可能锁
+        do_release "all"
+        return $?
+    fi
+
+    # 释放指定类别
+    case "$target" in
+        cpu|io|mem)
+            local lockfile="$RESOURCE_LOCK_DIR/${target}.lock"
+            [ "$target" = "mem" ] && lockfile="$RESOURCE_LOCK_DIR/mem.flag"
+            lock_is_held_by_me "$target" && lock_remove "$lockfile" && echo "release: $target unlocked"
+            ;;
+        net)
+            local countfile="$RESOURCE_LOCK_DIR/net.count"
+            local count
+            count=$(cat "$countfile" 2>/dev/null || echo 1)
+            echo $((count > 0 ? count - 1 : 0)) > "$countfile" 2>/dev/null
+            echo "release: net count=$((count > 0 ? count - 1 : 0))/$NET_MAX"
+            ;;
+        *)  echo "release: unknown class '$target'"; return 2 ;;
+    esac
+    return 0
+}
+
+do_lock_status() {
+    local use_json="${1:-}"
+    lock_dir_init
+    lock_cleanup_stale
+
+    if [ "$use_json" = "--json" ]; then
+        echo -n '{"locks":{'
+        local first=1
+        for lockfile in "$RESOURCE_LOCK_DIR"/*.lock "$RESOURCE_LOCK_DIR"/*.flag; do
+            [ -f "$lockfile" ] || continue
+            local content pid ts age class
+            content=$(lock_read "$lockfile")
+            pid=$(echo "$content" | awk '{print $1}')
+            ts=$(echo "$content" | awk '{print $2}')
+            age=$(($(now_ts) - ts))
+            class=$(lock_class_from_file "$lockfile")
+            [ "$first" = "0" ] && echo -n ','
+            echo -n "\"$class\":{\"pid\":$pid,\"age\":$age}"
+            first=0
+        done
+        local net_count
+        net_count=$(cat "$RESOURCE_LOCK_DIR/net.count" 2>/dev/null || echo 0)
+        [ "$first" = "0" ] && echo -n ','
+        echo -n "\"net\":{\"count\":$net_count,\"max\":$NET_MAX}"
+        echo '}}'
+    else
+        echo "Resource locks:"
+        for lockfile in "$RESOURCE_LOCK_DIR"/*.lock "$RESOURCE_LOCK_DIR"/*.flag; do
+            [ -f "$lockfile" ] || continue
+            local content pid ts age class
+            content=$(lock_read "$lockfile")
+            pid=$(echo "$content" | awk '{print $1}')
+            ts=$(echo "$content" | awk '{print $2}')
+            age=$(($(now_ts) - ts))
+            class=$(lock_class_from_file "$lockfile")
+            echo "  $class: PID=$pid age=${age}s"
+        done
+        local net_count
+        net_count=$(cat "$RESOURCE_LOCK_DIR/net.count" 2>/dev/null || echo 0)
+        echo "  net: count=$net_count/$NET_MAX"
+    fi
+}
+
+do_detect() {
+    local cmd="${1:-}"
+    [ -z "$cmd" ] && { echo "light"; return 0; }
+    detect_class "$cmd"
 }
 
 # ── 主入口 ──────────────────────────────────────────────────────────
@@ -326,23 +722,33 @@ case "${1:-}" in
     mark-interactive) do_mark_interactive ;;
     mark-idle)        do_mark_idle ;;
     prioritize)       do_prioritize ;;
+    acquire)          do_acquire "${@:2}" ;;
+    release)          do_release "${2:-all}" ;;
+    lock-status)      do_lock_status "${2:-}" ;;
+    detect)           do_detect "${2:-}" ;;
     *)
-        echo "Usage: $0 {cleanup|count|memcheck|read-state|status|check|mark-interactive|mark-idle|prioritize}"
+        echo "Usage: $0 {cleanup|count|memcheck|read-state|status|check|mark-interactive|mark-idle|prioritize|acquire|release|lock-status|detect} [args]"
         echo ""
-        echo "Agent Resource Gate — subagent spawn control"
+        echo "Agent Resource Gate — subagent spawn + resource scheduling"
         echo ""
         echo "Gate commands (Phase 2):"
         echo "  cleanup           Kill orphan claude processes (PPID=1, age>${ORPHAN_AGE}s)"
         echo "  count             Check total claude processes (max ${MAX_TOTAL_PROCS})"
         echo "  memcheck          Check MemAvailable (RED<${MIN_MEM_RED}MB, YELLOW<${MIN_MEM_GREEN}MB)"
-        echo "  status            Single-line resource summary"
-        echo "  check             Combined gate: cleanup→state→count→memcheck (for PreToolUse)"
+        echo "  status            Single-line resource + lock summary"
+        echo "  check             Combined gate: cleanup→state→count→mem→locks (Agent PreToolUse)"
         echo ""
         echo "Interactive state (Phase 2b):"
         echo "  mark-interactive  Set interactive state + deprioritize subagents (PreToolUse hook)"
         echo "  mark-idle         Set idle state + restore priority (Stop hook)"
         echo "  read-state        Print current state with staleness check"
         echo "  prioritize        Apply nice/ionice to subagents based on state"
+        echo ""
+        echo "Resource locks (Phase 2d):"
+        echo "  acquire <class> [--wait N]  Acquire resource lock (cpu|io|net|mem|auto)"
+        echo "  release <class|all>         Release resource lock"
+        echo "  lock-status [--json]        Show lock status"
+        echo "  detect <command>            Detect resource class of a command"
         exit 0
         ;;
 esac
