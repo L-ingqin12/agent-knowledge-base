@@ -60,3 +60,17 @@ Let the gate decide — do not second-guess it.
 ## Golden rule
 
 One `check` before every subagent spawn. No exceptions.
+
+## Resource lock awareness (Phase 2d)
+
+When running heavy commands (npm install, pip install, cmake, grep -r /, etc.), the system automatically serializes conflicting operations:
+
+- **CPU ops** (npm install, make, cmake) — only 1 at a time
+- **IO ops** (grep -r /, find /, rsync) — only 1 at a time
+- **Network ops** (curl -O, git clone) — max 2 concurrent
+- **Light ops** (echo, cat, ls) — unlimited, zero overhead
+
+In non-fan-out mode (single session, no subagents), all lock overhead is skipped. The mechanism only activates when subagents are running.
+
+To check lock status: `bash /root/claude-agent-gate.sh lock-status`
+To manually gate a heavy command: `/root/claude-gate-bash.sh <command>`

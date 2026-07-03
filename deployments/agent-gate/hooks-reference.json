@@ -1,6 +1,6 @@
 {
   "// 警告": "本文件是 REFERENCE ONLY，不可直接部署。手动将 hooks 节合并到 settings.local.json。",
-  "// 说明": "子代理资源门控 Phase 2 + 2b hook 配置。合并到 /root/.claude/settings.local.json 的顶层 'hooks' 键。",
+  "// 说明": "子代理资源门控 Phase 2 + 2b + 2d hook 配置。合并到 /root/.claude/settings.local.json。注意: Bash hook 仅在有 subagent 时生效(单进程快速路径跳过)，非 fan-out 模式零开销。",
 
   "hooks": {
     "SessionStart": [
@@ -59,6 +59,26 @@
           }
         ]
       }
+    ],
+
+    "PostToolUse": [
+      {
+        "//": "Phase 2d: Bash 命令执行后自动释放资源锁 (防止锁泄漏)",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/claude-agent-gate.sh release acquired 2>/dev/null || true"
+          }
+        ]
+      }
     ]
+  },
+
+  "// Phase 2d 说明": {
+    "资源锁机制": "acquire/release 仅在有 subagent (claude进程>1) 时生效，单进程快速路径跳过，非fan-out零开销",
+    "Bash hook": "PreToolUse: acquire auto --try-only (最佳尝试，不阻塞); PostToolUse: release acquired (防止锁泄漏)",
+    "Agent hook": "check 第6步资源锁冲突检查仅在有 subagent 时执行",
+    "Wrapper": "claude-gate-bash.sh 可选使用: detect→acquire→exec→release 透明包装"
   }
 }
