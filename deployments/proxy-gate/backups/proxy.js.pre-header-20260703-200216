@@ -3,11 +3,6 @@
  * Claude API Resilience Proxy (Node.js) — Minimal
  * ===============================================
  * 只做两件事: 透明转发 + socket 错误自动重试
- *
- * ⚠️  DO NOT ADD DIAGNOSTIC CODE HERE
- *     诊断/监控 → diagnostic-relay/relay.js (独立 TCP 中继)
- *     生产控制流 → 仅本文件, 不得混入诊断分支
- *     修改前 → git commit → deploy.sh → 部署后 curl 验证
  */
 
 const http = require('http');

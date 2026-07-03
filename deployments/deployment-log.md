@@ -100,4 +100,35 @@
   - `ANTHROPIC_BASE_URL=http://127.0.0.1:8788` (permafrost 端口), 非直接 :8787
   - CC v2.1.198 → v2.1.199 升级失败 (`install_failed`, 已记录于 `2026-07-02T15:39:40.687Z`)
   - SessionStart hook 可用: `bash /root/claude-version-hook.sh full`
+- **commit**: 5d6bbd5
+
+### subagent 资源管理体系 (Phase 2+2b+2d 部署)
+- **时间**: 2026-07-03 20:02 CST
+- **操作**: 部署 agent-gate 三层防护至生产环境
+- **部署文件**:
+  - `/root/claude-agent-gate.sh` (550+行, Phase 2+2b+2d)
+  - `/root/claude-gate-bash.sh` (27行, Bash透明包装)
+  - `/root/.claude/resource-patterns.conf` (25行, 命令模式)
+  - `/root/.claude/resource-protocol.md` (76行, Claude资源协议)
+- **Hook 变更**:
+  - SessionStart: +cleanup, +mark-idle
+  - PreToolUse: +mark-interactive(全工具), +check(Agent), +acquire-auto(Bash)
+  - PostToolUse: +release-acquired(Bash) ← 新增 hook 类型
+  - Stop: +mark-idle ← 新增 hook 事件
+- **备份**: settings.local.json.20260703-200216
+- **测试**: agent-gate-test.sh 27/27 ✓
+- **架构文档**: docs/subagent-resource-architecture-2026-07-03.md
+- **逃生**: 所有 hook 含 `|| true`; `rm /root/claude-agent-gate.sh` 完全卸载
+- **commit**: (本次提交)
+
+### proxy.js 诊断隔离声明
+- **时间**: 2026-07-03
+- **操作**: 添加 DO NOT ADD DIAGNOSTIC CODE 注释头
+- **变更**: 3行注释, 无控制流改动
+- **备份**: deployments/proxy-gate/backups/proxy.js.pre-header-20260703-*
+
+### 收尾项
+- **resource-protocol.md**: 部署至 /root/.claude/
+- **proxy.js header**: 同步至仓库
+- **Phase 3 轻量替代**: 无 hermes 环境下的 long-task 路由建议 (见 resource-protocol.md §Fan-out pattern)
 - **commit**: (本次提交)
