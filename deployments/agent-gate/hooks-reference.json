@@ -1,0 +1,64 @@
+{
+  "// 警告": "本文件是 REFERENCE ONLY，不可直接部署。手动将 hooks 节合并到 settings.local.json。",
+  "// 说明": "子代理资源门控 Phase 2 + 2b hook 配置。合并到 /root/.claude/settings.local.json 的顶层 'hooks' 键。",
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "//": "原有的版本检查 hook，保持不变",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/claude-version-hook.sh full 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "//": "新增: SessionStart 时清理孤儿 + 标记 idle (append)",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh cleanup 2>/dev/null || true; bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-idle 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+
+    "PreToolUse": [
+      {
+        "//": "无 matcher = 所有工具: 每次 tool 执行前标记 interactive，并降权已有子代理",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-interactive 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "//": "仅 delegate_task 工具: 门控检查 — 子代理 spawning 前执行组合门控",
+        "matcher": "delegate_task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh check 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "//": "Claude 停止回复时标记 idle，恢复子代理优先级",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/workspace/agent-knowledge-base/claude-agent-gate.sh mark-idle 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
