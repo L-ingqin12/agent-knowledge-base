@@ -131,4 +131,28 @@
 - **resource-protocol.md**: 部署至 /root/.claude/
 - **proxy.js header**: 同步至仓库
 - **Phase 3 轻量替代**: 无 hermes 环境下的 long-task 路由建议 (见 resource-protocol.md §Fan-out pattern)
-- **commit**: (本次提交)
+- **commit**: a88655c
+
+## 2026-07-06
+
+### agent-gate 生产优化 (4项修复 + 1项文档化)
+- **时间**: 2026-07-06
+- **操作**: 基于部署后首次生产运行诊断，发现并修复 5 个问题
+- **诊断方法**: ps 进程审查 → STAT 标志位 → 逆向追溯代码 → 最小修复
+- **修复清单**:
+  1. 🔴 `find_main_claude_pid()` — 主 session 不再被 renice+19 (之前 $PPID 穿透失败)
+  2. 🟡 swap 门控 — SWAP_RED=70% / SWAP_YELLOW=55% 加入 memcheck 决策
+  3. 🟡 mark-interactive 节流 — MARK_THROTTLE_SEC=3s, 减少重复 I/O
+  4. 🟡 D 状态检测 — count_d_state_claude(), status + cleanup 暴露
+  5. 🟢 覆盖扩面 — resource-patterns.conf 文档化注释
+- **部署验证**:
+  - 修复前: MemLevel=GREEN (无视 swap 55%)
+  - 修复后: MemLevel=YELLOW (正确感知 swap 66%)
+  - 修复前: 主 session nice=19
+  - 修复后: 主 session nice=0
+  - mark-interactive throttle 生效
+- **备份**: /root/claude-agent-gate.sh.bak.20260706-*
+- **回归测试**: 27/27 ✓
+- **排查文档**: docs/production-diagnosis-2026-07-06.md
+- **优化计划**: plans/agent-gate-optimization-plan-2026-07-06.md
+- **commit**: 44130d4
