@@ -26,6 +26,9 @@ set +e
 # ── 配置常量 ────────────────────────────────────────────────────────
 MIN_MEM_GREEN=1200          # MB, 允许全部并发
 MIN_MEM_RED=800             # MB, 拒绝新子代理
+SWAP_RED=70                 # swap% 硬拒绝 (临界压力)
+SWAP_YELLOW=55              # swap% 警告 (中度压力)
+MARK_THROTTLE_SEC=3         # mark-interactive 节流窗口秒数
 MAX_TOTAL_PROCS=4           # 含父进程的 claude 进程总数上限 (idle)
 MAX_INTERACTIVE_PROCS=3     # 含父进程的进程总数上限 (interactive, 仅1个子代理)
 ORPHAN_AGE=120              # 孤儿进程最小存活秒数
@@ -50,6 +53,15 @@ now_ts() { date -u +%s 2>/dev/null || echo 0; }
 # 安全计数 claude 进程 (容错 pgrep 不可用)
 count_claude_procs() {
     pgrep -x claude 2>/dev/null | wc -l || echo 0
+}
+
+# 计数 D 状态 (uninterruptible sleep) 的 claude 进程 (PRoot I/O 瓶颈检测)
+count_d_state_claude() {
+    local count=0
+    for pid in $(pgrep -x claude 2>/dev/null); do
+        ps -o stat= -p "$pid" 2>/dev/null | grep -q 'D' && count=$((count + 1))
+    done
+    echo "$count"
 }
 
 # 读取 MemAvailable (kB → MB), 容错 /proc 不可读
@@ -78,6 +90,25 @@ read_swap_pct() {
     else
         echo 0
     fi
+}
+
+# 走 PPID 链找到真正的 claude 祖先 PID (绕过中间 shell)
+# Hook 进程树: claude → sh -c "..." → bash script($$)
+# $PPID 在脚本中 = sh -c 的 PID，不是 claude。需向上遍历。
+find_main_claude_pid() {
+    local pid=$$
+    while [ "$pid" -gt 1 ] 2>/dev/null; do
+        local ppid
+        ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+        [ -z "$ppid" ] || [ "$ppid" -le 1 ] 2>/dev/null && break
+        if ps -o comm= -p "$ppid" 2>/dev/null | grep -qx 'claude'; then
+            echo "$ppid"
+            return 0
+        fi
+        pid=$ppid
+    done
+    echo ""
+    return 0
 }
 
 # 检查冷却窗口 (防止竞态: 两次 check 间隔太短)
@@ -255,11 +286,14 @@ do_cleanup() {
     my_pid=$$
     cleaned=0
 
+    local main_pid
+    main_pid=$(find_main_claude_pid)
+
     for pid in $(pgrep -x claude 2>/dev/null); do
         # 跳过自身
         [ "$pid" = "$my_pid" ] && continue
-        # 跳过当前 session 的父进程
-        [ "$pid" = "$PPID" ] && continue
+        # 跳过主 claude session (走进程树检测, 绕过中间shell)
+        [ -n "$main_pid" ] && [ "$pid" = "$main_pid" ] && continue
 
         local ppid age
         ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
@@ -288,6 +322,11 @@ do_cleanup() {
         ) &
     fi
 
+    # D 状态告警 (不可杀, 指示 I/O 瓶颈)
+    local d_procs
+    d_procs=$(count_d_state_claude)
+    [ "$d_procs" -gt 0 ] 2>/dev/null && echo "cleanup: WARNING — ${d_procs} claude process(es) in D state (I/O blocked)"
+
     echo "cleanup: $cleaned orphans terminated"
 }
 
@@ -310,10 +349,20 @@ do_memcheck() {
     mem=$(read_mem_available_mb)
     swap=$(read_swap_pct)
 
+    # swap 临界压力优先 (系统即将 thrash)
+    if [ "$swap" -gt "$SWAP_RED" ] 2>/dev/null; then
+        echo "memcheck: DENY (swap ${swap}% > ${SWAP_RED}%, mem ${mem}MB)"
+        return 2
+    fi
     if [ "$mem" -lt "$MIN_MEM_RED" ] 2>/dev/null; then
         echo "memcheck: DENY (${mem}MB available < ${MIN_MEM_RED}MB, swap ${swap}%)"
         return 2
-    elif [ "$mem" -lt "$MIN_MEM_GREEN" ] 2>/dev/null; then
+    fi
+    if [ "$swap" -gt "$SWAP_YELLOW" ] 2>/dev/null; then
+        echo "memcheck: WARN (swap ${swap}% > ${SWAP_YELLOW}%, mem ${mem}MB)"
+        return 1
+    fi
+    if [ "$mem" -lt "$MIN_MEM_GREEN" ] 2>/dev/null; then
         echo "memcheck: WARN (${mem}MB available < ${MIN_MEM_GREEN}MB, swap ${swap}%)"
         return 1
     fi
@@ -364,8 +413,22 @@ write_state() {
 
 # mark-interactive: PreToolUse hook 调用
 do_mark_interactive() {
+    # 节流: 已 interactive 且 <3s 内写过 → 跳过
+    if [ -f "$STATE_FILE" ]; then
+        local cur_state cur_epoch now age
+        now=$(now_ts)
+        cur_state=$(grep -oP '"state":"\K[^"]+' "$STATE_FILE" 2>/dev/null || echo "")
+        cur_epoch=$(grep -oP '"epoch":\K[0-9]+' "$STATE_FILE" 2>/dev/null || echo 0)
+        if [ "$cur_state" = "interactive" ] && [ "$cur_epoch" -gt 0 ] 2>/dev/null; then
+            age=$((now - cur_epoch))
+            if [ "$age" -lt "$MARK_THROTTLE_SEC" ] 2>/dev/null; then
+                echo "mark-interactive: throttled (${age}s ago, already interactive)"
+                return 0
+            fi
+        fi
+    fi
     write_state "interactive" "PreToolUse"
-    do_prioritize  # 立即降权已有子代理
+    do_prioritize  # 立即降权已有子代理 (排除主session)
     echo "mark-interactive: state=interactive"
 }
 
@@ -392,9 +455,12 @@ do_prioritize() {
         target_ionice="3"       # idle class
     fi
 
+    local main_pid
+    main_pid=$(find_main_claude_pid)
+
     for pid in $(pgrep -x claude 2>/dev/null); do
         [ "$pid" = "$my_pid" ] && continue
-        [ "$pid" = "$PPID" ] && continue
+        [ -n "$main_pid" ] && [ "$pid" = "$main_pid" ] && continue
 
         renice -n "$target_nice" -p "$pid" 2>/dev/null || true
         ionice -c $target_ionice -p "$pid" 2>/dev/null || true
@@ -414,11 +480,16 @@ do_status() {
         state_info="interactive"
     fi
 
-    # 判断内存状态等级
+    # D 状态进程检测
+    local d_procs d_clause
+    d_procs=$(count_d_state_claude)
+    [ "$d_procs" -gt 0 ] 2>/dev/null && d_clause=" D-procs=${d_procs}" || d_clause=""
+
+    # 判断内存状态等级 (含 swap)
     local mem_level
-    if [ "$mem" -lt "$MIN_MEM_RED" ] 2>/dev/null; then
+    if [ "$mem" -lt "$MIN_MEM_RED" ] 2>/dev/null || [ "$swap" -gt "$SWAP_RED" ] 2>/dev/null; then
         mem_level="RED"
-    elif [ "$mem" -lt "$MIN_MEM_GREEN" ] 2>/dev/null; then
+    elif [ "$mem" -lt "$MIN_MEM_GREEN" ] 2>/dev/null || [ "$swap" -gt "$SWAP_YELLOW" ] 2>/dev/null; then
         mem_level="YELLOW"
     else
         mem_level="GREEN"
@@ -435,7 +506,7 @@ do_status() {
         local locks_summary="Locks=[skipped:single]"
     fi
 
-    echo "MemAvail=${mem}MB SwapUsed=${swap}% ClaudeProcs=${procs} MemLevel=${mem_level} State=${state_info} $locks_summary"
+    echo "MemAvail=${mem}MB SwapUsed=${swap}% ClaudeProcs=${procs} MemLevel=${mem_level} State=${state_info}${d_clause} $locks_summary"
 }
 
 # check: 组合门控 (Agent tool PreToolUse hook 调用)
