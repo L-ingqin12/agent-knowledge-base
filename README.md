@@ -94,6 +94,10 @@ API 端点: https://api.deepseek.com/anthropic (DeepSeek Anthropic 兼容层)
 | 7 | [Skill 规模化管理：从渐进式披露到检索式发现](articles/Skill规模化管理-从渐进式披露到检索式发现.md) | 系统设计推演 | 当 1000 个 Skill 挤爆 system prompt——三层架构×四阶段迁移路径 |
 | 8 | [Agent 驱动 Skill 迁移设计](articles/Agent驱动Skill迁移设计.md) | 系统设计 | 旧系统→新系统的自主迁移方案：五阶段×审计 trace 到单决策粒度×规模分档×依赖感知审批 |
 | 9 | [日志检索分析系统 Skill 管理 Demo](articles/日志检索分析系统-Skill管理Demo设计.md) | 系统设计 | 25 skill × 5 namespaces × 15 依赖——框架在真实场景下的落点验证 |
+| 10 | [Loop Engineering 深度拆解](articles/Loop-Engineering-深度拆解-从产品功能集到方法论包装.md) | 方法论拆解 | Loop 从产品功能集是怎么被包装成方法论的 |
+| 11 | [给 LLM 做「脑扫描」：可解释性技术全景](articles/给LLM做脑扫描-可解释性技术全景.md) | 对话沉淀 | CT/核磁/三维扫描类比映射到 LLM 可解释性——四层技术栈×上手路径 |
+
+> 📑 完整分组索引见 [articles/README.md](articles/README.md)（按可解释性 / 上下文工程 / Skill 系统 / 机制拆解四类归档，含阅读线索）。
 
 ## Demo 脚本（可运行）
 
