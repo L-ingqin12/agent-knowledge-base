@@ -29,6 +29,10 @@ MIN_MEM_RED=800             # MB, 拒绝新子代理
 SWAP_RED=70                 # swap% 硬拒绝 (临界压力)
 SWAP_YELLOW=55              # swap% 警告 (中度压力)
 MARK_THROTTLE_SEC=3         # mark-interactive 节流窗口秒数
+INTERACTIVE_NICE_SOFT=5      # interactive 初始 nice 值 (温和)
+INTERACTIVE_NICE_HARSH=19    # interactive 持续>15s 后的 nice 值 (激进)
+INTERACTIVE_HARSH_DELAY=15   # 切换到激进 nice 的等待秒数
+IDLE_RESTORE_DELAY=30        # idle 状态完全恢复 nice=0 的等待秒数
 MAX_TOTAL_PROCS=4           # 含父进程的 claude 进程总数上限 (idle)
 MAX_INTERACTIVE_PROCS=3     # 含父进程的进程总数上限 (interactive, 仅1个子代理)
 ORPHAN_AGE=120              # 孤儿进程最小存活秒数
@@ -439,20 +443,45 @@ do_mark_idle() {
     echo "mark-idle: state=idle"
 }
 
-# prioritize: 根据当前状态 renice/ionice 子代理
+# prioritize: 根据状态 + 持续时间渐变 renice/ionice 子代理
+# 消抖: idle↔interactive 不再 0↔19 瞬切, 而是按时长渐变
 do_prioritize() {
-    local state target_nice target_ionice my_pid
+    local state target_nice target_ionice my_pid state_age
     my_pid=$$
 
-    # 读取当前状态
-    if do_read_state >/dev/null 2>&1; then
-        state="idle"
-        target_nice=0
-        target_ionice="2 -n 0"  # best-effort
+    # 读取当前状态和年龄
+    if [ -f "$STATE_FILE" ]; then
+        local cur_state cur_epoch now
+        now=$(now_ts)
+        cur_state=$(grep -oP '"state":"\K[^"]+' "$STATE_FILE" 2>/dev/null || echo "")
+        cur_epoch=$(grep -oP '"epoch":\K[0-9]+' "$STATE_FILE" 2>/dev/null || echo 0)
+        state_age=$((now - cur_epoch))
     else
+        cur_state="interactive"
+        state_age=999
+    fi
+
+    # 按状态 + 持续时间决定 nice 值
+    if [ "$cur_state" = "idle" ]; then
+        # idle: 渐进恢复 — 先在 +5 停留 30s, 再完全恢复 0
+        if [ "$state_age" -gt "$IDLE_RESTORE_DELAY" ] 2>/dev/null; then
+            target_nice=0
+            target_ionice="2 -n 0"
+        else
+            target_nice="$INTERACTIVE_NICE_SOFT"
+            target_ionice="2 -n 0"
+        fi
+        state="idle"
+    else
+        # interactive: 渐进加压 — 先 +5 (温和), 持续>15s 后 +19 (激进)
+        if [ "$state_age" -gt "$INTERACTIVE_HARSH_DELAY" ] 2>/dev/null; then
+            target_nice="$INTERACTIVE_NICE_HARSH"
+            target_ionice="3"
+        else
+            target_nice="$INTERACTIVE_NICE_SOFT"
+            target_ionice="2 -n 0"
+        fi
         state="interactive"
-        target_nice=19
-        target_ionice="3"       # idle class
     fi
 
     local main_pid
