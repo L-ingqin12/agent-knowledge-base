@@ -97,6 +97,26 @@ function stabilizeDates(body) {
   return body
 }
 
+/** 钉桩 token 计数（<total_tokens>N tokens left</total_tokens> 每轮递减，破坏前缀）。 */
+const TOKEN_LEFT_TAG_RE = /(<total_tokens>)\d+(\s*tokens left)/g
+const TOKEN_LEFT_BARE_RE = /\b\d+\s+tokens left\b/g
+function stabilizeTokens(body) {
+  const fix = (v) => typeof v === 'string'
+    ? v.replace(TOKEN_LEFT_TAG_RE, (_m, a, b) => `${a}1000000${b}`)
+      .replace(TOKEN_LEFT_BARE_RE, '1000000 tokens left')
+    : v
+  if (typeof body?.system === 'string') body.system = fix(body.system)
+  else if (Array.isArray(body?.system)) body.system = body.system.map(b => (b?.type === 'text' ? { ...b, text: fix(b.text) } : b))
+  if (Array.isArray(body?.messages)) {
+    body.messages = body.messages.map(m => {
+      if (typeof m?.content === 'string') return { ...m, content: fix(m.content) }
+      if (Array.isArray(m?.content)) return { ...m, content: m.content.map(p => (p?.type === 'text' ? { ...p, text: fix(p.text) } : p)) }
+      return m
+    })
+  }
+  return body
+}
+
 /** 递归剥离 cache_control（DeepSeek/GLM 不识别，位置漂移破坏隐式前缀）。 */
 function stripCacheControl(node) {
   if (Array.isArray(node)) { node.forEach(stripCacheControl); return node }
@@ -195,6 +215,7 @@ function alignRequest(body, provider) {
       stripCacheControl(body)
       stabilizeMetadata(body)
       stabilizeDates(body)
+      stabilizeTokens(body)
       sortTools(body)
       // normalizeTools 默认关：会剥掉 MCP 等非锚点工具（行为级变化），需 config.json 显式 normalizeTools=true 开启
       if (readConfig().normalizeTools === true) normalizeTools(body)
@@ -225,6 +246,46 @@ const inFlight = new Map() // fingerprint -> { ready: Promise, resolve: () => vo
 function anchorFingerprint(body) {
   const anchor = JSON.stringify({ tools: body?.tools, system: body?.system })
   return createHash('sha256').update(anchor).digest('hex')
+}
+
+/** 会话指纹 = 首条真实消息内容 sha256，区分「不同会话」（同 tools+system 的多实例）。 */
+function sessionFingerprint(body) {
+  const msgs = body?.messages
+  if (!Array.isArray(msgs)) return ''
+  for (const m of msgs) {
+    const text = typeof m?.content === 'string' ? m.content
+      : Array.isArray(m?.content) ? m.content.map((c) => c?.text ?? '').join(' ') : ''
+    if (text) return createHash('sha256').update(text.slice(0, 200)).digest('hex').slice(0, 12)
+  }
+  return ''
+}
+
+/** 首条真实消息文本（与 sessionFingerprint 同源，用于 dump 里直接对比会话身份）。 */
+function firstMessageText(body) {
+  const msgs = body?.messages
+  if (!Array.isArray(msgs)) return ''
+  for (const m of msgs) {
+    const text = typeof m?.content === 'string' ? m.content
+      : Array.isArray(m?.content) ? m.content.map((c) => c?.text ?? '').join(' ') : ''
+    if (text) return text
+  }
+  return ''
+}
+
+/** 请求头安全摘要：全部头名 + 非敏感头值（鉴权/key/token/auth/secret/cookie 类值脱敏）。
+ *  用于对比主会话/分类器/不同 session 是否携带不同的会话身份头。 */
+const SECRET_HEADER_RE = /authorization|api[-_]?key|token|auth|secret|cookie|credential|signature/i
+function headerSummary(reqHeaders) {
+  const names = []
+  const detail = {}
+  for (const [k, v] of Object.entries(reqHeaders || {})) {
+    const name = String(k).toLowerCase()
+    names.push(name)
+    const raw = Array.isArray(v) ? v.join(', ') : (v ?? '')
+    detail[name] = SECRET_HEADER_RE.test(name) ? '<redacted>' : String(raw).slice(0, 160)
+  }
+  names.sort()
+  return { names, detail }
 }
 
 /** 领跑/跟随：首请求直接转发，同锚点后续请求等首字节+settle 后转发（读热缓存）。 */
@@ -453,29 +514,41 @@ function serve() {
     } catch { /* 非 JSON 透传 */ }
 
     const fallback = fallbackConfig()
-    // config.dump=true → 记录对齐后的锚点指纹 + tools + system 摘要（命中率根因分析用）
+    // 分类器模型档位重映射：全部投 flash（省 pro 成本 + 独立缓存命名空间）。
+    // 精确 key 优先，* 通配兜底；不分 Stage（全走 flash）。
+    if (parsed && cfg.classifier?.modelMap && isClassifierRequest(parsed)) {
+      const m = cfg.classifier.modelMap
+      const mapped = m[parsed.model] ?? m['*']
+      if (mapped && mapped !== parsed.model) {
+        parsed.model = mapped
+        body = JSON.stringify(parsed)
+      }
+    }
+    // 分类器 sid 改写（config.classifier.sessionIdSuffix 配置时生效）：转发前把分类器请求的
+    // x-claude-code-session-id 头追加后缀，主/分类器在提供方侧拆成两个会话桶（遥测隔离）。
+    // 证据（sid-experiment 9/9 轮 + sep-sim）：sid 不在 DeepSeek 缓存键内 → 对缓存无益无害。
+    const clsOverride = {}
+    if (parsed && isClassifierRequest(parsed) && cfg.classifier?.sessionIdSuffix) {
+      const cur = String(req.headers['x-claude-code-session-id'] ?? '')
+      clsOverride['x-claude-code-session-id'] = cur ? cur + cfg.classifier.sessionIdSuffix : cfg.classifier.sessionIdSuffix
+    }
+    // config.dump=true → 记录对齐+重映射后的锚点指纹 + model + tools + system 摘要（命中率根因分析用）
     if (cfg.dump === true && parsed) {
       try {
         const dumpLine = JSON.stringify({
           t: Date.now(),
           fp: anchorFingerprint(parsed),
+          headFp: sessionFingerprint(parsed),
           model: parsed.model,
+          nMsgs: (parsed.messages || []).length,
           tools: (parsed.tools || []).map((t) => t?.name),
           system: (parsed.system || []).map((b) => (typeof b === 'string' ? b : (b?.text || '')).slice(0, 100)),
+          firstMsg: firstMessageText(parsed).slice(0, 160),
+          hdr: headerSummary(req.headers),
+          sidSent: clsOverride['x-claude-code-session-id'] ?? null,
         })
         writeFileSync(join(STATE_DIR, 'dump.jsonl'), dumpLine + '\n', { flag: 'a' })
       } catch { /* dump 尽力而为 */ }
-    }
-    // 分类器模型档位重映射（阶段感知）：仅 Stage 1 快速判断（max_tokens≤64）投 flash，
-    // Stage 2 严肃思考留 pro。只做具体映射（无 * 通配），避免一刀切。
-    if (parsed && cfg.classifier?.modelMap && isClassifierRequest(parsed)) {
-      const m = cfg.classifier.modelMap
-      const mt = Number(parsed.max_tokens ?? 0)
-      const mapped = mt > 0 && mt <= 64 ? m[parsed.model] : undefined
-      if (mapped) {
-        parsed.model = mapped
-        body = JSON.stringify(parsed)
-      }
     }
     // 分类器分流（config.classifier.enabled=true 才开，默认关）：0 tools + security monitor 请求
     // 改投独立上游（缺省继承 fallback=OpenRouter GLM），恢复原生「分类器独立缓存」隔离；
@@ -488,7 +561,7 @@ function serve() {
           const q = JSON.parse(body)
           const m = cfg.classifier.modelMap || fallback?.modelMap || {}
           q.model = m[q.model] || m['*'] || q.model
-          const cls = await forward(req, JSON.stringify(q), clsUp, path, { authorization: '[已脱敏] ' + clsTok })
+          const cls = await forward(req, JSON.stringify(q), clsUp, path, { authorization: '[已脱敏] ' + clsTok, ...clsOverride })
           console.log(`[cache-relay] classifier → ${clsUp} status=${cls.status}`)
           if (cls.stream && cls.status >= 200 && cls.status < 400) {
             res.writeHead(cls.status, cls.headers)
@@ -508,8 +581,8 @@ function serve() {
     // P5 coalescer：同锚点并发合并（config.coalesce=true 开启，默认关）
     const fp = cfg.coalesce === true && parsed ? anchorFingerprint(parsed) : null
     const fwd = fp
-      ? await coalesceForward(fp, () => forward(req, body, upstream, path))
-      : await forward(req, body, upstream, path)
+      ? await coalesceForward(fp, () => forward(req, body, upstream, path, clsOverride))
+      : await forward(req, body, upstream, path, clsOverride)
     // 内容审核 400 → 改投备用上游（OpenRouter GLM），不阻断会话
     if (fwd.status === 400 && fallback && fwd.stream) {
       const errBody = await readBody(fwd.stream)
@@ -521,7 +594,7 @@ function serve() {
           p.model = map[p.model] || map['*'] || p.model
           fbBody = JSON.stringify(p)
         } catch { /* 非 JSON 原样转发 */ }
-        const fb = await forward(req, fbBody, fallback.upstream, path, { authorization: '[已脱敏] ' + fallback.authToken })
+        const fb = await forward(req, fbBody, fallback.upstream, path, { authorization: '[已脱敏] ' + fallback.authToken, ...clsOverride })
         console.log(`[cache-relay] 400 risk → fallback ${fallback.upstream} status=${fb.status}`)
         if (fb.stream) { res.writeHead(fb.status, fb.headers); fb.stream.pipe(res); return }
         // 兜底也失败：回传原始 400（信息最准）
