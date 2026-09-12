@@ -24,7 +24,7 @@ See also: [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调�
 | **Scaffold** | 围绕模型的最小可运行外壳（提示词+循环+工具） | 早期 openai/evals 式脚本 |
 | **Harness** | 生产级 scaffold：把系统提示词、工具循环、上下文管理、权限、子代理、扩展点、观测**七件事产品化**的外壳 | Claude Code、OpenCode、Pi、Cursor |
 
-术语工程化脉络：Simon Willison 把编码代理归纳为"harness 包住模型反复调用工具"的回路（[practitioner guide 转述](https://subagentic.ai/howtos/simon-willison-how-coding-agents-work/)）；"harness engineering" 已被当作独立工程学科讨论（[The Rise of Agentic Engineering Part 5](https://dev.to/raminjafary/the-rise-of-agentic-engineering-part-5-harness-engineering-emerges-2d9o)）；社区甚至出现 100+ harness 的策展清单（[best-of-Agent-Harnesses](https://github.com/RyanAlberts/best-of-Agent-Harnesses)）。Anthropic 官方立场：能 workflow 别 agent，**从最简开始按需加复杂度**（[Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)）。
+术语工程化脉络：Simon Willison 把编码代理归纳为"harness 包住模型反复调用工具"的回路（[practitioner guide 转述](https://subagentic.ai/howtos/simon-willison-how-coding-agents-work/ <!-- scan-ignore: 技术博客，非订阅源 -->)）；"harness engineering" 已被当作独立工程学科讨论（[The Rise of Agentic Engineering Part 5](https://dev.to/raminjafary/the-rise-of-agentic-engineering-part-5-harness-engineering-emerges-2d9o)）；社区甚至出现 100+ harness 的策展清单（[best-of-Agent-Harnesses](https://github.com/RyanAlberts/best-of-Agent-Harnesses)）。Anthropic 官方立场：能 workflow 别 agent，**从最简开始按需加复杂度**（[Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)）。
 
 > [!info] 与本库的关系
 > 本库 AGENTS.md 协议 + DSH 运行时即一个自建 harness 实例；[[Vercel-AI编码Agent-Harness课程]] 是其教学版；[[Loop-Engineering-深度拆解-从产品功能集到方法论包装]] 是对其过度包装倾向的批判视角。
