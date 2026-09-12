@@ -1,3 +1,12 @@
+---
+title: safe-file-ops — 安全文件操作技能定义
+aliases: []
+tags: [ai/skills, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: draft
+---
+
 # Skill: safe-file-ops
 
 ## Trigger
@@ -238,3 +247,9 @@ else
     echo "BLOCKED: no write permission on /etc/config"
 fi
 ```
+
+## 相关文档
+
+- [[Claude-Ops-KB-Home]]
+- [[claude-ops/agent-resilience-tooling/README]]
+- [[CORRECTIONS]]
