@@ -9,7 +9,7 @@ status: review
 
 # Claude Code auto-mode 分类器缓存分析
 
-See also: [[Claude-Ops-KB-Home]] · [[claude-cache-relay-design]] · [[cache-relay-deployed]] · [[claude-cache-optimization]]
+See also: [[Claude-Ops-KB-Home]] · [[claude-cache-relay-design]] · [[claude-deployment-record]] · [[claude-cache-optimization]]
 
 > 背景：cache-relay 部署后命中率仍锁死在 ~52%（21:00-22:00：16.39M 命中 / 15.22M 未命中）。dump 定位到根因：两条「世系」在 DeepSeek 隐式前缀缓存里互相驱逐。
 
