@@ -10,3 +10,7 @@ scripts/claude-ops-dumps/
 # LogNet PoC build artifacts
 scripts/lognet-poc/**/*.db
 scripts/lognet-poc/**/*.db-*
+
+# 脚本生成的草稿/中间产物（按需重生成，不纳入版本控制）
+_out/
+sources/_draft/

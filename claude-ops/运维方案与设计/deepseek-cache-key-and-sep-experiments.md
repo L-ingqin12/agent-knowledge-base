@@ -61,4 +61,5 @@
 - `deepseek-flash` 模型 id 已实测 200（Anthropic 端点）。
 - **GLM 备用（用户可选）**：DSH 切回 = `agent-default-model` 改回 `{provider: ox-openrouter, model: z-ai/glm-5.3-flash}`（llm-pi-ai 段保留未动）；Claude 侧 = relay `fallback`（400 内容审核 → GLM）不变。
 - **回滚**：4 份备份 `*.pre-flash-20260912`（settings.json / settings.yaml / cordis.patch.yml / config.json）。切回 pro = settings.json 改回 `deepseek-v4-pro[1m]`。
-- 遗留可清理项：`~/.dsh/ds2ox-proxy.mjs`（:8899）已无流量引用，Startup VBS 自启可停（未处理，待用户确认）。
+- ~~遗留可清理项：`~/.dsh/ds2ox-proxy.mjs`（:8899）已无流量引用，Startup VBS 自启可停（未处理，待用户确认）。~~
+  2026-09-12 复核更新：已完成**安全复核与脱敏归档**，退役判定成立（`settings.yaml` 无 8899 引用、进程未运行、密钥未进入 git 历史）。**仍有残留复活路径**（两份配置备份 `settings.yaml.pre-upgrade` / `.pre-flash-20260912` 仍指向 8899）。详见 [[ds2ox-proxy-retirement]]。原始条目所述「Startup VBS 自启」经核为**同名误判**——启动项指向的是 alist 的 `alist.vbs`，非本代理；本代理为手工前台运行，无自启条目。
