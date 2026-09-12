@@ -104,7 +104,7 @@ Addy 的贡献不在于发明新技术，而在于为 AI 工程造了一套三�
 
 ## 参考资料
 
-- Addy Osmani 原文: https://addyo.substack.com/p/loop-engineering
+- Addy Osmani 原文: https://addyo.substack.com/p/loop-engineering <!-- scan-ignore: substack 博客，非订阅源 -->
 - 前作 Harness Engineering: https://addyosmani.com/blog/agent-harness-engineering/
 - Peter Steinberger 推文: https://x.com/steipete/status/2063697162748260627
 - Karpathy autoresearch: https://github.com/karpathy/autoresearch
