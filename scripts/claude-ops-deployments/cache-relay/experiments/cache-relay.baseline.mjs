@@ -21,7 +21,7 @@
  */
 import http from 'node:http'
 import https from 'node:https'
-import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync, statSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -34,23 +34,10 @@ const STATE_DIR = process.env.RELAY_STATE_DIR || join(homedir(), '.cache-relay')
 const PID_FILE = join(STATE_DIR, 'relay.pid')
 const DISABLED_FILE = join(STATE_DIR, '.disabled')
 const CONFIG_FILE = join(STATE_DIR, 'config.json')
-// 内建健康检查路径：中继自己应答，绝不转发到上游。stop/doctor 靠它确认
-// 「监听该端口的就是本中继」，从而只杀真正属于我们的进程（pid 会被系统复用，裸 kill 有误伤风险）。
-const HEALTH_PATH = '/__relay__/health'
 
-/** 热配置：~/.cache-relay/config.json（可热改，随时生效；只存上游/策略，不落地密钥）。
- *  每请求要读 3~4 次，故按 (mtime,大小) 缓存：文件没变就复用同一对象，省掉一次同步读盘 + JSON.parse。
- *  返回的是**共享只读对象**（调用方只读，勿改）；文件一变立即失效重读，热改语义不变。 */
-let _cfgCache = { mtimeMs: -1, size: -1, value: {} }
+/** 热配置：~/.cache-relay/config.json（可热改，重启中继生效；只存上游/策略，不落地密钥）。 */
 function readConfig() {
-  try {
-    const st = statSync(CONFIG_FILE)
-    if (st.mtimeMs === _cfgCache.mtimeMs && st.size === _cfgCache.size) return _cfgCache.value
-    let value
-    try { value = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) } catch { value = {} }
-    _cfgCache = { mtimeMs: st.mtimeMs, size: st.size, value }
-    return value
-  } catch { return {} } // 文件不存在/不可读：不缓存，下次仍会尝试读
+  try { return JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) } catch { return {} }
 }
 
 // ---------------------------------------------------------------------------
@@ -85,97 +72,57 @@ function safeHost(url) {
 
 function toolName(t) { return t?.function?.name ?? t?.name ?? '' }
 
-/** 复用一个 Collator：String.prototype.localeCompare 每次调用都新建 collator，
- *  45 个工具要建 ~130 次。Intl.Collator() 无参构造与 localeCompare() 无参调用的
- *  语言环境/选项完全相同，故排序结果逐字节一致。 */
-const TOOL_COLLATOR = new Intl.Collator()
-
-/** 工具按 name 排序（OpenAI function.name / Anthropic name 兼容）。
- *  Claude Code 发来的工具本身已按同一 collator 有序 → 先 O(n) 检查，已序则原样返回（不排序、不复制）。 */
+/** 工具按 name 排序（OpenAI function.name / Anthropic name 兼容）。 */
 function sortTools(body) {
-  const tools = body?.tools
-  if (!Array.isArray(tools) || tools.length < 2) return body
-  let needSort = false
-  for (let i = 1; i < tools.length; i++) {
-    if (TOOL_COLLATOR.compare(toolName(tools[i - 1]), toolName(tools[i])) > 0) { needSort = true; break }
+  if (Array.isArray(body?.tools) && body.tools.length > 1) {
+    body.tools = [...body.tools].sort((a, b) => toolName(a).localeCompare(toolName(b)))
   }
-  if (needSort) tools.sort((a, b) => TOOL_COLLATOR.compare(toolName(a), toolName(b)))
   return body
 }
 
 const DATE_RE = /(Today's date is |Today is |currentDate[: ]*|今天(是)?日期?[:： ]*)\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g
 function fixDate(s) { return s.replace(DATE_RE, (m, p) => `${p}2000-01-01`) }
 
-/** 钉桩 token 计数（<total_tokens>N tokens left</total_tokens> 每轮递减，破坏前缀）。 */
-const TOKEN_LEFT_TAG_RE = /(<total_tokens>)\d+(\s*tokens left)/g
-const TOKEN_LEFT_BARE_RE = /\b\d+\s+tokens left\b/g
-function fixTokens(s) {
-  return s.replace(TOKEN_LEFT_TAG_RE, (_m, a, b) => `${a}1000000${b}`)
-    .replace(TOKEN_LEFT_BARE_RE, '1000000 tokens left')
-}
-
-// 预筛判据 —— 都是**必要条件**（不是启发式），故与全量执行逐字节等价：
-//   DATE_RE 的每个分支都必含 "Today" 或 "currentDate" 或 "今天"；
-//   TOKEN_LEFT_*_RE 的两个分支都必含 "tokens left"。
-// 一句话先 indexOf 扫过去（原生 SIMD，纳秒级），命中才跑正则/复制对象 —— 绝大多数消息两者都不含。
-const needsDateFix = (s) => s.includes('Today') || s.includes('currentDate') || s.includes('今天')
-const needsTokenFix = (s) => s.includes('tokens left')
-
-/** 一次遍历同时稳定化日期与 token 计数（原来是两次全量 map + 逐条复制对象）。
- *  逐条只在「确实变了」时才复制该消息对象，未变的保持原引用 —— 产物 JSON 与逐条复制完全一致。
- *  opts.tokens=false 只做日期（anthropic 策略原来就**不**钉 token 计数，必须保持）。 */
-function stabilizeVolatileText(body, { tokens = true } = {}) {
-  const fix = (s) => {
-    let out = s
-    if (needsDateFix(out)) out = fixDate(out)
-    if (tokens && needsTokenFix(out)) out = fixTokens(out)
-    return out
-  }
-  // 文本块数组：全无变化则返回 null（表示「不必替换」），避免无谓分配
-  const fixBlocks = (blocks) => {
-    let out = null
-    for (let i = 0; i < blocks.length; i++) {
-      const b = blocks[i]
-      if (b?.type === 'text' && typeof b.text === 'string') {
-        const t = fix(b.text)
-        if (t !== b.text) { if (!out) out = blocks.slice(); out[i] = { ...b, text: t } }
-      }
-    }
-    return out
-  }
-  if (typeof body?.system === 'string') {
-    const s = fix(body.system)
-    if (s !== body.system) body.system = s
-  } else if (Array.isArray(body?.system)) {
-    const blocks = fixBlocks(body.system)
-    if (blocks) body.system = blocks
-  }
-  const msgs = body?.messages
-  if (Array.isArray(msgs)) {
-    for (let i = 0; i < msgs.length; i++) {
-      const m = msgs[i]
-      if (!m) continue
-      if (typeof m.content === 'string') {
-        const c = fix(m.content)
-        if (c !== m.content) msgs[i] = { ...m, content: c }
-      } else if (Array.isArray(m.content)) {
-        const blocks = fixBlocks(m.content)
-        if (blocks) msgs[i] = { ...m, content: blocks }
-      }
-    }
+/** 递归替换 system/messages 里的日期为固定值（跨天不破坏前缀）。 */
+function stabilizeDates(body) {
+  const fix = (v) => typeof v === 'string' ? fixDate(v) : v
+  if (typeof body?.system === 'string') body.system = fixDate(body.system)
+  else if (Array.isArray(body?.system)) body.system = body.system.map(b => (b?.type === 'text' ? { ...b, text: fixDate(b.text) } : b))
+  if (Array.isArray(body?.messages)) {
+    body.messages = body.messages.map(m => {
+      if (typeof m?.content === 'string') return { ...m, content: fixDate(m.content) }
+      if (Array.isArray(m?.content)) return { ...m, content: m.content.map(p => (p?.type === 'text' ? { ...p, text: fixDate(p.text) } : p)) }
+      return m
+    })
   }
   return body
 }
 
-/** 递归剥离 cache_control（DeepSeek/GLM 不识别，位置漂移破坏隐式前缀）。
- *  用 for...in 而不是 Object.keys()：整棵消息树有上万个节点，逐节点少分配一个键数组。 */
-function stripCacheControl(node) {
-  if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) stripCacheControl(node[i])
-    return node
+/** 钉桩 token 计数（<total_tokens>N tokens left</total_tokens> 每轮递减，破坏前缀）。 */
+const TOKEN_LEFT_TAG_RE = /(<total_tokens>)\d+(\s*tokens left)/g
+const TOKEN_LEFT_BARE_RE = /\b\d+\s+tokens left\b/g
+function stabilizeTokens(body) {
+  const fix = (v) => typeof v === 'string'
+    ? v.replace(TOKEN_LEFT_TAG_RE, (_m, a, b) => `${a}1000000${b}`)
+      .replace(TOKEN_LEFT_BARE_RE, '1000000 tokens left')
+    : v
+  if (typeof body?.system === 'string') body.system = fix(body.system)
+  else if (Array.isArray(body?.system)) body.system = body.system.map(b => (b?.type === 'text' ? { ...b, text: fix(b.text) } : b))
+  if (Array.isArray(body?.messages)) {
+    body.messages = body.messages.map(m => {
+      if (typeof m?.content === 'string') return { ...m, content: fix(m.content) }
+      if (Array.isArray(m?.content)) return { ...m, content: m.content.map(p => (p?.type === 'text' ? { ...p, text: fix(p.text) } : p)) }
+      return m
+    })
   }
+  return body
+}
+
+/** 递归剥离 cache_control（DeepSeek/GLM 不识别，位置漂移破坏隐式前缀）。 */
+function stripCacheControl(node) {
+  if (Array.isArray(node)) { node.forEach(stripCacheControl); return node }
   if (node && typeof node === 'object') {
-    for (const k in node) {
+    for (const k of Object.keys(node)) {
       if (k === 'cache_control') delete node[k]
       else stripCacheControl(node[k])
     }
@@ -261,21 +208,15 @@ function relocateVolatile(body) {
   msgs[msgs.length - 1] = last
 }
 
-/** 原文里是否**可能**出现 cache_control 键。
- *  JSON 里键名必须字面出现，或被 \uXXXX 转义；键名 cache_control 只含 ASCII 字母和下划线，
- *  正规序列化器不会转义 —— 故「原文既无字面量、也无任何 \u 转义」⇒ 解析结果里必无该键。
- *  两者都不满足时才跳过整棵树的递归剥离（省掉一次全量深走）。 */
-const rawMayHaveCacheControl = (raw) => raw === undefined || raw.includes('cache_control') || raw.includes('\\u')
-
-/** 按 provider 分派对齐。passthrough = 零改动透传（逃生）。
- *  raw = 请求原文（可选，仅用于快速预筛；判据均为必要条件，不传则全量执行，结果一致）。 */
-function alignRequest(body, provider, raw) {
+/** 按 provider 分派对齐。passthrough = 零改动透传（逃生）。 */
+function alignRequest(body, provider) {
   switch (provider) {
     case 'deepseek':
     case 'glm':
-      if (rawMayHaveCacheControl(raw)) stripCacheControl(body)
+      stripCacheControl(body)
       stabilizeMetadata(body)
-      stabilizeVolatileText(body)
+      stabilizeDates(body)
+      stabilizeTokens(body)
       sortTools(body)
       // normalizeTools 默认关：会剥掉 MCP 等非锚点工具（行为级变化），需 config.json 显式 normalizeTools=true 开启
       if (readConfig().normalizeTools === true) normalizeTools(body)
@@ -283,7 +224,7 @@ function alignRequest(body, provider, raw) {
       break
     case 'anthropic':
       sortTools(body)          // 保留 cache_control 断点，只排序 + 稳定
-      stabilizeVolatileText(body, { tokens: false })   // 只稳定日期；anthropic 不钉 token 计数
+      stabilizeDates(body)
       break
     case 'openrouter':
     case 'generic':
@@ -386,7 +327,7 @@ function coalesceForward(fingerprint, forwardFn) {
 
 const DROP_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding'])
 
-function forward(req, body, upstream, path, overrideHeaders = {}, signal = null) {
+function forward(req, body, upstream, path, overrideHeaders = {}) {
   return new Promise((resolve) => {
     const target = new URL(upstream + path)
     const lib = target.protocol === 'https:' ? https : http
@@ -396,10 +337,7 @@ function forward(req, body, upstream, path, overrideHeaders = {}, signal = null)
     }
     for (const [k, v] of Object.entries(overrideHeaders)) headers[k.toLowerCase()] = v
     headers['host'] = target.host
-    // 只编码一次：body 是字符串，之前 Buffer.byteLength(body) 算长度 + out.end(body) 再编码一遍，
-    // 整包要编码两次。转成 Buffer 后 buf.length 就是长度，end(buf) 不再编码 —— 发出的字节完全相同。
-    const payload = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8')
-    headers['content-length'] = payload.length
+    headers['content-length'] = Buffer.byteLength(body)
     const out = lib.request({
       host: target.hostname, port: target.port || (target.protocol === 'https:' ? 443 : 80),
       path: target.pathname + target.search, method: req.method, headers,
@@ -407,24 +345,13 @@ function forward(req, body, upstream, path, overrideHeaders = {}, signal = null)
       resolve({ status: upRes.statusCode, headers: upRes.headers, stream: upRes })
     })
     out.on('error', () => resolve({ status: 502, headers: {}, stream: null }))
-    // 关 Nagle：上游/客户端多为「小块高频」的 SSE 流，攒包会明显抬高逐字延迟。
-    out.setNoDelay(true)
-    // 客户端已断连 → 立刻掐掉上游请求（后续 token 没人要），并释放这条连接。
-    let onAbort = null
-    if (signal) {
-      if (signal.aborted) { out.destroy(); resolve({ status: 499, headers: {}, stream: null }); return }
-      onAbort = () => { try { out.destroy() } catch { /* 已结束 */ } }
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
-    const cleanup = () => { if (onAbort && signal) signal.removeEventListener('abort', onAbort) }
     // 超时保护：上游慢/挂起时 504，避免请求挂死（客户端拿到响应会自行重试）
     const timeoutMs = Number(process.env.RELAY_TIMEOUT_MS ?? 180000)
     out.setTimeout(timeoutMs, () => {
       out.destroy()
       resolve({ status: 504, headers: {}, stream: null })
     })
-    out.on('close', cleanup)
-    out.end(payload)
+    out.end(body)
   })
 }
 
@@ -563,13 +490,6 @@ function startKeepaliveIfEnabled() {
 function serve() {
   startKeepaliveIfEnabled() // P5 keepalive：启动时 enabled 才起保温 interval（默认关→无）
   const server = http.createServer(async (req, res) => {
-    // 健康检查：中继自己应答（不转发、不判源）。放在软回滚判断之前 —— 已 .disabled 但仍在运行的
-    // 中继也要能被 stop/doctor 认出来，否则停不掉。
-    if (req.url === HEALTH_PATH) {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ relay: 'cache-relay', pid: process.pid, port: RELAY_PORT, uptimeSec: Math.round(process.uptime()) }))
-      return
-    }
     // 热软回滚：每请求检查 .disabled/RELAY_DISABLED，undeploy 后立即生效（无需重启）
     if (process.env.RELAY_DISABLED === '1' || existsSync(DISABLED_FILE)) {
       res.writeHead(503, { 'content-type': 'application/json' })
@@ -583,40 +503,33 @@ function serve() {
     const cfg = readConfig()
     // 优先级：请求头 > env(RELAY_DEFAULT_UPSTREAM) > config.json(defaultUpstream)
     const upstream = String(req.headers['x-relay-upstream'] || DEFAULT_UPSTREAM || cfg.defaultUpstream || '')
-    const reqUrl = new URL(req.url, 'http://x')   // 只解析一次（原来 pathname/search 各解析一遍）
-    const path = reqUrl.pathname + (reqUrl.search || '')
+    const path = new URL(req.url, 'http://x').pathname + (new URL(req.url, 'http://x').search || '')
     if (!upstream) { res.writeHead(502, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'no upstream: set RELAY_DEFAULT_UPSTREAM or X-Relay-Upstream' })); return }
 
     const provider = detectProvider(upstream, '', path)
-    // 客户端（Claude Code）断连时销毁上游请求：省掉无人接收的后续 token（真金白银）+ 及时释放连接。
-    // 注意必须用 res 的 close 且排除正常结束（writableFinished），否则会把已写完的响应误判为断连。
-    const clientGone = new AbortController()
-    res.on('close', () => { if (!res.writableFinished) clientGone.abort() })
-
     let parsed = null
-    let isCls = false
     try {
       parsed = JSON.parse(body)
-      alignRequest(parsed, provider, body)
-      isCls = isClassifierRequest(parsed)
-      // 分类器模型档位重映射：全部投 flash（省 pro 成本）。
-      // 精确 key 优先，* 通配兜底；不分 Stage（全走 flash）。
-      // 放在 stringify 之前 —— alignRequest 不碰 model 字段，故与「改完再序列化」逐字节一致，
-      // 但省掉一次对整包 body 的完整 JSON.stringify（原来分类器路径要序列化两遍）。
-      const mm = isCls ? cfg.classifier?.modelMap : null
-      if (mm) {
-        const mapped = mm[parsed.model] ?? mm['*']
-        if (mapped && mapped !== parsed.model) parsed.model = mapped
-      }
+      alignRequest(parsed, provider)
       body = JSON.stringify(parsed)
     } catch { /* 非 JSON 透传 */ }
 
     const fallback = fallbackConfig()
+    // 分类器模型档位重映射：全部投 flash（省 pro 成本 + 独立缓存命名空间）。
+    // 精确 key 优先，* 通配兜底；不分 Stage（全走 flash）。
+    if (parsed && cfg.classifier?.modelMap && isClassifierRequest(parsed)) {
+      const m = cfg.classifier.modelMap
+      const mapped = m[parsed.model] ?? m['*']
+      if (mapped && mapped !== parsed.model) {
+        parsed.model = mapped
+        body = JSON.stringify(parsed)
+      }
+    }
     // 分类器 sid 改写（config.classifier.sessionIdSuffix 配置时生效）：转发前把分类器请求的
     // x-claude-code-session-id 头追加后缀，主/分类器在提供方侧拆成两个会话桶（遥测隔离）。
     // 证据（sid-experiment 9/9 轮 + sep-sim）：sid 不在 DeepSeek 缓存键内 → 对缓存无益无害。
     const clsOverride = {}
-    if (parsed && isCls && cfg.classifier?.sessionIdSuffix) {
+    if (parsed && isClassifierRequest(parsed) && cfg.classifier?.sessionIdSuffix) {
       const cur = String(req.headers['x-claude-code-session-id'] ?? '')
       clsOverride['x-claude-code-session-id'] = cur ? cur + cfg.classifier.sessionIdSuffix : cfg.classifier.sessionIdSuffix
     }
@@ -641,7 +554,7 @@ function serve() {
     // 分类器分流（config.classifier.enabled=true 才开，默认关）：0 tools + security monitor 请求
     // 改投独立上游（缺省继承 fallback=OpenRouter GLM），恢复原生「分类器独立缓存」隔离；
     // 上游失败则软降级回原 DeepSeek 主上游（单请求，不 502）。
-    if (cfg.classifier?.enabled === true && parsed && isCls) {
+    if (cfg.classifier?.enabled === true && parsed && isClassifierRequest(parsed)) {
       const clsUp = cfg.classifier.upstream || fallback?.upstream
       const clsTok = cfg.classifier.authToken || fallback?.authToken
       if (clsUp && clsTok) {
@@ -663,14 +576,14 @@ function serve() {
     }
     // P5 keepalive：记录主会话（非分类器）最后一次真实请求 → 空闲重放保温用。
     // 只重放真实请求：仅 serve 入口的记录会更新 lastMainRequest，重放不经 serve。
-    if (cfg.keepalive?.enabled === true && parsed && !isCls) {
+    if (cfg.keepalive?.enabled === true && parsed && !isClassifierRequest(parsed)) {
       recordMainRequest(body, upstream, path, req.headers, req.method)
     }
     // P5 coalescer：同锚点并发合并（config.coalesce=true 开启，默认关）
     const fp = cfg.coalesce === true && parsed ? anchorFingerprint(parsed) : null
     const fwd = fp
-      ? await coalesceForward(fp, () => forward(req, body, upstream, path, clsOverride, clientGone.signal))
-      : await forward(req, body, upstream, path, clsOverride, clientGone.signal)
+      ? await coalesceForward(fp, () => forward(req, body, upstream, path, clsOverride))
+      : await forward(req, body, upstream, path, clsOverride)
     // 内容审核 400 → 改投备用上游（OpenRouter GLM），不阻断会话
     if (fwd.status === 400 && fallback && fwd.stream) {
       const errBody = await readBody(fwd.stream)
@@ -682,7 +595,7 @@ function serve() {
           p.model = map[p.model] || map['*'] || p.model
           fbBody = JSON.stringify(p)
         } catch { /* 非 JSON 原样转发 */ }
-        const fb = await forward(req, fbBody, fallback.upstream, path, { authorization: '[已脱敏] ' + fallback.authToken, ...clsOverride }, clientGone.signal)
+        const fb = await forward(req, fbBody, fallback.upstream, path, { authorization: '[已脱敏] ' + fallback.authToken, ...clsOverride })
         console.log(`[cache-relay] 400 risk → fallback ${fallback.upstream} status=${fb.status}`)
         if (fb.stream) { res.writeHead(fb.status, fb.headers); fb.stream.pipe(res); return }
         // 兜底也失败：回传原始 400（信息最准）
@@ -699,8 +612,6 @@ function serve() {
     res.writeHead(fwd.status, fwd.headers)
     fwd.stream.pipe(res)
   })
-  // SSE 是「小块高频」写入，Nagle 攒包会直接抬高 Claude Code 逐字上屏的延迟。
-  server.on('connection', (socket) => socket.setNoDelay(true))
   server.listen(RELAY_PORT, '127.0.0.1', () => console.log(`[cache-relay] ${providerBanner()} listening on 127.0.0.1:${RELAY_PORT}`))
   return server
 }
@@ -710,63 +621,13 @@ function providerBanner() {
 }
 
 // ---------------------------------------------------------------------------
-// 进程存活判定（stop/doctor 用）
-// ---------------------------------------------------------------------------
-
-/** 探测本端口上是否跑着「我们的」中继。返回 {pid,...} 或 null。 */
-function probeHealth(port = RELAY_PORT) {
-  return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port, path: HEALTH_PATH, timeout: 800 }, (res) => {
-      let s = ''
-      res.setEncoding('utf8')
-      res.on('data', (c) => { s += c })
-      res.on('end', () => {
-        try { const j = JSON.parse(s); resolve(j?.relay === 'cache-relay' ? j : null) } catch { resolve(null) }
-      })
-      res.on('error', () => resolve(null))
-    })
-    req.on('error', () => resolve(null))
-    req.on('timeout', () => { req.destroy(); resolve(null) })
-  })
-}
-
-/** pid 是否存活（signal 0 = 只探测不投递）。 */
-function isAlive(pid) {
-  try { process.kill(pid, 0); return true } catch { return false }
-}
-
-/** 无条件删除 pid 文件：仅在「已通过健康检查确认身份」后调用（stop/undeploy），
- *  此时文件内容要么是我们刚停掉的中继、要么本就是过期的错误值。 */
-function unlinkPidFile() {
-  try { unlinkSync(PID_FILE) } catch { /* 本来就没有 */ }
-}
-
-/** 仅当 pid 文件内容确属 givenPid 时才删（中继自然退出时用，避免误删后来者写的）。 */
-function clearPidFileIfOurs(givenPid) {
-  try {
-    if (readFileSync(PID_FILE, 'utf8').trim() === String(givenPid)) unlinkSync(PID_FILE)
-  } catch { /* 本来就没有 */ }
-}
-
-/** 登记本进程为当前中继，并在退出时清理。 */
-function claimPidFile() {
-  mkdirSync(STATE_DIR, { recursive: true })
-  writeFileSync(PID_FILE, String(process.pid))
-  const release = () => clearPidFileIfOurs(process.pid)
-  process.on('exit', release)
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-    try { process.on(sig, () => { release(); process.exit(0) }) } catch { /* 平台不支持该信号 */ }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
 // 供测试与实验脚本 import（导入时不会启动服务，见文件末尾的 main 判定）。
 export {
   alignRequest, detectProvider, isClassifierRequest, anchorFingerprint, sessionFingerprint,
-  sortTools, stabilizeVolatileText, stripCacheControl, relocateVolatile, readConfig,
+  sortTools, stabilizeDates, stabilizeTokens, stripCacheControl, relocateVolatile, readConfig,
 }
 
 async function cli() {
@@ -785,40 +646,14 @@ switch (cmd) {
     console.log(`→ tools sorted = ${sample.tools.map(t => t.function.name).join(',')}`)
     console.log(`→ date stabilized = ${JSON.stringify(sample.messages[0].content)}`)
     console.log(`→ cache_control stripped = ${sample.cache_control === undefined}`)
-    // 运行态：以健康检查为准（pid 文件可能过期）
-    const live = await probeHealth()
-    const pidRaw = existsSync(PID_FILE) ? readFileSync(PID_FILE, 'utf8').trim() : ''
-    if (live) {
-      console.log(`→ 运行中: YES  PID ${live.pid}  监听 127.0.0.1:${live.port}  已运行 ${live.uptimeSec}s` +
-        (pidRaw && pidRaw !== String(live.pid) ? `  ⚠ pid 文件写着 ${pidRaw}（过期，stop 已改为按健康检查识别）` : ''))
-    } else {
-      console.log(`→ 运行中: NO（:${RELAY_PORT} 无应答）` +
-        (pidRaw && isAlive(Number(pidRaw)) ? `  ⚠ pid 文件里的 ${pidRaw} 仍存活但非本中继（pid 已被复用）` : ''))
-    }
     break
   }
   case 'stop': {
-    // 以「端口上是否应答我方健康检查」为准，而不是以 pid 文件为准：
-    // pid 文件可能过期，且 pid 会被系统复用 —— 裸 kill 有误杀无关进程的风险。
-    const info = await probeHealth()
-    if (!info) {
-      const stale = existsSync(PID_FILE) ? readFileSync(PID_FILE, 'utf8').trim() : ''
-      if (stale && isAlive(Number(stale))) {
-        console.log(`⚠ :${RELAY_PORT} 上没有本中继在应答，但 pid 文件里的 ${stale} 仍存活。`)
-        console.log('  该 pid 已不属于本中继（可能被系统复用），拒绝 kill 以免误伤；已清理 pid 文件。')
-      } else {
-        console.log(`无中继在监听 :${RELAY_PORT}${stale ? '（pid 文件已过期，已清理）' : ''}`)
-      }
-      unlinkPidFile()
-      break
-    }
-    try {
-      process.kill(info.pid)
-      console.log(`已停止 cache-relay (PID ${info.pid})`)
-    } catch (e) {
-      console.log(`kill PID ${info.pid} 失败：${e?.message ?? e}`)
-    }
-    unlinkPidFile()
+    if (existsSync(PID_FILE)) {
+      const pid = readFileSync(PID_FILE, 'utf8').trim()
+      try { process.kill(Number(pid)); console.log(`已停止 cache-relay (PID ${pid})`) } catch { console.log('cache-relay 未运行（pid 过期）') }
+      try { unlinkSync(PID_FILE) } catch {}
+    } else console.log('无 pid 文件（未启动）')
     break
   }
   case 'deploy': {
@@ -835,21 +670,18 @@ switch (cmd) {
     // 软回滚：写 .disabled 标记 + 停守护（不删文件，随时 re-deploy）
     mkdirSync(STATE_DIR, { recursive: true })
     writeFileSync(DISABLED_FILE, '')
-    // 同 stop：以健康检查确认身份后再 kill，不用 pid 文件裸杀
-    const live = await probeHealth()
-    if (live) { try { process.kill(live.pid) } catch { /* 已退出 */ } unlinkPidFile() }
+    if (existsSync(PID_FILE)) {
+      try { process.kill(Number(readFileSync(PID_FILE, 'utf8').trim())) } catch {}
+    }
     console.log('cache-relay 已软回滚（.disabled 已写，守护已停）· 恢复 node cache-relay.mjs deploy')
     break
   }
   case 'daemon': {
     if (disabled) { console.log('⛔ 软回滚开关已启用（RELAY_DISABLED=1 或 .disabled），静默退出'); process.exit(0) }
-    if (await probeHealth()) { console.log(`已有中继在监听 :${RELAY_PORT}，不重复启动`); break }
     mkdirSync(STATE_DIR, { recursive: true })
     const { spawn } = await import('node:child_process')
     const child = spawn(process.execPath, [process.argv[1], 'start'], { detached: true, stdio: 'ignore' })
     child.unref()
-    // 子进程启动后会用 claimPidFile() 写入自己的 pid（两者相同）；这里先写一份，
-    // 覆盖「daemon 刚返回、子进程还没启动完」的窗口期，让紧随其后的 stop/doctor 立刻可用。
     writeFileSync(PID_FILE, String(child.pid))
     console.log(`cache-relay 守护已启动 (PID ${child.pid}) · 停止 node cache-relay.mjs stop`)
     break
@@ -857,10 +689,6 @@ switch (cmd) {
   case 'start':
   default: {
     if (disabled) { console.log('⛔ 软回滚开关已启用（RELAY_DISABLED=1 或 ~/.cache-relay/.disabled），静默退出'); process.exit(0) }
-    // 避免重复起：端口已被我方中继占用时直接退出（否则 bind 失败前会先把 pid 文件写坏）
-    const running = await probeHealth()
-    if (running) { console.log(`已有中继在监听 :${RELAY_PORT} (PID ${running.pid})，不重复启动`); break }
-    claimPidFile()
     serve()
     break
   }

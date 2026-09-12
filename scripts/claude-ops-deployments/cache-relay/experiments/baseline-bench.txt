@@ -1,0 +1,41 @@
+① 端到端路径：parse → align → stringify → byteLength   (reps=25)
+
+用例                      大小        基线         优化         提速      基线p95       优化p95
+--------------------------------------------------------------------------------------------
+main-full               293KB     3.40ms     3.37ms     1.01×   4.88ms      4.77ms
+main-bare               290KB     2.91ms     3.12ms     0.93×   4.27ms      5.19ms
+main-date-only          290KB     2.96ms     2.92ms     1.01×   4.27ms      4.35ms
+main-tokens-only        290KB     2.98ms     3.00ms     0.99×   4.17ms      4.43ms
+main-cachectl-only      293KB     2.99ms     3.18ms     0.94×   3.73ms      5.22ms
+main-unsorted-tools     290KB     2.85ms     2.97ms     0.96×   12.39ms     3.88ms
+main-heavy              779KB     6.76ms     7.30ms     0.93×   9.82ms      9.82ms
+main-small              51KB      0.64ms     0.61ms     1.04×   0.91ms      1.01ms
+main-one-msg            48KB      0.61ms     0.75ms     0.82×   1.07ms      1.10ms
+classifier              4KB       0.23ms     0.22ms     1.06×   0.29ms      0.44ms
+classifier-bare         4KB       0.23ms     0.20ms     1.12×   0.29ms      0.21ms
+main-full@glm           290KB     2.94ms     2.99ms     0.98×   4.74ms      4.81ms
+classifier@glm          4KB       0.33ms     0.22ms     1.50×   0.45ms      0.41ms
+main-full@anthropic     290KB     2.36ms     2.26ms     1.04×   2.80ms      3.54ms
+classifier@anthropic    4KB       0.03ms     0.03ms     1.01×   0.06ms      0.03ms
+main-full@openrouter    290KB     1.81ms     1.81ms     1.00×   2.10ms      2.40ms
+classifier@openrouter   4KB       0.02ms     0.02ms     1.00×   0.02ms      0.02ms
+main-full@generic       290KB     2.42ms     2.37ms     1.02×   3.52ms      3.71ms
+classifier@generic      4KB       0.02ms     0.02ms     1.00×   0.02ms      0.02ms
+--------------------------------------------------------------------------------------------
+合计中位:  基线 36.49ms   优化 37.36ms   →  0.98×
+吞吐:      基线 101.9 MB/s   优化 99.6 MB/s
+
+② 阶段拆解（基线版，定位可优化空间）
+
+用例              parse     align     stringify  byteLen  合计        align 占比
+------------------------------------------------------------------------------
+main-full       0.70ms    1.50ms    2.11ms     0.141ms  4.31ms    35%
+main-heavy      1.81ms    3.56ms    4.14ms     0.375ms  9.51ms    37%
+classifier      0.01ms    0.18ms    0.02ms     0.002ms  0.20ms    87%
+（parse/stringify/byteLen 不可动——上游拿到的字节必须一致；align 是可优化部分）
+
+③ 微基准
+
+  readConfig() ×2000:      基线 0.1283ms/次   优化 0.1385ms/次   (0.9×)
+  sortTools(已序45) ×2000: 基线 0.0083ms/次   优化 0.0084ms/次   (1.0×)
+  sortTools(乱序45) ×2000: 基线 0.0084ms/次   优化 0.0085ms/次   (1.0×)
