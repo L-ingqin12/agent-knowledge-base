@@ -1,3 +1,12 @@
+---
+title: DeepSeek 400 上下文溢出恢复
+aliases: []
+tags: [ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # DeepSeek 400（上下文超限）修复与预防
 
 > 第三类 DeepSeek 400：**上下文超限**。前两类见 [[deepseek-400-mitigation-design]]（内容审核 + thinking）。
