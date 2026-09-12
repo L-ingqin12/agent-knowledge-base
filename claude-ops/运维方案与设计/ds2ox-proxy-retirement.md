@@ -107,7 +107,7 @@ llm-deepseek:
 1. 先在 OpenRouter 控制台**轮换（rotate）**该密钥 —— 不要先删文件，避免中途失去可用凭据
 2. 更新 `settings.yaml` 中的 `ox-openrouter` 授权头为新密钥并验证 GLM 路由可用
 3. 删除 `~/.dsh/ds2ox-proxy.mjs` 与 `~/.dsh/ds2ox-proxy.log`
-4. 删除 `settings.yaml.pre-upgrade` 与 `settings.yaml.pre-flash-20260912`（含 8899 引用；同时注意前者还含已失效的 tokenra 密钥 `sk-DFbIH8…`）
+4. 删除 `settings.yaml.pre-upgrade` 与 `settings.yaml.pre-flash-20260912`（含 8899 引用；同时注意前者还含已失效的 tokenra 密钥 `sk-<REDACTED>…`）
 5. 确认开关文件不存在：`~/.dsh/ds2ox-proxy.disabled`、`~/.dsh/ds2ox-search.stub`
 6. 全盘复核是否还有其他副本（见 [[URL-REGISTRY]] 的密钥扫描入口）
 
