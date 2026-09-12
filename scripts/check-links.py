@@ -36,7 +36,11 @@ except Exception:
     pass
 
 EXCLUDE_DIRS = {".git", ".obsidian", "node_modules", "_install-tmp", "_bin", "_out"}
-URL_RE = re.compile(r'https?://[^\s)\]<>"\'\u3000]+')
+# 提取 URL 时必须在**中文标点**与反引号处截断。
+# 原写法只排除半角 `)`，导致 `](https://x/y）`、`](https://x/y\` 之类
+# 把中文全角括号与 Markdown 反引号吞进 URL，产出无法探测的假 URL
+# （实测 `dev.neurips.cc/virtuale/@dannote%2Fpi-agent` 就是这么来的）。
+URL_RE = re.compile(r'https?://[^\s)\]<>"\'\u3000-\u303f\uff00-\uffef`]+')
 # 合法 URL 的词法白名单：只允许 ASCII 可见字符，且显式排除方括号
 SAFE_URL_RE = re.compile(r'^https?://[A-Za-z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+$')
 HOST_RE = re.compile(r'^https?://([^/?#]+)')
@@ -53,8 +57,8 @@ PLACEHOLDER_HOST_RE = re.compile(
     r')$'
 )
 PLACEHOLDER_PATH_RE = re.compile(
-    r'(XXXX|YYYY|your-|YOUR_|your_|<[^>]+>|\$[A-Z_]+\{|\{[^}]*\}|'
-    r'/user/repo|/team/|TODO|placeholder)'
+    r'(XXXX|YYYY|your-|YOUR_|your_|<[^>]+>|\$[A-Za-z_]+|\{[^}]*\}|'
+    r'/user/repo|/team/|TODO|placeholder|%2F|/v1/messages$|/chat/completions$)'
 )
 PRIVATE_IP_RE = re.compile(
     r'^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)'

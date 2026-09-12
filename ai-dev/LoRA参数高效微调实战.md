@@ -303,7 +303,7 @@ Llama-Factory 中只需在 YAML 打开 `deepspeed:` 一行即可接入；QLoRA +
 ## 参考资料
 
 - [LoRA 论文（Low-Rank Adaptation of Large Language Models, arXiv:2106.09685）](https://arxiv.org/abs/2106.09685)：低秩旁路 ΔW=B·A、α/r 缩放、A 高斯/B 零初始化
-- [QLoRA 论文（arXiv:2305.14314）](https://arxiv.org/abs/2305.14314) 与 [NeurIPS 2023 Oral 页面](https://dev.neurips.cc/virtual/2023/oral/73855)：4bit NormalFloat（NF4）、双重量化、分页优化器、65B 模型单卡 48GB 微调
+- [QLoRA 论文（arXiv:2305.14314）](https://arxiv.org/abs/2305.14314) 与 [NeurIPS 2023 Oral 页面](https://neurips.cc/virtual/2023/oral/73855)：4bit NormalFloat（NF4）、双重量化、分页优化器、65B 模型单卡 48GB 微调
 - [LLaMA-Factory 仓库](https://github.com/hiyouga/LLaMA-Factory)：`llamafactory-cli webui / train` 双模式命令
 - [LLaMA-Factory data/README_zh.md](https://github.com/hiyouga/LLaMA-Factory/blob/main/data/README_zh.md)：`dataset_info.json` 注册格式（`columns` 的 `prompt/query/response` 映射）
 - [LLaMA-Factory 数据处理官方文档](https://llamafactory.readthedocs.io/zh-cn/latest/getting_started/data_preparation.html)：数据集准备与注册流程
