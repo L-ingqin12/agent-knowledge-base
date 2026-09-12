@@ -20,7 +20,7 @@ status: stable
 | `network/` | 家庭网络优化：WiFi / 小米路由器 / v2rayN 代理 / 排障与复盘 | [[Network-KB-Home]] |
 | `ai-dev/` | LLM 应用开发实战：Prompt / RAG / Agent / MCP / 微调 等专题 | [[AI-Dev-KB-Home]] |
 | `ai-links/` | AI 链接收藏与调研综述（含 DSH 插件/Hook、编码 Agent 调研报告） | [[AI-Links-KB-Home]] · [[Articles-Index]] |
-| `claude-ops/` | Claude Code 无人值守运维：方案设计 / 事故复盘 / Agent 架构模式 | [[Claude-Ops-KB-Home]] · [[MEMORY-INDEX]] |
+| `claude-ops/` | Claude Code 无人值守运维：方案设计 / 事故复盘 / Agent 架构模式 | [[Claude-Ops-KB-Home]] · [[MEMORY-INDEX]] · [[CORRECTIONS]] |
 | `cs-base/` | 计算机基础：语言 / 算法 / 系统 / 数据库 / 工具链 | [[CS-KB-Home]] |
 | `typora/` | Typora 无补丁激活复盘与可复用流程 | [[TYPORA-KB-Home]] |
 | `diagrams/` | Excalidraw 图表库（绘图规范：禁 Mermaid） | [[ARROW-CHECKLIST]] |
@@ -30,10 +30,16 @@ status: stable
 
 ## 根目录松散文件
 
-归档后根目录仅剩两个 .md：
+归档后根目录的 .md（**2026-09-12 更新**，此前为「仅剩两个」）：
 
-- [[AGENTS]] — 知识库 AI 协作规范（按治理约束保留在根目录的唯一原始松散 .md）
-- [[HOME]] — 本全局索引文件
+| 文件 | 定位 |
+|---|---|
+| [[AGENTS]] | 知识库 AI 协作规范（含 §六·五 错误记忆协议） |
+| [[HOME]] | 本全局索引文件 |
+| [[URL-REGISTRY]] | URL 登记册——外部来源索引，按「何时使用」组织 |
+| [[URL-Lookup]] | URL 速查台——Dataview 检索端（依赖 Dataview 插件） |
+
+> `sources/` 目录为其数据层（71 条来源条目），入口见 `sources/README.md`。
 
 > [!note] 根目录非 .md 残留
 > 根目录仍存在若干**非知识文档**文件，未纳入本次归档：`SDL2*.dll`、`avcodec-* / avformat-* / swscale-5 / swresample-3 / avutil-56 / avdevice-58 / avfilter-7` 等 DLL（疑似误置于库根的运行时库），以及 gitignore 的临时目录 `__pycache__/`、`_install-tmp/`。建议由人工确认后清理或移动。

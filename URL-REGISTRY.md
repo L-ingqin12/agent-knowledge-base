@@ -118,7 +118,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[Articles-Index]] | [[
 | 来源 | 内容 |
 |---|---|
 | [[Network-KB-Home]] | 网络子库 MOC（入口） |
-| [[ROUTER-FULL-CAPABILITY]] | 路由器完整能力手册（R4CM / 192.168.31.1 / SSH） |
+| [[ROUTER-FULL-CAPABILITY]] | 路由器完整能力手册（R4CM / [IP已脱敏] / SSH） |
 | [[参考-小米路由器API认证与利用]] | 小米路由器 API 认证机制 |
 | [[参考-网络路由与代理排障]] | 路由与代理排障 |
 | [[参考-VPN代理诊断与优化]] | VPN/代理诊断 |

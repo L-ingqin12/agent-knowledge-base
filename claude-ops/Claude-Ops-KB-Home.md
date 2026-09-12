@@ -3,7 +3,7 @@ title: Claude-Ops-KB-Home
 aliases: [Claude Code 运维知识库, claude-ops, ClaudeOps]
 tags: [moc, ai/ops]
 created: 2026-08-17
-updated: 2026-09-06
+updated: 2026-09-12
 status: stable
 ---
 
@@ -11,9 +11,14 @@ status: stable
 
 > [!abstract] 概述
 > 本子库承载远程仓库 `akb-remote`（Claude Code 无人值守运维知识库，commit `f493130`）的运维知识体系：从现象→根因→方案→部署的完整推导与产出。所有文档均可独立阅读，彼此正交但交叉引用。
-> 迁移日期：2026-08-17 · 文档总数：61（54 篇迁移 + 本 MOC + [[MEMORY-INDEX]] + 2026-08-25 新增 4 篇 + 2026-08-28 事故复盘 1 篇）
+> 迁移日期：2026-08-17 · 文档总数：61（54 篇迁移 + 本 MOC + [[MEMORY-INDEX]] + 2026-08-25 新增 4 篇 + 2026-08-28 事故复盘 1 篇 + 2026-09-12 新增 [[CORRECTIONS]]）
 
-See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]]
+See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECTIONS]] · [[MEMORY-INDEX]]
+
+> [!danger] 出结论前先回查 [[CORRECTIONS]]
+> 本子库新增**方法论错误记忆库** [[CORRECTIONS]]（2026-09-12 建）：记录**判断错过的结论、错在哪一步、可复用的判定规则**。
+> 与 [[MEMORY-INDEX]] 的分工：那边记**架构模式**，这边记**判断错误**。
+> 协议已写入 [[AGENTS]] §六·五——形成任何**判断性结论**前，先回查其速查索引一次。
 
 ## 六层防御架构与阅读顺序
 

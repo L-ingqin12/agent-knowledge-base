@@ -25,7 +25,7 @@ status: draft
 - 来源:: 路由器完整能力手册
   use_when:: 查路由器型号/固件/SSH 接入方式
   url:: wikilink://ROUTER-FULL-CAPABILITY
-  answers:: R4CM 192.168.31.1 fw 2.14.87、SSH root@22、legacy crypto 要求
+  answers:: R4CM [IP已脱敏] fw 2.14.87、SSH root@22、legacy crypto 要求
   authority:: 高
   verified:: 2026-09-12
 
