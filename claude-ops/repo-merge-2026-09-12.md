@@ -48,10 +48,10 @@ See also: [[HOME]] | [[AGENTS]] | [[CORRECTIONS]] | [[Claude-Ops-KB-Home]] | [[U
 
 | 前缀 | 位置 |
 |---|---|
-| `sk-835b…` | `hermes-ops/pi/architecture/` 三个文档，共 11 处 |
-| `sk-G5F…` | 同上，含截断形态 `sk-G5F...gNYw` |
-| `sk-DFbIH8…` | `ds2ox-proxy-retirement.md`（tokenra 旧密钥） |
-| `ark-0f3ed…` / `ark-d4637…` | 密钥泄漏事故复盘、调试复盘 |
+| 一个 `sk-` 形态（4 位前缀，**不录于此**） | `hermes-ops/pi/architecture/` 三个文档，共 11 处 |
+| 一个 `sk-` 形态（含截断引用写法） | 同上，含截断形态 `sk-<前缀>...<后缀>` |
+| 一个 `sk-` 形态（已失效的旧网关密钥） | `ds2ox-proxy-retirement.md`（tokenra 旧密钥） |
+| 两个 `ark-` 形态（事故复盘中的误用密钥） | 密钥泄漏事故复盘、调试复盘 |
 
 **验证方法**：合并后**逐文件遍历远程全部 617 个文件**核对（不用 `git grep`，理由见第四节）。
 
@@ -99,12 +99,12 @@ ai-dev/agent-learn/MODULE_README.md、ai-dev/mcp-learn/examples/README.md、cs-b
 ## 四、方法教训（已同步至 [[CORRECTIONS]] 的同类问题）
 
 > [!warning] 教训一：脱敏正则要按「实际观测形态」写
-> 初版用 `sk-835b[A-Za-z0-9]{3,}` 匹配，**实测完全不生效**——文中写作 `sk-835b*******`，
+> 初版用 `sk-<前缀>[A-Za-z0-9]{3,}` 匹配，**实测完全不生效**——文中写作 `sk-<前缀>*******`，
 > **星号不属于该字符类**。
 > **不能按「密钥应该长什么样」写正则，要按「它实际长什么样」写。**
 
 > [!warning] 教训二：注意「截断引用」形态
-> `sk-G5F...gNYw`（前 4 位 + 省略号 + 后 4 位）只匹配长串会漏掉，
+> `sk-<前缀>...<后缀>`（前几位 + 省略号 + 后几位）只匹配长串会漏掉，
 > 而它**同时泄露首尾两段**，比纯前缀更危险。
 
 > [!warning] 教训三：`git grep` 与 PowerShell 正则方言不同，会误报
