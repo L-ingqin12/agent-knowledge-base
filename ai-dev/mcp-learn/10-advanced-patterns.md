@@ -1,3 +1,12 @@
+---
+title: 10 — 高级设计模式
+aliases: [MCP 高级模式, MCP 设计模式, 语义工具路由]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 10 — 高级设计模式
 
 当你已经掌握了基本的 Tools/Resources/Prompts 开发后，这些模式将帮助你构建生产级的 MCP 服务器。
@@ -363,3 +372,10 @@ async def query_table(table_name: str, columns: list[str], where: str = "") -> s
 ├── 每天万次 → Streamable HTTP, 连接池
 └── 每天百万次 → 无状态 + FaaS + 缓存
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文
+- [[07-best-practices]] — 基础实践与安全规范
+- [[08-mcp-vs-skill]] — 架构选型：何时不该用 MCP
+- [[12-real-world-examples]] — 本文模式在生产案例中的体现

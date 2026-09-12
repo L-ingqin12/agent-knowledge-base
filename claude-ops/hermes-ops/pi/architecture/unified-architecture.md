@@ -1,4 +1,15 @@
+---
+title: 树莓派 API 统一入口架构 v1
+aliases: [Pi API 统一入口, permafrost 代理链架构, model-router 统一入口]
+tags: [ai/ops, network/architecture]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 树莓派 API 统一入口架构 v1
+
+See also: [[Claude-Ops-KB-Home]] · [[claude-resilience-architecture]] · [[network-storm-prevention]] · [[claude-debug-postmortem]]
 
 > 部署: 2026-06-30
 

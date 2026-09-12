@@ -1,3 +1,12 @@
+---
+title: 04 — 客户端开发详解
+aliases: [MCP 客户端开发, MCP Client, ClientSession 用法]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 04 — 客户端开发详解
 
 ## 客户端的作用
@@ -194,3 +203,10 @@ except McpError as e:
 except Exception as e:
     print(f"其他错误: {e}")
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（Python Client 全流程）
+- [[03-server-dev]] — 本系列上一节：服务器开发详解
+- [[06-transports]] — 客户端连接方式：stdio / Streamable HTTP
+- [[LLM-Agent开发基础]] — Client 在 Agent 架构中的位置

@@ -1,3 +1,12 @@
+---
+title: 12 — 真实案例研究
+aliases: [MCP 案例研究, Sentry MCP, MCP 生产案例]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 12 — 真实案例研究
 
 分析社区和生产环境中经过验证的 MCP 服务器设计。
@@ -273,3 +282,10 @@ AI Client → Gateway → MCP Server A
 6. **错误信息要可操作** — "数据库连接失败, 请稍后重试" >> "ConnectionError: (1040, 'Too many connections')"
 
 7. **MCP 服务器是产品, 不是工具** — Sentry 的用户不再访问 web 界面, 你的 MCP 服务可能就是用户唯一的交互方式
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文
+- [[10-advanced-patterns]] — 案例中的工作流导向与语义路由模式
+- [[13-ecosystem-projects]] — 更多可参考的开源实现
+- [[LLM-Agent开发基础]] — Agent 侧如何消费这些 MCP 服务

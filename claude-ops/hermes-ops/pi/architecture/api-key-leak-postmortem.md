@@ -1,4 +1,15 @@
+---
+title: API Key 泄漏事故复盘
+aliases: [API Key 泄漏复盘, Hermes Key 泄漏事故, 飞书会话明文曝光]
+tags: [ai/ops, incident]
+created: 2026-09-12
+updated: 2026-09-12
+status: draft
+---
+
 # API Key 泄漏事故复盘 (WIP)
+
+See also: [[Claude-Ops-KB-Home]] · [[final-postmortem]] · [[pi-audit-plan]] · [[CORRECTIONS]]
 
 > 日期: 2026-06-29  
 > 状态: 阶段性归档, `sk-<REDACTED>` 路径待补充

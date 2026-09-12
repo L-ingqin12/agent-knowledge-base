@@ -1,3 +1,12 @@
+---
+title: OpenCode Multi-Agent Collaboration System
+aliases: [OpenCode 多智能体协作系统, 多智能体协作系统, Orchestrator 与子智能体]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode Multi-Agent Collaboration System
 
 一个基于 OpenCode 的生产级多智能体协作系统。包含 1 个主 Orchestrator 和 6 个专业子智能体，覆盖软件开发生命周期中的核心环节。
@@ -95,3 +104,5 @@ opencode
 ## 📄 License
 
 MIT
+
+> 🔗 相关文档：[[opencode-multi-agent-architecture]] · [[fan-out-pattern]] · [[state-machine-control]] · [[Claude-Ops-KB-Home]]

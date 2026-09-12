@@ -1,3 +1,12 @@
+---
+title: 状态机式质量门控系统
+aliases: [质量门控状态机, 子智能体输出验证, RETRY 反馈回环]
+tags: [ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 状态机式质量门控系统
 
 ## 核心问题
@@ -309,3 +318,5 @@ Fan-Out 并行 + 每个子任务独立状态机：
 ### 方案 C: Workflow Engine (未来)
 
 等待 Ephemeral Team API 原生支持 DAG + 回环。
+
+> 🔗 相关文档：[[state-machine-quality-gate-loop]] · [[agent-evals-observability]] · [[state-machine-walkthrough]]

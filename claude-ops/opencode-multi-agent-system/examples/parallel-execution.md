@@ -1,3 +1,12 @@
+---
+title: "示例 2: 并行委托 — 多个子智能体同时工作"
+aliases: [并行委托示例, 多子智能体并行, 交叉验证与优先级排序]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 示例 2: 并行委托 — 多个子智能体同时工作
 
 ## 场景
@@ -85,3 +94,5 @@
 | Debug + 重构 | | ✅ (先修再重构) |
 | 重构 + 测试 | | ✅ (测试验证重构不破坏) |
 | 审查 + 安全 + 文档 | ✅ | |
+
+> 🔗 相关文档：[[basic-delegation]] · [[fan-out-demo]] · [[fan-out-pattern]]

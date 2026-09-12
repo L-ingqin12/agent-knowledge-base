@@ -1,4 +1,15 @@
+---
+title: 外部参考资料索引
+aliases: [外部参考索引, external-resources, POSIX 错误码参考]
+tags: [ai/learning, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 外部参考资料索引
+
+See also: [[Claude-Ops-KB-Home]] · [[error-classification-system]] · [[future-directions]] · [[参考-Pi-Agent-技术调研报告]]
 
 ## 1. POSIX / Linux 系统参考
 
@@ -106,12 +117,12 @@
 - `docs/explore-findings-intermediate.md` — 调研中间产物
 
 ### 内部记忆 (Knowledge Base)
-- [[claude-interruption-resilience]] — 中断恢复三层架构
-- [[claude-socket-error-elimination]] — Socket 错误四层防御
+- [[claude-interruption-resilience-guide]] — 中断恢复三层架构
+- [[claude-socket-error-elimination-guide]] — Socket 错误四层防御
 - [[state-machine-quality-gate-loop]] — 7 状态质量门控回环
 - [[fan-out-subagent-pattern]] — Fan-Out 并行分发模式
-- [[occams-razor-principle]] — 奥卡姆剃刀设计原则
-- [[claude-code-preflight-checklist]] — 操作前强制检查清单
+- 奥卡姆剃刀原则（本库暂无专文） — 奥卡姆剃刀设计原则
+- 操作前强制检查清单（本库暂无专文） — 操作前强制检查清单
 - [[deploy-workflow-write-to-repo-first]] — 先仓库后部署工作流
 
 ## 5. Pi Agent / 边缘 AI
@@ -125,7 +136,7 @@
 ### Termux / PRoot
 - Android 进程管理: OOM 调整 (oom_score_adj), cgroup 限制
 - PRoot 限制: ptrace 不可用, /proc 部分可用
-- 参考: [[claude-code-environment-architecture]]
+- 参考: [[pi-vs-termux-guide]]
 
 ### 边缘推理资源管理
 - 内存分级: GREEN (>500MB) / YELLOW (200-500MB) / RED (<200MB) / DENY (<100MB)

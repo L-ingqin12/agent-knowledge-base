@@ -1,3 +1,12 @@
+---
+title: Workflow 与 Orchestrator 协作机制
+aliases: [Workflow 与主 Agent 协作, Orchestrator 剧本库, 关键词触发工作流]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Workflow 与 Orchestrator 协作机制
 
 ## 谁是主 Agent
@@ -161,3 +170,5 @@ async function executeWorkflow(workflow, context) {
 | Workflow 怎么触发？ | ANALYZE 阶段关键词匹配 / 用户显式指定 / slash command |
 | 谁执行 Workflow？ | Orchestrator 读取剧本，按步骤委托 subagent |
 | Workflow 文件的作用？ | 给人看的参考 + 给 Orchestrator 的指令模板 |
+
+> 🔗 相关文档：[[fan-out-pattern]] · [[state-machine-control]] · [[opencode-multi-agent-architecture]]

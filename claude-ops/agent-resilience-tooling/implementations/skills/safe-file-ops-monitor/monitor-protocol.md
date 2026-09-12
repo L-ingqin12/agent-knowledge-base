@@ -1,4 +1,15 @@
+---
+title: Sub-Agent Reliability Monitoring Protocol
+aliases: [子智能体可靠性监控协议, monitor-protocol, Reliability Judge]
+tags: [ai/skills, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Sub-Agent Reliability Monitoring Protocol
+
+See also: [[Claude-Ops-KB-Home]] · [[AGENT-SKILL-GUIDE]] · [[MIGRATION-GUIDE]] · [[agent-async-isolation-pattern]] · [[main-subagent-realtime-interaction]]
 
 ## Architecture: Main Skill + Monitored Sub-Agents
 

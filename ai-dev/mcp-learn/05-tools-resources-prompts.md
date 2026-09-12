@@ -1,3 +1,12 @@
+---
+title: 05 — 三大核心原语详解
+aliases: [MCP 三大原语, Tools/Resources/Prompts, MCP 原语选型]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 05 — 三大核心原语详解
 
 ## 对比总览
@@ -183,3 +192,10 @@ def step_by_step_debug(error: str, code: str) -> list:
     └── 否 → 需要引导交互？
         └── 是 → 使用 Prompt
 ```
+
+## 相关文档
+
+- [[Function-Calling工具调用实战]] — Tool 原语的函数调用基础
+- [[MCP协议开发实战]] — 同主题实战长文
+- [[03-server-dev]] — 原语在服务器侧的注册方式
+- [[LLM-Agent开发基础]] — 模型如何选择与调用工具

@@ -1,3 +1,12 @@
+---
+title: OpenCode 无人值守完整方案
+aliases: [OpenCode 无人值守, otask 工具链, opencode serve 部署方案]
+tags: [ai/ops, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 无人值守完整方案
 
 OpenCode 零交互、不间断任务执行的生产级配置方案。覆盖本地自动化、远程任务分发、大文件在线分析、安全加固。
@@ -100,3 +109,5 @@ L3: 会话隔离 (独立端口 / Docker 容器)                ← 数据层
 ## 许可
 
 MIT
+
+> 🔗 相关文档：[[opencode-unattended-continuous-guide]] · [[opencode-remote-dispatch-design]] · [[claude-unattended-operation-plan]]

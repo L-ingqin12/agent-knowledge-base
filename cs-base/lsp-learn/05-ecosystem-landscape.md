@@ -1,3 +1,12 @@
+---
+title: LSP 生态全景图
+aliases: [LSP 生态, LSP 项目排名, LSP SDK 选型]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LSP 生态全景图
 
 > 数据来源：GitHub topic `language-server-protocol` (680+ repos)、LSP 官方实现者页面、GitHub 搜索结果
@@ -276,3 +285,10 @@ Model Context Protocol (MCP) 与 LSP 的融合是 2025-2026 的热点：
 | terraform-ls | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
 
 ✅ = 完整支持 | ⚠️ = 部分支持 | — = 不支持或未知
+
+## 相关文档
+
+- [[CS-KB-Home]] — cs-base 子库首页
+- [[04-advanced-topics]] — 本系列第四节：进阶实现主题
+- [[LLVM编译器基础设施]] — clangd / LLVM 工具链背景
+- [[01-lsp-overview]] — 本系列第一节：协议基础

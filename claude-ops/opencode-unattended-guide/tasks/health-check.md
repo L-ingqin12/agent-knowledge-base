@@ -1,5 +1,10 @@
 ---
 title: 部署机健康检查
+aliases: [健康检查任务, 部署机巡检模板]
+tags: [ai/ops, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
 agent: analyzer
 model: anthropic/claude-sonnet-4
 timeout: 300
@@ -66,3 +71,5 @@ dmesg | tail -20 | grep -iE "error|fail|oom|killed" || true
 - 只读诊断命令
 - 不要修改任何系统配置
 - Windows 上自动选择对应命令
+
+> 🔗 相关文档：[[opencode-remote-dispatch-design]] · [[opencode-practical-patterns]] · [[Claude-Ops-KB-Home]]

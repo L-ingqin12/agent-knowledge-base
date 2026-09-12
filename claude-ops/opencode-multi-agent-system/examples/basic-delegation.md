@@ -1,3 +1,12 @@
+---
+title: "示例 1: 基础委托 — 单一子智能体调用"
+aliases: [基础委托示例, 单一子智能体调用, code-reviewer 委托]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 示例 1: 基础委托 — 单一子智能体调用
 
 ## 场景
@@ -72,3 +81,5 @@
 2. **委托 prompt 精简** — 只给最小必要上下文
 3. **主控验证结果** — 不盲目信任子智能体
 4. **主控整合输出** — 用自然语言向用户汇报
+
+> 🔗 相关文档：[[parallel-execution]] · [[chain-workflow]] · [[fan-out-subagent-pattern]]

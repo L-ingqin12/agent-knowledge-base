@@ -1,3 +1,12 @@
+---
+title: LSP 进阶主题
+aliases: [LSP 进阶, LSP 性能优化, LSP 测试策略]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LSP 进阶主题
 
 > 这些进阶特性在实际项目中的实现可参考：
@@ -372,3 +381,10 @@ socat -v TCP-LISTEN:9999,fork,reuseaddr TCP:localhost:8888
 | 诊断不显示 | 同步模式为 None | 改为 Full 或 Incremental |
 | Position 偏移错误 | UTF-8/UTF-16 混淆 | 检查 positionEncoding |
 | 服务器启动失败 | 依赖缺失或路径错误 | 检查 cmd/args 配置 |
+
+## 相关文档
+
+- [[03-implement-server]] — 本系列第三节：从零实现服务器
+- [[05-ecosystem-landscape]] — 生产级实现的生态参考
+- [[Python高级核心]] — 并发与异步相关的语言基础
+- [[LLVM编译器基础设施]] — clangd 等 C/C++ 服务器的编译器背景

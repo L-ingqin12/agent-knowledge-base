@@ -1,3 +1,12 @@
+---
+title: 第五部分：动手实践练习
+aliases: [Agent 动手练习, Agent 实践练习, Agent Demo 代码]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第五部分：动手实践练习
 
 ## 5.1 基础练习
@@ -471,3 +480,10 @@ if __name__ == "__main__":
     result = agent.run("写一个函数对列表进行排序，要求能自定义排序规则，并写测试")
     print(f"\n=== 最终输出 ===\n{result}")
 ```
+
+## 相关文档
+
+- [[Function-Calling工具调用实战]] — 练习中 Tool Use 流程的完整讲解
+- [[MCP协议开发实战]] — 把练习中的工具升级为 MCP Server
+- [[02-core-components]] — 练习涉及的核心组件原理
+- [[LLM-Agent开发基础]] — 从零实现 Agent 循环的对照教程

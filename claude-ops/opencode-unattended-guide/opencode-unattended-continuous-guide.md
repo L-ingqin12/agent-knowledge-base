@@ -1,3 +1,12 @@
+---
+title: OpenCode 无人值守与持续对话指南
+aliases: [OpenCode 无人值守指南, 零交互任务执行, 持续对话 Session 管理]
+tags: [ai/ops, ai/tools]
+created: 2026-06-11
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 无人值守与持续对话指南
 
 > 如何使用 `opencode run` 实现零交互、不间断的任务执行与多轮持续对话
@@ -489,3 +498,5 @@ opencode run --session "$(cat .opencode-sid-refactor)" "重构任务"
 > 📅 最后更新：2026-06-11
 >
 > 🤖 本文档由 Claude (claude.ai/code) 辅助整理
+>
+> 🔗 相关文档：[[opencode-remote-dispatch-design]] · [[opencode-conversation-design]] · [[claude-unattended-methodology]]

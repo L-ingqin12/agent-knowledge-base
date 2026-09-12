@@ -1,3 +1,12 @@
+---
+title: 01 — MCP 核心概念与架构
+aliases: [MCP 核心概念, MCP 三层架构, MCP Overview]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 01 — MCP 核心概念与架构
 
 ## 什么是 MCP
@@ -73,3 +82,11 @@ MCP 之于 AI 工具集成，就像 USB-C 之于设备充电——提供统一�
 3. **安全优先**: 用户始终控制数据访问权限
 4. **可发现**: 客户端可以动态发现服务器的能力
 5. **可组合**: 一个 Host 可以连接多个 MCP Server
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文：从协议原理到三平台接入
+- [[LLM-Agent开发基础]] — Host/Client/Server 之上的 Agent 基础
+- [[Function-Calling工具调用实战]] — MCP 之前的工具调用范式
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页
+- [[02-quickstart]] — 本系列下一节：快速开始

@@ -1,4 +1,15 @@
+---
+title: 死循环根因分类学 (Deadloop Taxonomy)
+aliases: [死循环分类学, Deadloop Taxonomy, mkdir 死循环场景]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 死循环根因分类学 (Deadloop Taxonomy)
+
+See also: [[Claude-Ops-KB-Home]] · [[error-classification-system]] · [[core-insight]] · [[pi-agent-constraints]]
 
 ## 1. 触发场景矩阵
 

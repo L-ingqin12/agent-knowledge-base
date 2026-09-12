@@ -1,3 +1,12 @@
+---
+title: "08 — MCP vs Skill: 功能实现选型指南"
+aliases: [MCP vs Skill, MCP 与 Skill 选型, 扩展方式选型]
+tags: [ai, ai/learning, ai/skills]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 08 — MCP vs Skill: 功能实现选型指南
 
 ## 一句话总结
@@ -189,3 +198,10 @@ Claude Code   │  Skill      │  Skill + bash
 - **MCP** = 为 Claude Code 扩展它不具备的能力 + 跨客户端复用
 
 **唯一金标准: 需要写多少代码?** 写 prompt 解决 → Skill。写 Python/Node/Go 解决 → MCP。
+
+## 相关文档
+
+- [[Agent-Skills技能开发实战]] — Skill 一侧的完整开发指南
+- [[MCP协议开发实战]] — MCP 一侧的完整实战
+- [[10-advanced-patterns]] — 选型 MCP 之后的进阶设计模式
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

@@ -1,4 +1,15 @@
+---
+title: 多场景防御矩阵：按控制面可用性选择方案
+aliases: [多场景防御矩阵, Scenario Matrix, 控制面矩阵 S0-S6]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 多场景防御矩阵：按控制面可用性选择方案
+
+See also: [[Claude-Ops-KB-Home]] · [[prompt-only-defense]] · [[architecture-overview]] · [[external-resources]]
 
 > **核心思想**: 不要预设框架有什么能力。枚举所有可能的控制面组合，对每种组合给出最优方案。
 > 用户根据自己框架的实际能力，查表选取。

@@ -1,3 +1,12 @@
+---
+title: OpenCode 多智能体协作系统 — 架构设计文档
+aliases: [多智能体架构设计, OpenCode 智能体模型, 自规划算法设计]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 多智能体协作系统 — 架构设计文档
 
 ## 设计目标
@@ -179,3 +188,5 @@ Fan-Out 是并行执行的扩展：主智能体一次性将任务分解为 N 个
 每个 `.md` 文件包含:
 - YAML frontmatter: `description`, `mode`, `tools`
 - Markdown body: 系统指令（System Prompt）
+
+> 🔗 相关文档：[[opencode-multi-agent-architecture]] · [[fan-out-subagent-pattern]] · [[parallel-execution]] · [[chain-workflow]]

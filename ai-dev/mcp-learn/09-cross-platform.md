@@ -1,3 +1,12 @@
+---
+title: "09 — 跨平台兼容: 让 MCP 服务器一次编写到处运行"
+aliases: [MCP 跨平台, MCP 多客户端兼容, MCP 配置速查]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 09 — 跨平台兼容: 让 MCP 服务器一次编写到处运行
 
 MCP 协议本身是标准化的，但**不同客户端的配置文件格式和传输支持存在差异**。本章教你如何编写兼容所有主流平台的 MCP 服务器。
@@ -538,3 +547,10 @@ OpenCode 作为新兴的开源 AI 编码工具，有几点值得注意:
 - [ ] 提供多平台配置模板 (`configs/` 目录)
 - [ ] README 写清楚每个平台的配置方式
 - [ ] 测试覆盖: 至少 Claude Code + OpenCode + Cursor
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（三平台接入实践）
+- [[06-transports]] — 平台差异背后的传输层原理
+- [[11-testing-debugging]] — 跨平台问题的测试与调试
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

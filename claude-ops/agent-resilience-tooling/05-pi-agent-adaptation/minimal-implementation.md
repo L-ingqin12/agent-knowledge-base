@@ -1,4 +1,15 @@
+---
+title: 'Minimal Implementation: Tier 2 Shell Library + Prompt'
+aliases: [Tier 2 最小实现, agent-safe-fs.sh, 最小实现方案]
+tags: [ai/agent, ai/ops, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Minimal Implementation: Tier 2 Shell Library + Prompt
+
+See also: [[Claude-Ops-KB-Home]] · [[pi-agent-constraints]] · [[prompt-only-defense]] · [[checkpoint-recovery-design]]
 
 ## Architecture Decision: Tier 2
 

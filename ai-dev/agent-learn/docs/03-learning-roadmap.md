@@ -1,3 +1,12 @@
+---
+title: 第三部分：Agent 开发学习路线
+aliases: [Agent 学习路线, Agent 学习计划, Agent 开发路线图]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第三部分：Agent 开发学习路线
 
 ## 学习阶段概览
@@ -179,3 +188,10 @@
 - Anthropic Cookbook GitHub
 - r/LocalLLaMA
 - LangChain Discord
+
+## 相关文档
+
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页，可对照完整教程主线
+- [[Prompt-Engineering入门与Demo]] — 阶段一「Prompt Engineering 基础」的对应文档
+- [[Function-Calling工具调用实战]] — 阶段一中 Tool Use 流程的深入版本
+- [[04-frameworks-deep-dive]] — 本系列第四部分：框架详解与拆解

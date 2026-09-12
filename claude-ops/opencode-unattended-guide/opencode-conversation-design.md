@@ -1,3 +1,12 @@
+---
+title: OpenCode 多轮对话 + 结果检测 — 完整策略
+aliases: [OpenCode 多轮对话策略, NDJSON 结果检测, 对话状态机]
+tags: [ai/ops, ai/agent]
+created: 2026-06-11
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 多轮对话 + 结果检测 — 完整策略
 
 > 如何用 `opencode run --format json` 构建可控的多轮对话链，并在每轮自动判定是否生成了有效结果。
@@ -288,3 +297,5 @@ fi
 > 📅 2026-06-11
 >
 > 相关: [otask.sh](otask.sh) / [opencode-unattended-continuous-guide.md](opencode-unattended-continuous-guide.md)
+>
+> 🔗 相关文档：[[opencode-remote-dispatch-design]] · [[state-machine-quality-gate-loop]] · [[claude-context-continuity-guide]]

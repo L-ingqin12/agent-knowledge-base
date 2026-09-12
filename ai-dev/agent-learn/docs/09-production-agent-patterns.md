@@ -1,3 +1,12 @@
+---
+title: 第九部分：生产级 Agent 工程实践与案例集
+aliases: [生产级 Agent 实践, Agent 工程实践, Agent 生产案例]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第九部分：生产级 Agent 工程实践与案例集
 
 > 综合 Google Cloud, Mindflow, Arthur.ai, OpenAI 2025-2026 最佳实践
@@ -171,3 +180,10 @@ Snowflake 2026 年实践：
 | Snowflake 2026 | 组织级上下文本体: 准确率 +20%, 调用 -39% |
 | Arthur.ai 2026 | 分级自治是人机协同的关键 |
 | OpenAI CCCD | 从高人工控制+低AI自主开始, 逐步推进 |
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 「工具优先 + MCP 集成层」的协议落地
+- [[LLM推理部署与量化]] — 生产环境中的推理成本与性能权衡
+- [[10-advanced-agent-patterns]] — 本系列第十部分：高级 Agent 模式
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

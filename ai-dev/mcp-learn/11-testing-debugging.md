@@ -1,3 +1,12 @@
+---
+title: 11 — 测试、调试与生产部署
+aliases: [MCP 测试, MCP 调试, MCP 生产部署]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 11 — 测试、调试与生产部署
 
 MCP 服务器在本质上是**微服务**——需要传统服务的所有运维严谨性。
@@ -406,3 +415,10 @@ jobs:
 - [ ] 请求超时 (所有外部操作 ≤ 30s)
 - [ ] 优雅关闭 (SIGTERM/SIGINT 处理)
 - [ ] 分页/截断防护大响应
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（Inspector 调试与离线部署）
+- [[09-cross-platform]] — 多平台配置与兼容性测试
+- [[10-advanced-patterns]] — 无状态部署等生产模式
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

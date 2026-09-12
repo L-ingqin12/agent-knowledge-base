@@ -1,4 +1,15 @@
+---
+title: Explore 调研中间产物 — 关键发现汇总
+aliases: [Explore 调研发现, 调研中间产物, 防死循环机制调研]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: draft
+---
+
 # Explore 调研中间产物 — 关键发现汇总
+
+See also: [[Claude-Ops-KB-Home]] · [[claude-interruption-resilience-guide]] · [[claude-network-resilience-design]] · [[production-diagnosis-2026-07-06]] · [[subagent-lessons-learned-2026-07-03]]
 
 > 本文档记录 3 个并行 Explore 子智能体的调研结果，作为后续设计的依据和交叉验证源。
 > 调研日期: 2000-01-01
@@ -112,5 +123,5 @@ SessionStart:
 
 - [[state-machine-quality-gate-loop]] — 7 状态 + RETRY/ESCALATE，重试上限 3，总轮次上限 10
 - [[fan-out-subagent-pattern]] — 并行分发，不同文件零冲突
-- [[occams-razor-principle]] — 从简到繁，用现有工具组合
-- [[claude-code-preflight-checklist]] — 5 项检查 + 5 条硬规则
+- 奥卡姆剃刀原则（本库暂无专文） — 从简到繁，用现有工具组合
+- 操作前强制检查清单（本库暂无专文） — 5 项检查 + 5 条硬规则

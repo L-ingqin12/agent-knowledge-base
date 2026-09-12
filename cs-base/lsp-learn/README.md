@@ -1,3 +1,12 @@
+---
+title: LSP (Language Server Protocol) 学习指南
+aliases: [LSP 学习指南, lsp-learn, LSP 教程索引]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LSP (Language Server Protocol) 学习指南
 
 ## 目录
@@ -59,3 +68,11 @@ cd demo
 pip install -r requirements.txt
 python -m pytest server/test_server.py -v   # 运行测试
 python server/server.py                     # 启动服务器 (stdio)
+```
+
+## 相关文档
+
+- [[CS-KB-Home]] — cs-base 子库首页
+- [[LLVM编译器基础设施]] — clangd 所在的 LLVM 工具链背景
+- [[Python高级核心]] — 用 Python + pygls 实现语言服务器的语言基础
+- [[01-lsp-overview]] — 本系列第一节：LSP 概述

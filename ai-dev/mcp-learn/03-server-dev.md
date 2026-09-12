@@ -1,3 +1,12 @@
+---
+title: 03 — 服务器开发详解
+aliases: [MCP 服务器开发, FastMCP 详解, MCP Server 开发]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 03 — 服务器开发详解
 
 ## FastMCP vs 底层 API
@@ -229,3 +238,10 @@ async def query_data(query: str, ctx) -> str:
     db = ctx.lifespan_context["db"]
     return await db.query(query)
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（FastMCP 全链路）
+- [[05-tools-resources-prompts]] — 三大核心原语的深入讲解
+- [[04-client-dev]] — 本系列下一节：客户端开发详解
+- [[Function-Calling工具调用实战]] — 工具 inputSchema 的底层来源

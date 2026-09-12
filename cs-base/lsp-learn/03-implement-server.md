@@ -1,3 +1,12 @@
+---
+title: 实现一个简单的 LSP 服务器
+aliases: [LSP 服务器实现, pygls 实战, LSP Server 开发]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 实现一个简单的 LSP 服务器
 
 ## 选择实现语言
@@ -373,3 +382,10 @@ except Exception as e:
 6. [ ] 在编辑器中注册为 Language Client
 7. [ ] 编写测试用例
 8. [ ] 处理错误和边缘情况
+
+## 相关文档
+
+- [[02-core-features]] — 本系列第二节：要实现的协议功能
+- [[Python高级核心]] — pygls 服务器实现所需的 Python 基础
+- [[05-ecosystem-landscape]] — SDK 选型与生态对比
+- [[CS-KB-Home]] — cs-base 子库首页

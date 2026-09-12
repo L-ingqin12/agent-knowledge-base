@@ -1,3 +1,12 @@
+---
+title: 07 — 最佳实践与安全
+aliases: [MCP 最佳实践, MCP 安全, MCP 工具设计]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 07 — 最佳实践与安全
 
 ## 设计原则
@@ -265,3 +274,10 @@ my-mcp-server/
 │   └── test_resources.py
 └── claude_desktop_config.json.example
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（含踩坑对照表）
+- [[11-testing-debugging]] — 生产部署与安全检查清单
+- [[03-server-dev]] — 本文规范对应的服务端实现
+- [[LLM-Agent开发基础]] — 工具描述与模型行为的关系

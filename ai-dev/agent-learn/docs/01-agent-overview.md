@@ -1,3 +1,12 @@
+---
+title: 第一部分：AI Agent 概述
+aliases: [AI Agent 概述, Agent 概述, Agent 架构模式]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第一部分：AI Agent 概述
 
 ## 1.1 什么是 AI Agent
@@ -33,3 +42,10 @@ AI Agent（智能体）是一个能够**感知环境、做出决策、执行行�
 - **ReAct（Reasoning + Acting）** — 交替进行推理和行动
 - **Plan-and-Execute** — 先规划再逐步执行
 - **Multi-Agent** — 多个 Agent 协作完成复杂任务
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — Agent 四组件、ReAct 循环与本篇概念的对照
+- [[Function-Calling工具调用实战]] — Agent 行动能力的底层：工具调用机制
+- [[02-core-components]] — 本系列第二部分：Agent 核心组件详解
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页，教程体系总览

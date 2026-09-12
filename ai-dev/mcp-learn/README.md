@@ -1,3 +1,12 @@
+---
+title: MCP (Model Context Protocol) 学习指南
+aliases: [MCP 学习指南, mcp-learn, MCP 教程索引]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # MCP (Model Context Protocol) 学习指南
 
 MCP 是 Anthropic 推出的开放标准协议，为 AI 模型提供连接外部工具、数据和 API 的统一接口。类比：**MCP 之于 AI 工具集成，就像 USB-C 之于设备充电**——一个通用连接器。
@@ -53,3 +62,11 @@ python simple_server.py
 2. **三种原语**: Tools (模型控制的操作)、Resources (应用控制的只读数据)、Prompts (可复用交互模板)
 3. **传输方式**: stdio (本地)、Streamable HTTP (远程)、SSE (已废弃)
 4. **鉴权**: OAuth 2.0 + Client ID Metadata Documents
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题的完整实战长文，可与本系列对照阅读
+- [[LLM-Agent开发基础]] — 工具层之前的 Agent 基础
+- [[Function-Calling工具调用实战]] — MCP 要解决的 Function Call 三大缺陷
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页
+- [[01-overview]] — 本系列第一节：MCP 核心概念与架构

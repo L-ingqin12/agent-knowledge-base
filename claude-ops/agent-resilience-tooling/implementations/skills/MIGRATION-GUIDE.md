@@ -1,4 +1,15 @@
+---
+title: Skill 迁移指南：单 Agent → 主监控 + 子执行
+aliases: [Skill 迁移指南, MIGRATION-GUIDE, 主监控子执行架构]
+tags: [ai/skills, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Skill 迁移指南：单 Agent → 主监控 + 子执行
+
+See also: [[Claude-Ops-KB-Home]] · [[pi-agent-adapter]] · [[monitor-protocol]] · [[AGENT-SKILL-GUIDE]] · [[fan-out-subagent-pattern]]
 
 ## 一、架构对比
 

@@ -1,4 +1,15 @@
+---
+title: 错误分类系统 (Error Classification System)
+aliases: [错误分类系统, ErrorCode 枚举, 可重试性矩阵]
+tags: [ai/agent, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 错误分类系统 (Error Classification System)
+
+See also: [[Claude-Ops-KB-Home]] · [[deadloop-taxonomy]] · [[tool-abstraction-design]] · [[null-response-guard]]
 
 > 终结 AI Agent 死循环的第一步：让 Agent 能读懂错误的"方言"。
 >

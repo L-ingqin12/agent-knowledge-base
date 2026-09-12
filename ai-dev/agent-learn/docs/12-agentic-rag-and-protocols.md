@@ -1,3 +1,12 @@
+---
+title: 第十二部分：Agentic RAG + 通信协议 + 可信 Agent
+aliases: [Agentic RAG, Agent 通信协议, 可信 Agent]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第十二部分：Agentic RAG + 通信协议 + 可信 Agent
 
 > 综合 Microsoft ai-agents-for-beginners (Lessons 5/6/11) + Hello-Agents (Chapters 8/10)
@@ -219,3 +228,10 @@ Planning  → Tool (decompose/assign)
 | 侧重 | 企业生产 (安全/可观测性/协议) | 从零构建 (原理→代码→框架) |
 | 独特贡献 | Trustworthy Agent, Production | "Everything is a Tool", Agentic-RL |
 | agent-learn 对齐 | docs/09 (生产), adapters/ (MAF 等效) | base.py/tools.py (Tool 抽象) |
+
+## 相关文档
+
+- [[RAG检索增强生成实战]] — 传统 RAG 的原理与工程实践
+- [[GraphRAG知识图谱增强实战]] — 图谱增强检索与 Agentic RAG 的互补
+- [[MCP协议开发实战]] — 通信协议部分的 MCP 实践
+- [[A2A多智能体协作协议]] — Agent 间协作协议详解

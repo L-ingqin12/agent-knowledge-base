@@ -1,5 +1,10 @@
 ---
 title: 归档日志压缩包批量分析
+aliases: [归档日志分析任务, 压缩包批量分析模板]
+tags: [ai/ops, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
 agent: analyzer
 model: anthropic/claude-sonnet-4
 timeout: 900
@@ -87,3 +92,5 @@ done
 - **禁止用 read 工具加载文件**——全部用 bash 命令
 - 每个压缩包的处理时间控制在 30 秒内（用 timeout 保护）
 - 如果归档数量 > 100 个，采样分析（取最近 30 个 + 均匀采样 20 个）
+
+> 🔗 相关文档：[[opencode-practical-patterns]] · [[log-analysis-agent-architecture]] · [[opencode-remote-dispatch-design]]

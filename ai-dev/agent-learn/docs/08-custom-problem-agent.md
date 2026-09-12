@@ -1,3 +1,12 @@
+---
+title: 第八部分：定制化问题分析 Agent 开发
+aliases: [问题分析 Agent, 诊断型 Agent, O-H-V-C 分析协议]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第八部分：定制化问题分析 Agent 开发
 
 ## 1. 问题分析 Agent 的本质
@@ -175,3 +184,10 @@ Strategy = {
 | Multi-Agent (04) | 多专家并行分析不同假设 |
 | OMO 架构 (06) | 路由→规划→子Agent 分类 |
 | Cache-First (07) | 重复检查相同故障时代码时缓存优化 |
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — 诊断型 Agent 依赖的 Agent 基础循环
+- [[09-production-agent-patterns]] — 本系列第九部分：生产级工程实践
+- [[MCP协议开发实战]] — 把诊断能力封装为可复用的工具服务
+- [[LangChain-LangGraph框架实战]] — 用框架编排多步诊断流程

@@ -1,3 +1,12 @@
+---
+title: OpenCode 远程任务分发与心跳监控 — 完整架构设计
+aliases: [OpenCode 远程任务分发, 心跳监控设计, opencode serve 远程调度]
+tags: [ai/ops, ai/agent]
+created: 2026-06-11
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 远程任务分发与心跳监控 — 完整架构设计
 
 > 解决三大核心问题：
@@ -705,3 +714,5 @@ dispatch.sh 逻辑:
 > 📅 最后更新：2026-06-11
 >
 > 🤖 本文档由 Claude (claude.ai/code) 辅助整理
+>
+> 🔗 相关文档：[[opencode-unattended-continuous-guide]] · [[agent-security-guide]] · [[opencode-practical-patterns]]

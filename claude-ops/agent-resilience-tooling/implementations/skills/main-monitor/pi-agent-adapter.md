@@ -1,4 +1,15 @@
+---
+title: Pi Agent 适配：主监控架构在 4 工具 + 800 tokens 下的实现
+aliases: [Pi Agent 主监控适配, pi-agent-adapter, 4 工具主监控]
+tags: [ai/skills, ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Pi Agent 适配：主监控架构在 4 工具 + 800 tokens 下的实现
+
+See also: [[Claude-Ops-KB-Home]] · [[MIGRATION-GUIDE]] · [[pi-agent-constraints]] · [[checkpoint-recovery-design]]
 
 ## 约束
 

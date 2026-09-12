@@ -1,3 +1,12 @@
+---
+title: Fan-Out 扇出演示 — Orchestrator 并行分发任务
+aliases: [Fan-Out 演示, 并行分发实测, 扇出性能对比]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Fan-Out 扇出演示 — Orchestrator 并行分发任务
 
 ## 场景
@@ -130,3 +139,5 @@ opencode run \
 | Agent list 识别所有智能体 | ✅ |
 | Debug config 解析正确 | ✅ |
 | 免费模型 API 连接 | ❌ TLS 证书验证失败（环境限制） |
+
+> 🔗 相关文档：[[fan-out-pattern]] · [[parallel-execution]] · [[fan-out-subagent-pattern]]

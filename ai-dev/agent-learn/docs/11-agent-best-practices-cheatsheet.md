@@ -1,3 +1,12 @@
+---
+title: 第十一部分：Agent 开发最佳实践速查手册
+aliases: [Agent 最佳实践, Agent 速查手册, Agent 实践清单]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第十一部分：Agent 开发最佳实践速查手册
 
 ## 一、架构原则
@@ -283,3 +292,10 @@ CONTEXT IS KING — 上下文准确性 > 模型选择
 | "突破 Context 限制" | `memory.py` (VirtualMemoryStore) | ★★★ |
 | "切换模型不改代码" | `adapters/` + `provider_agent.py` | ★★ |
 | "以上全部" | 组合使用 | ★★★★★ |
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — 速查条目背后的基础概念
+- [[MCP协议开发实战]] — 工具层实践与速查条目的对应
+- [[09-production-agent-patterns]] — 本系列第九部分：生产实践详版
+- [[10-advanced-agent-patterns]] — 本系列第十部分：高级模式详版

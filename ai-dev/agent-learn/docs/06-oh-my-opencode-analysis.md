@@ -1,3 +1,12 @@
+---
+title: oh-my-opencode Agent 架构深度拆解
+aliases: [oh-my-opencode 拆解, OMO 架构分析, 三层 Agent 架构]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # oh-my-opencode Agent 架构深度拆解
 
 > 基于 v4.2.0 版本分析 (~2,165 TS 文件, ~314k LOC)
@@ -199,3 +208,10 @@ Hub-and-Spoke       →   网状协作(Federated)
 | Todo Enforcer 机制 | Array.prototype 补丁 (hack) |
 | 分类模型选择 | 54 个 Hook (过多) |
 | MCP 三层体系 | 强依赖 Bun 运行时 |
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — 对照单 Agent 基础架构理解三层编排
+- [[Agent-Skills技能开发实战]] — OMO 生态中的 Skill 机制
+- [[MCP协议开发实战]] — 文中「MCP 三层体系」的协议基础
+- [[07-reasonix-architecture-analysis]] — 本系列另一篇架构拆解（缓存优先）

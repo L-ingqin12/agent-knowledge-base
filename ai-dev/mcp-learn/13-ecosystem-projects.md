@@ -1,3 +1,12 @@
+---
+title: 13 — GitHub 高分 MCP 项目目录
+aliases: [MCP 项目目录, Awesome MCP, MCP 生态项目]
+tags: [ai, ai/learning, ai/links]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 13 — GitHub 高分 MCP 项目目录
 
 整理 GitHub 上最值得关注的 Awesome MCP 项目，按类别分类，附星数参考 (2026 年中)。
@@ -231,3 +240,10 @@ MCP 生态 (GitHub 300K+ Stars)
   → 发布到 mcpservers.org
   → 分享到 MCP Discord / Reddit
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文
+- [[12-real-world-examples]] — 生产案例研究
+- [[cheatsheet]] — MCP 速查手册
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

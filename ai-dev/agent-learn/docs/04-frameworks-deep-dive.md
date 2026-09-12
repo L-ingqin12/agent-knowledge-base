@@ -1,3 +1,12 @@
+---
+title: 第四部分：Agent 开发框架详解与拆解
+aliases: [Agent 框架详解, Agent 框架拆解, 框架对比与选型]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第四部分：Agent 开发框架详解与拆解
 
 ## 框架全景图
@@ -495,3 +504,10 @@ result = await plan.execute()
 └─ 需要在 .NET / Azure 企业应用中嵌入
     → Semantic Kernel
 ```
+
+## 相关文档
+
+- [[LangChain-LangGraph框架实战]] — LangChain / LangGraph 的动手实战篇
+- [[A2A多智能体协作协议]] — 多 Agent 框架之上的协作协议
+- [[LLM-Agent开发基础]] — 框架之下的原生 SDK 与 Agent 循环
+- [[05-practice-exercises]] — 本系列第五部分：动手实践练习

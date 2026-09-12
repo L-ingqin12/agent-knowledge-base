@@ -1,4 +1,15 @@
+---
+title: Null Response Guard — 空返回值防护层
+aliases: [空返回值防护, Null Response Guard, guard_exec]
+tags: [ai/agent, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Null Response Guard — 空返回值防护层
+
+See also: [[Claude-Ops-KB-Home]] · [[extreme-condition-fallback]] · [[error-classification-system]] · [[minimal-implementation]]
 
 > Part of Layer 4 (Graceful Degradation) of the Agent Resilience Tooling model.
 > Implements the structured error contract defined in `extreme-condition-fallback.md`.

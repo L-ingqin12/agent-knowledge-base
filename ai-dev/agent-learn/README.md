@@ -1,3 +1,12 @@
+---
+title: Agent Learn — AI Agent 开发学习项目
+aliases: [agent-learn 学习项目, Agent 开发学习项目, AI Agent 实战教程]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Agent Learn — AI Agent 开发学习项目
 
 从零学习 AI Agent 开发，包含知识文档、Python 代码库和可运行示例。
@@ -292,4 +301,12 @@ python examples/01_weather_agent.py
 - `03_agent_with_memory.py` — 记忆系统
 - `04_multi_agent_collab.py` — 多 Agent 协作
 - `05_code_assistant.py` — 代码助手
+
+## 相关文档
+
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页，本教程体系的总入口
+- [[LLM-Agent开发基础]] — Agent 四组件与 ReAct 循环的基础篇
+- [[MCP协议开发实战]] — 工具层的协议化集成实践
+- [[Function-Calling工具调用实战]] — 工具调用与 JSON Schema 基础的姊妹篇
+- [[04-frameworks-deep-dive]] — 本系列第四部分：框架全景与拆解
 

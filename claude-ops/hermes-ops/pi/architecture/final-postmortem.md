@@ -1,4 +1,15 @@
+---
+title: 树莓派完整事故链 & 最终状态
+aliases: [Pi 完整事故链, DeepSeek Key 消费事故链, 飞书断连与代理误配]
+tags: [ai/ops, incident]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 树莓派完整事故链 & 最终状态
+
+See also: [[Claude-Ops-KB-Home]] · [[api-key-leak-postmortem]] · [[2026-06-24-hermes-feishu-outage-postmortem]] · [[unified-architecture]]
 
 > 更新: 2026-06-30 | 状态: 代理链路正在修复
 

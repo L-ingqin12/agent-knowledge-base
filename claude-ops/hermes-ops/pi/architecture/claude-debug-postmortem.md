@@ -1,4 +1,15 @@
+---
+title: Claude Code 接入排查复盘
+aliases: [Claude Code 接入排查, Pi 代理链路排查复盘, 接入排查 9 次修复]
+tags: [ai/ops, incident]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Claude Code 接入排查复盘
+
+See also: [[Claude-Ops-KB-Home]] · [[unified-architecture]] · [[CORRECTIONS]] · [[claude-proxy-restart-incident]]
 
 > 耗时: 2026-06-30 ~ 2026-07-02 | 修复次数: 9 次
 

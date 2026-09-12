@@ -1,3 +1,12 @@
+---
+title: LSP (Language Server Protocol) 概述
+aliases: [LSP 概述, 语言服务器协议, LSP 架构]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LSP (Language Server Protocol) 概述
 
 ## 什么是 LSP？
@@ -162,3 +171,10 @@ LSP 已经成为现代开发工具的基石。以下是一些代表性实现：
 | Zig | [zls](https://github.com/zigtools/zls) | 4,918 | zigtools |
 
 > 注：完整的 150+ 服务器列表请参阅 [05-ecosystem-landscape.md](./05-ecosystem-landscape.md)，包含 SDK 选型、编辑器客户端对比等。
+
+## 相关文档
+
+- [[02-core-features]] — 本系列第二节：核心功能详解
+- [[CS-KB-Home]] — cs-base 子库首页
+- [[LLVM编译器基础设施]] — clangd 与编译前端工具链背景
+- [[Python高级核心]] — 实现语言服务器所需的 Python 基础

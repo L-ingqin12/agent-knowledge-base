@@ -1,3 +1,12 @@
+---
+title: 第十三部分：元认知自反思 + Agent 评估
+aliases: [元认知与评估, Agent 自反思, Agent 评估框架]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第十三部分：元认知自反思 + Agent 评估
 
 > 综合 Microsoft Lesson 9 (Metacognition) + Hello-Agents Chapter 4/12 (经典范式 + 评估)
@@ -172,3 +181,10 @@ ReflectionAgent    # 反思范式
 | Hello-Agents Ch4 (范 paradigm) | ReAct/PlanSolve/Reflection | reflexion_agent.py |
 | Hello-Agents Ch7 (自建框架) | "Everything is a Tool" | docs/12 (设计哲学) |
 | Hello-Agents Ch12 (评估) | 三层次评估框架 | docs/13 |
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — 自反思所依赖的 Agent 循环基础
+- [[10-advanced-agent-patterns]] — 本系列第十部分：反思模式与轨迹评估
+- [[12-agentic-rag-and-protocols]] — 本系列第十二部分：Agentic RAG 与协议
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

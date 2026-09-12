@@ -1,4 +1,15 @@
+---
+title: Agent Resilience Tooling — 健壮工具调用体系研究
+aliases: [Agent 韧性工具集, 健壮工具调用体系, agent-resilience-tooling]
+tags: [ai/agent, ai/ops, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Agent Resilience Tooling — 健壮工具调用体系研究
+
+See also: [[Claude-Ops-KB-Home]] · [[core-insight]] · [[architecture-overview]] · [[scenario-matrix]] · [[Agent韧性架构分析-微信转载]]
 
 ## 核心命题
 

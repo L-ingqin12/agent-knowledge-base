@@ -1,4 +1,15 @@
+---
+title: 五层防护架构总览 (Architecture Overview)
+aliases: [五层防护架构, Architecture Overview, 六层防护模型]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 五层防护架构总览 (Architecture Overview)
+
+See also: [[Claude-Ops-KB-Home]] · [[core-insight]] · [[scenario-matrix]] · [[checkpoint-recovery-design]]
 
 ## 1. 五层防护模型
 

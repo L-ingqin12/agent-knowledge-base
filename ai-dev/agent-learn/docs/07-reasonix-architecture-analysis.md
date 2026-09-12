@@ -1,3 +1,12 @@
+---
+title: DeepSeek-Reasonix 架构拆解：对 Agent 开发的启发
+aliases: [Reasonix 架构拆解, 缓存优先 Agent, 三区上下文模型]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # DeepSeek-Reasonix 架构拆解：对 Agent 开发的启发
 
 > 基于 Reasonix v0.53.0 (2026-05-27) 分析 | GitHub: esengine/DeepSeek-Reasonix | 13.8k Stars
@@ -253,3 +262,10 @@ Reasonix 的 `/preset max` 和 `/preset fast` 让用户显式选择。这比"总
 | 许可证 | MIT |
 | 测试数量 | 135+ |
 | 开发周期（0→v0.53） | ~5 周 |
+
+## 相关文档
+
+- [[LLM-Agent开发基础]] — Agent 循环与上下文管理基础
+- [[LLM推理部署与量化]] — 推理侧成本与 KV Cache 的工程视角
+- [[06-oh-my-opencode-analysis]] — 本系列另一篇架构拆解（三层编排）
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

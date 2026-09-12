@@ -1,3 +1,12 @@
+---
+title: "示例 3: 链式工作流 — 有依赖的串行委托"
+aliases: [链式工作流示例, 串行委托, debug 到 refactor 依赖链]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 示例 3: 链式工作流 — 有依赖的串行委托
 
 ## 场景
@@ -170,3 +179,5 @@
 - "重构 + 验证" → refactor-specialist → code-reviewer
 - "修复 + 安全审计" → debugger → security-auditor
 - "新功能 + 文档 + 测试" → test-writer + doc-writer 并行 → code-reviewer 串行
+
+> 🔗 相关文档：[[basic-delegation]] · [[state-machine-walkthrough]] · [[state-machine-control]]

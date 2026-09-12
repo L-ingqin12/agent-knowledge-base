@@ -1,4 +1,15 @@
+---
+title: 断点恢复与多策略回退设计 (Checkpoint Recovery Design)
+aliases: [断点恢复设计, Checkpoint Recovery, WAL+Saga 回退]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 断点恢复与多策略回退设计 (Checkpoint Recovery Design)
+
+See also: [[Claude-Ops-KB-Home]] · [[strategy-router]] · [[core-insight]] · [[claude-interruption-resilience-guide]] · [[state-machine-quality-gate-loop]]
 
 > **核心命题**: 死循环检测后不退出，而是回退到上一个成功的 checkpoint，用不同的策略重试失败步骤，继续执行剩余任务。已完成步骤零重复。
 

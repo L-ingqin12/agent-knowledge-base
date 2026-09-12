@@ -1,4 +1,15 @@
+---
+title: 仅 Prompt/Skill 条件下的防护设计
+aliases: [纯 Prompt 防护, Prompt Only 防御, 认知工程防护]
+tags: [ai/agent, ai/ops, ai/skills]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 仅 Prompt/Skill 条件下的防护设计
+
+See also: [[Claude-Ops-KB-Home]] · [[scenario-matrix]] · [[llm-cognitive-guidance]] · [[pi-agent-constraints]] · [[Agent-Skills技能开发实战]]
 
 > **最严苛场景 (Hardest Constraint)**:
 > - ❌ 无命令注入 (no command/binary injection)

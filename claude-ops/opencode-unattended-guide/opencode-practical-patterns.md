@@ -1,3 +1,12 @@
+---
+title: OpenCode 实操专题：Web 界面 / 大文件分析 / 网络来源
+aliases: [OpenCode 实操专题, opencode web 与 serve 对比, 大文件日志流式分析]
+tags: [ai/ops, ai/tools]
+created: 2026-06-11
+updated: 2026-09-12
+status: review
+---
+
 # OpenCode 实操专题：Web 界面 / 大文件分析 / 网络来源
 
 > 补充三个实操缺口：什么时候用 `opencode web`？怎么分析 GB 级日志和压缩包？怎么从 URL/网络路径获取问题来源？
@@ -251,3 +260,5 @@ otask run tasks/log-analysis.md -t prod-01:4096
 > 📅 2026-06-11
 >
 > 相关：[opencode-remote-dispatch-design.md](opencode-remote-dispatch-design.md) / [agent-security-guide.md](config/agent-security-guide.md)
+>
+> 🔗 相关文档：[[opencode-unattended-continuous-guide]] · [[log-analysis-agent-architecture]] · [[log-analysis-agent-windows-architecture]]

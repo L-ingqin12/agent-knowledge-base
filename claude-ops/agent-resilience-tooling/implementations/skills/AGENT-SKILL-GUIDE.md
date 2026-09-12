@@ -1,4 +1,15 @@
+---
+title: Skill 形式接入完整指南
+aliases: [Skill 接入指南, AGENT-SKILL-GUIDE, safe-file-ops 接入]
+tags: [ai/skills, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Skill 形式接入完整指南
+
+See also: [[Claude-Ops-KB-Home]] · [[MIGRATION-GUIDE]] · [[safe-file-ops]] · [[monitor-protocol]] · [[Agent-Skills技能开发实战]]
 
 ## 概览
 

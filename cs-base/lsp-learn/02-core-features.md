@@ -1,3 +1,12 @@
+---
+title: LSP 核心功能详解
+aliases: [LSP 核心功能, LSP 补全与诊断, LSP 请求方法]
+tags: [cs/toolchain, cs]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LSP 核心功能详解
 
 ## 1. 文档同步 (Document Synchronization)
@@ -295,3 +304,10 @@ textDocument/didSave    — 文件被保存
 ## 请求执行顺序
 
 LSP 不保证请求按发送顺序执行。但 `textDocument/didChange` 等文档同步通知**必须按序处理**，因为服务器需要维护正确的文档状态。
+
+## 相关文档
+
+- [[03-implement-server]] — 本系列第三节：动手实现这些功能
+- [[01-lsp-overview]] — 本系列第一节：协议与架构
+- [[CS-KB-Home]] — cs-base 子库首页
+- [[Python高级核心]] — 服务器实现的语言基础

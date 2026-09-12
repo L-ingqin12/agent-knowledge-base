@@ -1,4 +1,15 @@
+---
+title: 'LLM 认知引导方案：培养"返回值思维"与"错误处置本能"'
+aliases: [LLM 认知引导, 返回值思维, 错误处置本能]
+tags: [ai/agent, ai/skills]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # LLM 认知引导方案：培养"返回值思维"与"错误处置本能"
+
+See also: [[Claude-Ops-KB-Home]] · [[prompt-only-defense]] · [[core-insight]] · [[agent-memory-context-knowledge-design]]
 
 > **核心命题**: 让 LLM 从"写完命令就期待成功"的本能，转变为"每条命令都是一次带返回值的函数调用，必须检查返回值并决策下一步"的思维模式。
 >

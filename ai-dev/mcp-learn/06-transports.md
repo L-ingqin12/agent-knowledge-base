@@ -1,3 +1,12 @@
+---
+title: 06 — 传输层详解
+aliases: [MCP 传输层, stdio 与 Streamable HTTP, MCP Transport]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 06 — 传输层详解
 
 ## 三种传输方式对比
@@ -180,3 +189,10 @@ if __name__ == "__main__":
     else:
         mcp.run(transport="stdio")
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（三种传输的完整配置）
+- [[04-client-dev]] — 客户端如何选择传输方式
+- [[09-cross-platform]] — 各编辑器/客户端的传输支持差异
+- [[11-testing-debugging]] — 传输问题的调试与生产部署

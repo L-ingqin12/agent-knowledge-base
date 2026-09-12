@@ -1,3 +1,12 @@
+---
+title: Agent 访问控制与安全加固
+aliases: [Agent 安全加固, opencode serve 访问控制, 三层防护架构]
+tags: [ai/ops, ai/agent]
+created: 2026-06-11
+updated: 2026-09-12
+status: review
+---
+
 # Agent 访问控制与安全加固
 
 > 当 `opencode serve` 暴露到网络时，默认没有任何访问控制——所有 Agent、所有路径、所有工具都开放。本章提供完整的加固方案。
@@ -315,3 +324,5 @@ otask sessions -t host:4096 | jq -r 'keys[]' | xargs -I{} curl -X DELETE http://
 > 📅 2026-06-11
 >
 > 相关文件: [config/secure-opencode.json](config/secure-opencode.json), [nginx/opencode-upstream.conf](nginx/opencode-upstream.conf)
+>
+> 🔗 相关文档：[[opencode-remote-dispatch-design]] · [[Claude-Ops-KB-Home]] · [[claude-unattended-cross-platform-guide]]

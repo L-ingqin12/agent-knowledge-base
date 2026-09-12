@@ -1,4 +1,15 @@
+---
+title: 后续研究方向与扩展方案
+aliases: [后续研究方向, Future Directions, 10 个延伸方向]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 后续研究方向与扩展方案
+
+See also: [[Claude-Ops-KB-Home]] · [[architecture-overview]] · [[verification-checklist]] · [[agent-evals-observability]] · [[external-resources]]
 
 > 本文档为基于当前研究成果延伸的有价值后续方向。
 > 每个方向标注：可行性、预计工作量、与当前方案的承接关系。

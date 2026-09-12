@@ -1,4 +1,15 @@
+---
+title: 安全工具抽象层设计 (Safe Tool Abstraction)
+aliases: [安全工具抽象层, ensure_directory 设计, Safe Tool Abstraction]
+tags: [ai/agent, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 安全工具抽象层设计 (Safe Tool Abstraction)
+
+See also: [[Claude-Ops-KB-Home]] · [[error-classification-system]] · [[deadloop-taxonomy]] · [[minimal-implementation]]
 
 ## 1. 设计哲学
 

@@ -1,3 +1,12 @@
+---
+title: MCP 速查手册
+aliases: [MCP 速查, MCP Cheatsheet, MCP 一页纸]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # MCP 速查手册
 
 一份浓缩全部知识要点，适合快速查阅。
@@ -155,3 +164,10 @@ docker run --read-only --cap-drop ALL --user 1000:1000 \
 案例:    playwright-mcp ★33k | github-mcp ★30k
 企业:    bh-rat/awesome-mcp-enterprise         精选
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 速查条目对应的完整实战
+- [[01-overview]] — 本系列第一节：核心概念与架构
+- [[Function-Calling工具调用实战]] — 工具调用基础
+- [[LLM-Agent开发基础]] — Agent 与工具层的关系

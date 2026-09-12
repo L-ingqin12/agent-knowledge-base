@@ -1,3 +1,12 @@
+---
+title: Fan-Out 子智能体分发模式
+aliases: [Fan-Out 扇出模式, 子智能体并行分发, 非阻塞 spawn]
+tags: [ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Fan-Out 子智能体分发模式
 
 ## 什么是 Fan-Out
@@ -178,3 +187,5 @@ Orchestrator 在决策时使用以下判断逻辑：
 - [Ouroboros Bridge](https://github.com/Q00/ouroboros) — MCP 钩子 Fan-Out
 - [swarm-control](https://www.npmjs.com/package/swarm-control) — 文件级并行调度
 - [Subagent task delegation (Issue #1293)](https://github.com/anomalyco/opencode/issues/1293) — 子智能体机制起源
+
+> 🔗 相关文档：[[fan-out-subagent-pattern]] · [[Anthropic多智能体研究系统拆解]] · [[agent-async-isolation-pattern]] · [[fan-out-demo]]

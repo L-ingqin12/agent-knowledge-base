@@ -1,4 +1,15 @@
+---
+title: 树莓派状态排查与预防措施计划
+aliases: [Pi 状态排查计划, API Key 预防措施, GitHub Key 泄漏排查]
+tags: [ai/ops, incident]
+created: 2026-09-12
+updated: 2026-09-12
+status: draft
+---
+
 # 树莓派状态排查与预防措施计划
+
+See also: [[Claude-Ops-KB-Home]] · [[api-key-leak-postmortem]] · [[claude-deployment-record]] · [[deploy-workflow-write-to-repo-first]]
 
 > 日期: 2026-06-29 | 状态: Pi 离线, 等待上线执行
 

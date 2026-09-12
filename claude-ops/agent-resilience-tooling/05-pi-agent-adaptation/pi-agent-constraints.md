@@ -1,4 +1,15 @@
+---
+title: Pi Agent Constraints and Design Space for Safe Tool Execution
+aliases: [Pi Agent 约束分析, 800-token 预算, 三 Tier 设计空间]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Pi Agent Constraints and Design Space for Safe Tool Execution
+
+See also: [[Claude-Ops-KB-Home]] · [[pi-agent-constraints-reference]] · [[pi-agent-framework-knowledge]] · [[minimal-implementation]]
 
 ## 1. Framework Profile
 

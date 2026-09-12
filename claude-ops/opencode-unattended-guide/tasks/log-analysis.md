@@ -1,5 +1,10 @@
 ---
 title: 应用日志错误分析
+aliases: [日志错误分析任务, 应用日志分析模板]
+tags: [ai/ops, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
 agent: analyzer
 model: anthropic/claude-sonnet-4
 timeout: 600
@@ -86,3 +91,5 @@ grep "$TRACE_ID" /var/log/app/app.log
 - 所有数据提取用 bash 命令流式处理
 - 压缩包使用 zgrep / tar --to-stdout 不解压
 - Windows 上优先用 findstr / Get-Content -Tail 而非加载完整文件
+
+> 🔗 相关文档：[[opencode-practical-patterns]] · [[log-analysis-agent-architecture]] · [[log-analysis-agent-windows-architecture]]

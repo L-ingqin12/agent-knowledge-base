@@ -1,3 +1,12 @@
+---
+title: 02 — 快速开始
+aliases: [MCP 快速开始, MCP 环境搭建, MCP Hello World]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 02 — 快速开始
 
 ## 环境要求
@@ -107,3 +116,10 @@ mcp-cli --server "python hello_server.py" tools list
 # 调用工具
 mcp-cli --server "python hello_server.py" tools call greet --args '{"name": "世界"}'
 ```
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文（含 uv 环境与 Inspector 调试）
+- [[01-overview]] — 本系列上一节：核心概念与架构
+- [[03-server-dev]] — 本系列下一节：服务器开发详解
+- [[Function-Calling工具调用实战]] — 理解 MCP 工具定义的底层机制

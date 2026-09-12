@@ -1,4 +1,15 @@
+---
+title: 核心洞察：LLM 的自知不可靠性与系统防护的二元一体
+aliases: [核心洞察, 二元防护模型, LLM 自知不可靠性]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 核心洞察：LLM 的自知不可靠性与系统防护的二元一体
+
+See also: [[Claude-Ops-KB-Home]] · [[architecture-overview]] · [[llm-cognitive-guidance]] · [[agent-memory-context-knowledge-design]] · [[CORRECTIONS]]
 
 ## 问题本质
 

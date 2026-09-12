@@ -1,3 +1,12 @@
+---
+title: 第十四部分：Awesome Agent 生态全景
+aliases: [Agent 生态全景, Agent 项目清单, Awesome Agent]
+tags: [ai, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第十四部分：Awesome Agent 生态全景
 
 > 综合 GitHub 高星项目、awesome 精选列表、2025-2026 趋势
@@ -152,3 +161,10 @@ Braintrust / LangSmith / AgentEval — 评估和可观测性成为基础设施�
 | 类型安全 Agent | Pydantic AI |
 | 前端 Web Agent | Mastra + Vercel AI SDK |
 | RAG Agent | LangChain + LlamaIndex + RAGFlow |
+
+## 相关文档
+
+- [[LangChain-LangGraph框架实战]] — 生态第一梯队框架的实战篇
+- [[多模态Agent平台实战]] — 多模态方向的平台实践
+- [[13-ecosystem-projects]] — MCP 方向的生态项目目录（可对照阅读）
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页

@@ -1,4 +1,15 @@
+---
+title: Extreme Condition Fallback — 极端系统条件下的兜底反馈
+aliases: [极端条件兜底, Extreme Condition Fallback, 结构化错误契约]
+tags: [ai/agent, ai/tools]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Extreme Condition Fallback — 极端系统条件下的兜底反馈
+
+See also: [[Claude-Ops-KB-Home]] · [[null-response-guard]] · [[error-classification-system]] · [[core-insight]]
 
 > Part of Layer 4 (Graceful Degradation) of the Agent Resilience Tooling model.
 > See `../03-error-classification/error-classification-system.md` for the error code taxonomy that underpins the structured contract defined here.

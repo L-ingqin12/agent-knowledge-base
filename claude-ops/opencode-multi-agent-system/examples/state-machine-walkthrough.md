@@ -1,3 +1,12 @@
+---
+title: 状态机回环实战演练
+aliases: [状态机演练, 质量门控回环实例, 双任务串行演练]
+tags: [ai/agent, ai/learning]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 状态机回环实战演练
 
 ## 场景: 修复密码安全 + 审计确认
@@ -239,3 +248,5 @@ T3: R1→PASS ✓ (1轮)
 → 总耗时: max(T1两轮, T2一轮, T3一轮) = T1 两轮
 → 串行: 1+2+1 = 4轮，并行: max(2,1,1) = 2轮，加速 2x
 ```
+
+> 🔗 相关文档：[[chain-workflow]] · [[state-machine-control]] · [[state-machine-quality-gate-loop]]

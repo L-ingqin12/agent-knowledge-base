@@ -1,3 +1,12 @@
+---
+title: Nginx 接入层部署指南
+aliases: [Nginx 接入层, opencode serve 反向代理, 限流与 TLS 终止]
+tags: [ai/ops, network/proxy]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # Nginx 接入层部署指南
 
 为 `opencode serve` 添加 nginx 反向代理，获取生产级的并发控制、限流、TLS 终止和负载均衡能力。
@@ -164,3 +173,5 @@ allow 192.168.0.0/16;
 allow 100.64.0.0/10;    # Tailscale
 deny all;
 ```
+
+> 🔗 相关文档：[[opencode-remote-dispatch-design]] · [[agent-security-guide]] · [[opencode-unattended-continuous-guide]]

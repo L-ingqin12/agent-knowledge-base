@@ -1,3 +1,12 @@
+---
+title: 第十部分：高级 Agent 模式 — 反思、ToT、Multi-Agent 与评估
+aliases: [高级 Agent 模式, Reflexion 与 ToT, Agent 轨迹评估]
+tags: [ai, ai/learning, ai/agent]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 第十部分：高级 Agent 模式 — 反思、ToT、Multi-Agent 与评估
 
 > 综合 2025 年研究文献: Reflexion++, Tree-of-Thought, Multi-Agent Taxonomy, Agent Evaluation
@@ -190,3 +199,10 @@ Tree:         A
 > **从最简单的能工作的架构开始，充分 instrumentation，让生产数据驱动演进。**
 > 先用带工具和反思的单 Agent。只在任务分解确实需要专门角色时才升级到 Multi-Agent。
 > 评估要度量整个执行轨迹 — 计划质量、工具成功率、迭代效率、成本 — 而不仅仅是最终答案。
+
+## 相关文档
+
+- [[A2A多智能体协作协议]] — Multi-Agent 拓扑的通信协议基础
+- [[LLM-Agent开发基础]] — 反思与规划模式的概念基础
+- [[09-production-agent-patterns]] — 本系列第九部分：生产级落地
+- [[13-metacognition-and-evaluation]] — 本系列第十三部分：元认知与评估

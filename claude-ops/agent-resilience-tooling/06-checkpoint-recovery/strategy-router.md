@@ -1,4 +1,15 @@
+---
+title: 多策略路由器设计 (Strategy Router)
+aliases: [多策略路由器, Strategy Router, 策略级熔断]
+tags: [ai/agent, ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 多策略路由器设计 (Strategy Router)
+
+See also: [[Claude-Ops-KB-Home]] · [[checkpoint-recovery-design]] · [[error-classification-system]] · [[state-machine-quality-gate-loop]]
 
 > **核心命题**: 当一种操作策略失败时，如何选择下一个策略？本文档定义策略选择算法、策略表和最终降级路径。
 

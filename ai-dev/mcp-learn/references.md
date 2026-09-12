@@ -1,3 +1,12 @@
+---
+title: 参考资源汇总
+aliases: [MCP 参考资源, MCP 链接汇总, MCP 学习资源]
+tags: [ai, ai/learning, ai/links]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # 参考资源汇总
 
 ## 官方资源
@@ -103,3 +112,10 @@ curl -X POST http://localhost:8000/mcp \
 11. **第 11 天**: 阅读 12-real-world-examples.md, 研究 Sentry/Linear/GitHub 的架构决策
 12. **第 12 天**: 阅读 13-ecosystem-projects.md，浏览 GitHub 高分 MCP 项目，发现可复用的轮子
 13. **之后**: 阅读官方规范, 浏览社区服务器源码, 动手做项目; 日常查阅 cheatsheet.md
+
+## 相关文档
+
+- [[MCP协议开发实战]] — 同主题实战长文
+- [[13-ecosystem-projects]] — GitHub 高分 MCP 项目目录
+- [[cheatsheet]] — MCP 速查手册
+- [[AI-Dev-KB-Home]] — ai-dev 子库首页
