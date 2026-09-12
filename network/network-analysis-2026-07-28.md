@@ -209,8 +209,8 @@ curl -s http://[IP已脱敏]/cgi-bin/luci/api/xqsystem/bdata
 ### SSH 连接 (MobaXterm sshpass + 旧加密套件)
 ```bash
 # 原生 Windows OpenSSH 已证实超时不可用，需 MobaXterm sshpass + 旧加密套件
-/d/Users/28064/AppData/Roaming/MobaXterm/slash/bin/sshpass -p [已脱敏] \
-  /d/Users/28064/AppData/Roaming/MobaXterm/slash/bin/ssh \
+/d/Users/%USERPROFILE%/AppData/Roaming/MobaXterm/slash/bin/sshpass -p [已脱敏] \
+  /d/Users/%USERPROFILE%/AppData/Roaming/MobaXterm/slash/bin/ssh \
   -o KexAlgorithms=+diffie-hellman-group1-sha1 \
   -o HostKeyAlgorithms=+ssh-rsa \
   -o MACs=+hmac-sha1-96,hmac-sha1,hmac-md5 \
