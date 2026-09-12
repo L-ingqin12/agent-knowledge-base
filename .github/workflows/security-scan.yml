@@ -1,0 +1,67 @@
+name: Security scan
+
+# 二次拦截：本地 scripts/prepush-selfscan.sh 是推送前的第一道闸，
+# 本工作流是远程的第二道——即使本地闸被绕过（--no-verify、手工 git push、
+# 网页端编辑），CI 仍会拦下并让检查红。
+#
+# 背景：2026-09-12 的合并工作中，「把敏感字面量写进自己产出的文档」连续复发四次。
+# 结论是不能只靠人记得检查，必须有机器约束（见 claude-ops/CORRECTIONS.md C-013）。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: 敏感内容扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 需要完整历史以扫描提交
+
+      - name: 工作树敏感内容扫描
+        run: |
+          chmod +x scripts/prepush-selfscan.sh
+          bash scripts/prepush-selfscan.sh --self-test
+
+      - name: 全历史扫描（提交内容）
+        run: |
+          set -uo pipefail
+          # 与本地脚本同源的模式表；逐提交扫描，避免只查 tip 而漏掉历史
+          fail=0
+          # 用拼接避免本文件自身被模式命中
+          PATS=(
+            "sk-""or-v1[A-Za-z0-9]{16,}"
+            "sk-[A-Za-z0-9]{32,}"
+            "ar""k-[0-9a-f]{8}-[0-9a-f]{4,}"
+            "BEGIN [A-Z ]*PRIVATE KEY"
+            "Bear""er [A-Za-z0-9._-]{32,}"
+          )
+          for c in $(git rev-list --all); do
+            for p in "${PATS[@]}"; do
+              if git grep -qE -- "$p" "$c" 2>/dev/null; then
+                echo "::error::提交 $c 命中敏感模式"
+                fail=1
+              fi
+            done
+          done
+          if [ "$fail" != "0" ]; then
+            echo "::error::历史中存在敏感内容，需要 filter-repo 改写"
+            exit 1
+          fi
+          echo "✓ 全历史无敏感模式命中"
+
+      - name: 断言未跟踪的本地副本不被提交
+        run: |
+          set -uo pipefail
+          if git ls-files | grep -E '\.local-(unredacted|backup)-' ; then
+            echo "::error::本地未脱敏副本被纳入版本控制"
+            exit 1
+          fi
+          echo "✓ 无本地未脱敏副本入库"

@@ -1,0 +1,36 @@
+name: Markdown validation
+
+# 知识库格式校验：frontmatter / 嵌套标签 / 双链解析 / 禁 Mermaid。
+# 与本地 `python scripts/validate-kb.py` 同一实现，避免两套逻辑分叉。
+#
+# 分级约定（源自 CORRECTIONS C-014「门禁必须同时给出检出模式与显式豁免」）：
+#   ERROR — 明确缺陷（死链、Mermaid），阻断
+#   WARN  — 既有约定差异，仅记录、不阻断
+# 若把历史遗留的约定差异也算作失败，门禁会长期飘红而被忽略。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: 格式校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 运行校验器
+        run: python scripts/validate-kb.py
+
+      - name: 机器可读报告（失败时附上）
+        if: failure()
+        run: python scripts/validate-kb.py --json | head -100

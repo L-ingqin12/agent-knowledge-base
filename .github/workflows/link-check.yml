@@ -1,0 +1,106 @@
+name: Link check
+
+# 外部链接可用性巡检。
+#
+# 设计取舍（重要）：**不阻断**。
+#   外部站点会限流、会临时宕机、会因地域不可达——把「外链 404」当失败，
+#   会让门禁频繁飘红，进而被习惯性忽略（CORRECTIONS C-014 的教训：
+#   门禁的价值等于其信噪比）。因此本工作流只**报告**，把结果写进 Job Summary，
+#   由人决定是否修。真正的硬门禁是 security-scan 与 markdown-validation。
+#
+# 频率：每周一次 + 手动触发，不随每次 push 跑（外链不会因为一次提交而失效）。
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'      # 每周一 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: 外链巡检（仅报告）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 提取并检查外链
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import re, pathlib, urllib.request, urllib.error, ssl, concurrent.futures as cf
+
+          EXCLUDE_DIRS = {'.git', '.obsidian', 'node_modules', '_install-tmp', '_bin', '_out'}
+          URL_RE = re.compile(r'https?://[^\s)\]<>"\'\u3000]+')
+
+          urls = {}
+          for p in pathlib.Path('.').rglob('*.md'):
+              if any(part in EXCLUDE_DIRS for part in p.parts):
+                  continue
+              try:
+                  text = p.read_text(encoding='utf-8', errors='replace')
+              except OSError:
+                  continue
+              for m in URL_RE.finditer(text):
+                  u = m.group(0).rstrip('.,;:!')
+                  urls.setdefault(u, str(p))
+
+          # 只查外部站点；跳过本仓库自身与常见不可 HEAD 的站点
+          SKIP = ('github.com/L-ingqin12', 'localhost', '127.0.0.1')
+          targets = [(u, f) for u, f in urls.items() if not any(s in u for s in SKIP)]
+          print(f"外部链接 {len(targets)} 条（去重后）")
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          def probe(item):
+              u, f = item
+              req = urllib.request.Request(u, method='HEAD',
+                                           headers={'User-Agent': 'kb-linkcheck/1.0'})
+              try:
+                  with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+                      return (u, f, r.status)
+              except urllib.error.HTTPError as e:
+                  return (u, f, e.code)
+              except Exception as e:
+                  return (u, f, type(e).__name__)
+
+          bad = []
+          with cf.ThreadPoolExecutor(max_workers=16) as ex:
+              for u, f, st in ex.map(probe, targets):
+                  if st != 200:
+                      bad.append((u, f, st))
+
+          print(f"\n非 200 响应 {len(bad)} 条：")
+          for u, f, st in sorted(bad)[:200]:
+              print(f"  [{st}] {u}  ← {f}")
+
+          summary = pathlib.Path('linkcheck-report.md')
+          summary.write_text(
+              "# 外链巡检报告\n\n"
+              f"- 检查外链：{len(targets)} 条\n"
+              f"- 非 200：{len(bad)} 条\n\n"
+              + "\n".join(f"- `{st}` {u} ← {f}" for u, f, st in sorted(bad)[:200]),
+              encoding='utf-8')
+          PY
+
+      - name: 写入 Job Summary
+        if: always()
+        run: |
+          if [ -f linkcheck-report.md ]; then
+            cat linkcheck-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkcheck-report
+          path: linkcheck-report.md
+          if-no-files-found: ignore
