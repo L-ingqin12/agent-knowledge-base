@@ -1,6 +1,6 @@
 import hashlib
 
-SRC = r'C:\Users\28064\AppData\Local\Temp\asar_out\cur\atom.compiled.dist.jsc'
+SRC = r'C:\Users\%USERPROFILE%\AppData\Local\Temp\asar_out\cur\atom.compiled.dist.jsc'
 OUT = SRC + '.reverted'
 OFFICIAL_MD5 = '59b3b4b58a177b4fe57d9d9d801038f3'
 

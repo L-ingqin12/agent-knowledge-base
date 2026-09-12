@@ -63,7 +63,7 @@ See also: [[Network-KB-Home]] | [[ARCHITECTURE]] | [[GUIDE]] | [[参考-网络�
 
 ### 2.3 定位配置层
 
-用 `C:\Users\28064\AppData\Local\Temp\xraytest\` 的单节点配置逐个排除（`gen_configs.py` 从 v2rayN 数据库生成）：
+用 `C:\Users\%USERPROFILE%\AppData\Local\Temp\xraytest\` 的单节点配置逐个排除（`gen_configs.py` 从 v2rayN 数据库生成）：
 
 | 配置变体 | 结果 | 结论 |
 |----------|------|------|
@@ -206,7 +206,7 @@ v2rayN 的 balancer 路由在多个版本间反复回归（[[ARCHITECTURE]] Phas
 > - `network/scripts/fix_balancer_watcher.ps1` — 当前方案（watcher，2026-08-09 新增）
 > - `%AppData%\...\Startup\v2rayN-balancer-fix.vbs` — 开机自启启动器
 > - `enhance-config.ps1` — 按需增强脚本（[[ARCHITECTURE]] Phase 4，不修此 bug）
-> - 测试基建: `C:\Users\28064\AppData\Local\Temp\xraytest\`（`gen_configs.py`、`run_tests.sh`、`launch_test.ps1`、`batch_test.sh`、各节点单测配置）
+> - 测试基建: `C:\Users\%USERPROFILE%\AppData\Local\Temp\xraytest\`（`gen_configs.py`、`run_tests.sh`、`launch_test.ps1`、`batch_test.sh`、各节点单测配置）
 
 > [!note] 测试要点
 > Windows schannel 本地 CRL 检查被墙报 `CRYPT_E_REVOCATION_OFFLINE`，curl 测试一律加 `--ssl-no-revoke`。

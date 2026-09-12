@@ -98,8 +98,8 @@ See also: [[Network-KB-Home]] | [[FINAL-SUMMARY]] | [[ARCHITECTURE]]
 ```bash
 bash scripts/router_ssh.sh "command"
 # 或直接:
-/d/Users/28064/AppData/Roaming/MobaXterm/slash/bin/sshpass -p [已脱敏] \
-  /d/Users/28064/AppData/Roaming/MobaXterm/slash/bin/ssh \
+/d/Users/%USERPROFILE%/AppData/Roaming/MobaXterm/slash/bin/sshpass -p [已脱敏] \
+  /d/Users/%USERPROFILE%/AppData/Roaming/MobaXterm/slash/bin/ssh \
   -o KexAlgorithms=+diffie-hellman-group1-sha1 \
   -o HostKeyAlgorithms=+ssh-rsa \
   -o MACs=+hmac-sha1-96,hmac-sha1,hmac-md5 \

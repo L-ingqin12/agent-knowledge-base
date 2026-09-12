@@ -7,10 +7,10 @@
 import fs from 'node:fs'
 import https from 'node:https'
 
-const cfg = JSON.parse(fs.readFileSync('C:/Users/28064/.cache-relay/config.json', 'utf8'))
+const cfg = JSON.parse(fs.readFileSync('C:/%USERPROFILE%/.cache-relay/config.json', 'utf8'))
 const upstream = cfg.defaultUpstream
 let token = ''
-for (const f of ['C:/Users/28064/.claude/settings.json', 'C:/Users/28064/.claude/settings.local.json']) {
+for (const f of ['C:/%USERPROFILE%/.claude/settings.json', 'C:/%USERPROFILE%/.claude/settings.local.json']) {
   try { token = JSON.parse(fs.readFileSync(f, 'utf8'))?.env?.ANTHROPIC_AUTH_TOKEN ?? '' } catch {}
   if (token) break
 }
