@@ -105,3 +105,9 @@ status: draft
 
 > [!note] 常见故障排查顺序
 > 走错模型 → ① 查 `agent-default-model` ② 查是否有残留 `baseURL` 指向本地代理端口 ③ 查上游模型是否已下架
+
+## 相关文档
+
+- [[URL-Lookup]]
+- [[URL-REGISTRY]]
+- [[claude-flash-primary-analysis]]
