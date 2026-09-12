@@ -1,3 +1,12 @@
+---
+title: DeepSeek 缓存键与扰动分离实验
+aliases: []
+tags: [ai/ops]
+created: 2026-09-12
+updated: 2026-09-12
+status: review
+---
+
 # DeepSeek 缓存键实验 + 扰动分离模拟 + cache-relay 增强归档（2026-09-12）
 
 > 状态：已完成，实测验证。实验脚本在 `scripts/claude-ops-deployments/cache-relay/experiments/`（`sid-experiment.mjs` / `sep-sim.mjs`，可直接复跑）。
