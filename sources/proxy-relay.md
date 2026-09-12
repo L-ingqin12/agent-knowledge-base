@@ -99,3 +99,7 @@ status: draft
 > [!tip] 新写代理时的最低要求（从 ds2ox 的 3 处缺陷反推）
 > ① 入站鉴权 ② `Host` 头校验 ③ 不固定监听端口或改用本地套接字；
 > ④ 密钥不落地（参照 cache-relay 的透传头做法）。
+
+## 相关
+
+- [[claude-resilience-architecture]]
