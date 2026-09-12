@@ -14,3 +14,7 @@ scripts/lognet-poc/**/*.db-*
 # 脚本生成的草稿/中间产物（按需重生成，不纳入版本控制）
 _out/
 sources/_draft/
+
+# 本地未脱敏副本（保留真实 IP/口令供本机查阅；绝不可推送）
+*.local-unredacted-*
+*.local-backup-*
