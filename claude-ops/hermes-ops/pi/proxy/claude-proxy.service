@@ -1,0 +1,17 @@
+[Unit]
+Description=Claude Code Resilience Proxy (via Model-Router)
+After=network.target xray-proxy.service model-router.service
+Requires=model-router.service
+
+[Service]
+Type=simple
+Environment=PROXY_TARGET=http://127.0.0.1:18888/v1
+ExecStart=/usr/bin/node /home/pi/claude-resilience-proxy.js
+Restart=always
+RestartSec=5
+WorkingDirectory=/home/pi
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,61 @@
+# 工作流: 上线前全面检查 (Pre-Release Checklist)
+
+## 描述
+代码审查 + 安全审计 + 文档检查，三个并行执行。
+
+## 流程
+
+```yaml
+name: full-review
+description: 上线前全面检查 — 代码质量 + 安全 + 文档
+mode: parallel  # 三个独立任务并行
+
+steps:
+  - agent: code-reviewer
+    prompt: |
+      ## 任务
+      审查 {src_dir} 下所有源代码
+      ## 范围
+      - 目录: {src_dir}
+      - 约束: 只读，输出审查报告
+      ## 预期输出
+      结构化审查报告（严重/改进/风格三级）
+      ## 关键上下文
+      - 即将发布 {version}
+      - 重点关注: 错误处理、数据库事务、API 接口变更
+
+  - agent: security-auditor
+    prompt: |
+      ## 任务
+      对 {src_dir} 做安全审计
+      ## 范围
+      - 目录: {src_dir}
+      - 检查: OWASP Top 10 + npm audit / pip-audit
+      ## 预期输出
+      分级安全报告 + 依赖漏洞清单
+      ## 关键上下文
+      - 即将发布 {version}
+
+  - agent: doc-writer
+    prompt: |
+      ## 任务
+      检查并更新项目文档
+      ## 范围
+      - README.md
+      - docs/ 目录
+      - API 文档
+      ## 预期输出
+      文档更新 + 待补充项列表
+      ## 关键上下文
+      - 即将发布 {version}
+
+output:
+  format: |
+    ## 上线检查报告 — {project} v{version}
+    ### 🔴 阻塞项
+    {blockers}
+    ### 🟡 待办项
+    {warnings}
+    ### 🟢 已完成
+    {completed}
+```

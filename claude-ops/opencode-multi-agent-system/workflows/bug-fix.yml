@@ -1,0 +1,74 @@
+# 工作流: Bug 修复流程 (Bug Fix)
+
+## 描述
+定位 → 修复 → 测试 → 回归审查。
+
+## 流程
+
+```yaml
+name: bug-fix
+description: Bug 定位 → 修复 → 验证
+mode: serial  # 严格串行
+
+steps:
+  - agent: debugger
+    prompt: |
+      ## 任务
+      定位 bug 根因并给出修复方案
+      ## 现象
+      {bug_description}
+      ## 范围
+      - 相关文件: {suspected_files}
+      - 日志: {log_snippets}
+      ## 预期输出
+      根因报告 + 修复 diff
+      ## 约束
+      只输出修复方案，不要直接修改代码
+
+  - agent: orchestrator
+    action: verify_fix
+    prompt: |
+      ## 任务
+      验证 debugger 的修复方案
+      ## 修复方案
+      {fix_diff}
+      ## 验证项
+      - 是否真正修复了根因
+      - 是否引入新问题
+      - 是否有更简单的方案
+      ## 如果验证通过 → 应用修复
+      ## 如果验证失败 → 返回 debugger 重新分析
+
+  - agent: test-writer
+    prompt: |
+      ## 任务
+      为 bug 修复编写回归测试
+      ## 范围
+      - Bug 修复的文件: {fixed_files}
+      - Bug 复现条件: {repro_steps}
+      ## 关键约束
+      - 测试必须能复现原始 bug（验证修复有效）
+      - 覆盖边界条件防止复发
+
+  - agent: code-reviewer
+    prompt: |
+      ## 任务
+      审查修复代码，确认无引入新问题
+      ## 范围
+      - {fixed_files}
+      ## 重点关注
+      - 修复是否过度
+      - 是否影响相邻功能
+
+output:
+  format: |
+    ## Bug 修复完成: {bug_title}
+    ### 根因
+    {root_cause}
+    ### 修复
+    {fix_summary}
+    ### 回归测试
+    {test_count} 个新测试
+    ### 审查
+    {review_result}
+```

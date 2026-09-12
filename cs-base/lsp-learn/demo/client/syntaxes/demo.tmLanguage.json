@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Demo",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.demo",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.demo",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.demo",
+          "match": "\\b(fn|return|let|if|else|for|while|struct|enum|impl|pub|mod|use|true|false|nil)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.demo",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.demo",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.demo",
+      "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.demo",
+          "match": "\\b(print|println|format|read|greet|main)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.demo",
+          "match": "\\b(str|i32|u32|bool|f64|void)\\b"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.demo"
+}

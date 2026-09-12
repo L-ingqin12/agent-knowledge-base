@@ -1,0 +1,53 @@
+{
+  "name": "demo-lsp-client",
+  "displayName": "Demo LSP Client",
+  "description": "Minimal VSCode client for the Demo LSP server",
+  "version": "1.0.0",
+  "publisher": "lsp-learn",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "activationEvents": [
+    "onLanguage:demo"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "demo",
+        "aliases": ["Demo", "demo"],
+        "extensions": [".demo"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "demo",
+        "scopeName": "source.demo",
+        "path": "./syntaxes/demo.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Demo LSP",
+      "properties": {
+        "demoLsp.serverPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to the Python interpreter"
+        },
+        "demoLsp.maxProblems": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum number of problems to report"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0"
+  }
+}

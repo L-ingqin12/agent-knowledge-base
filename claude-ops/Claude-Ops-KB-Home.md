@@ -54,6 +54,27 @@ See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECT
 
 - **专题导航**：[[逃生回滚导航]] — 逃生 vs 回滚 · 按场景导航（permafrost 七级通道 / cache-relay 软回滚 / 版本切换回退 / 事故经验）
 
+### 0. 2026-09-12 合并入库的子库（原独立仓库）
+
+> 以下 4 个子库由账号下**描述同类任务**的独立仓库合并而来。`hermes-ops` 保留原仓库作为**远程重定向引用**（供树莓派侧 Hermes Agent 定位新库），其余仓库可直接归档。
+
+| 子目录 | 原仓库 | 内容 | 可见性变更 |
+|--------|--------|------|-----------|
+| `hermes-ops/` | `L-ingqin12/hermes-ops` | 架构+事故复盘+排查方法 · 6 探针守护 · API 用量监控 · 代理+systemd · Git pre-commit 敏感检测 | **私有 → 已并入公开库** |
+| `agent-resilience-tooling/` | `L-ingqin12/agent-resilience-tooling` | 健壮工具调用体系六层防护（死循环根因→安全抽象→错误分类→优雅降级→Pi 适配→断点恢复） | 公开 → 公开 |
+| `opencode-unattended-guide/` | `L-ingqin12/opencode-unattended-guide` | OpenCode 零交互生产级方案：本地自动化 / 远程分发 / 大文件在线分析 / 安全加固 | 公开 → 公开 |
+| `opencode-multi-agent-system/` | `L-ingqin12/opencode-multi-agent-system` | 1 主 Orchestrator + 6 专业子智能体：智能路由 / 并行调度 / 权限隔离 | 公开 → 公开 |
+
+> [!warning] 合并时的脱敏处理
+> `hermes-ops/pi/architecture/api-key-leak-postmortem.md` 原含**明文 ARK API 密钥**（原仓库为私有）。
+> 并入公开库前已替换为 `ark-<REDACTED>`——事故叙事保留，凭据移除。
+> 全库合并后已扫描 `sk-` / `ghp_` / `AKIA` / `glpat` / JWT / 私钥头 / 本机用户名，均无命中。
+
+> [!note] 三篇 hermes 文档未覆盖
+> `2026-06-24-hermes-feishu-outage-postmortem`、`hermes-parallel-task-report`、`hermes-session-optimization-report`
+> 在本库（`事故复盘/`、`运维方案与设计/`）已有**更新且更完整**的版本，故保留库内版、不使用仓库版。
+> 仓库版的独有细节（如 `Raspberry Pi 4B (<PI_HOSTNAME>, aarch64, Debian)` 环境行）**尚未并入**，列为待办。
+
 ### 1. 运维方案与设计（status: review）
 
 | 文档 | 主题 |

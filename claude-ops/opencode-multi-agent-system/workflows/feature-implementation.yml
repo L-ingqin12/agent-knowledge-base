@@ -1,0 +1,61 @@
+# 工作流: Feature 实现 (Feature Implementation)
+
+## 描述
+从需求到代码的标准流程：上下文分析 → 实现 → 测试 → 审查。
+
+## 流程
+
+```yaml
+name: feature-implementation
+description: 实现一个 feature 并确保质量
+mode: serial  # 有依赖关系，串行执行
+
+steps:
+  - agent: orchestrator  # 主控自己分析
+    action: analyze
+    prompt: |
+      ## 任务
+      分析用户需求并规划实现
+      ## 需求
+      {feature_description}
+      ## 输出
+      实现计划 + 涉及的文件 + 影响面分析
+
+  - agent: refactor-specialist  # 或主控自己写代码
+    prompt: |
+      ## 任务
+      实现 feature
+      ## 规划（来自上一步）
+      {plan}
+      ## 关键上下文
+      - 当前架构: {arch_summary}
+      - 相关文件: {files}
+
+  - agent: test-writer
+    prompt: |
+      ## 任务
+      为新实现的 feature 编写测试
+      ## 范围
+      - 新增/修改的文件: {changed_files}
+      ## 预期输出
+      单元测试 + 集成测试
+
+  - agent: code-reviewer
+    prompt: |
+      ## 任务
+      审查 feature 实现代码
+      ## 范围
+      - 新增/修改的文件: {changed_files}
+      ## 预期输出
+      审查报告
+
+output:
+  format: |
+    ## Feature 实现完成: {feature_name}
+    ### 变更
+    {changes_summary}
+    ### 测试
+    {test_summary}
+    ### 审查
+    {review_score}
+```

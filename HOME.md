@@ -28,6 +28,20 @@ status: stable
 | `_archive/` | SESSION-ARCHIVE 会话归档（原根目录 SESSION-*.md 已归入） | `_archive/` 目录 |
 | `Excalidraw/` | 早期散装 Excalidraw 原图 | — |
 
+### 2026-09-12 合并入库的子库（原独立仓库）
+
+账号下**描述同类任务**的独立仓库已合并进本库，各子目录入口见对应 MOC：
+
+| 子目录 | 原仓库 | 归属 MOC |
+|--------|--------|---------|
+| `claude-ops/hermes-ops/` | `hermes-ops`（原私有，**保留为重定向引用**） | [[Claude-Ops-KB-Home]] |
+| `claude-ops/agent-resilience-tooling/` | `agent-resilience-tooling` | [[Claude-Ops-KB-Home]] |
+| `claude-ops/opencode-unattended-guide/` | `opencode-unattended-guide` | [[Claude-Ops-KB-Home]] |
+| `claude-ops/opencode-multi-agent-system/` | `opencode-multi-agent-system` | [[Claude-Ops-KB-Home]] |
+| `ai-dev/agent-learn/` | `agent-learn` | [[AI-Dev-KB-Home]] |
+| `ai-dev/mcp-learn/` | `mcp-learn` | [[AI-Dev-KB-Home]] |
+| `cs-base/lsp-learn/` | `lsp-learn` | [[CS-KB-Home]] |
+
 ## 根目录松散文件
 
 归档后根目录的 .md（**2026-09-12 更新**，此前为「仅剩两个」）：

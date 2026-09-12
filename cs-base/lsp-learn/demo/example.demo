@@ -1,0 +1,23 @@
+// example.demo — sample file for the demo LSP
+// Try: completion (Ctrl+Space), hover on keywords, go-to-definition
+
+fn greet(name: str) -> str {
+    let greeting = format("Hello, {}!", name);
+    return greeting;
+}
+
+fn main() {
+    let message = greet("World");
+    println(message);
+}
+
+struct Person {
+    name: str,
+    age: u32,
+}
+
+impl Person {
+    fn say_hello(&self) {
+        println(format("Hi, I'm {}", self.name));
+    }
+}
