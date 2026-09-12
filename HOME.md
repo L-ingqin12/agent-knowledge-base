@@ -3,7 +3,7 @@ title: HOME — 知识库全局目录索引
 aliases: [知识库首页, 全局索引, KB Home, Vault Home]
 tags: [moc, meta]
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-12
 status: stable
 ---
 
@@ -19,7 +19,7 @@ status: stable
 |------|-----------|-----------|
 | `network/` | 家庭网络优化：WiFi / 小米路由器 / v2rayN 代理 / 排障与复盘 | [[Network-KB-Home]] |
 | `ai-dev/` | LLM 应用开发实战：Prompt / RAG / Agent / MCP / 微调 等专题 | [[AI-Dev-KB-Home]] |
-| `ai-links/` | AI 链接收藏与调研综述（含 DSH 插件/Hook、编码 Agent 调研报告） | [[AI-Links-KB-Home]] · [[Articles-Index]] |
+| `ai-links/` | AI 链接收藏与调研综述（含 DSH 插件/Hook、DSH 会话脱敏实测、编码 Agent 调研报告） | [[AI-Links-KB-Home]] · [[Articles-Index]] |
 | `claude-ops/` | Claude Code 无人值守运维：方案设计 / 事故复盘 / Agent 架构模式 | [[Claude-Ops-KB-Home]] · [[MEMORY-INDEX]] · [[CORRECTIONS]] |
 | `cs-base/` | 计算机基础：语言 / 算法 / 系统 / 数据库 / 工具链 | [[CS-KB-Home]] |
 | `typora/` | Typora 无补丁激活复盘与可复用流程 | [[TYPORA-KB-Home]] |
@@ -83,6 +83,20 @@ status: stable
 ## 文件导航（按更新时间，点击跳转）
 
 > 最近 10 天修改的知识文档，按日期分组；每条是 [[wikilink]]，点击直达。完整清单可由脚本定期重生成。
+
+### 2026-09-12
+- [[SESSION-ARCHIVE-2026-09-12]]
+- [[DSH会话脱敏项目方法论复盘]]
+- [[DSH会话脱敏插件缺陷档案]]
+- [[DSH工具结果管线与meta陷阱]]
+- [[DSH会话日志格式与读取端约束]]
+- [[DSH会话持久化与活跃改写安全]]
+- [[DSH插件组合与启动中止语义]]
+- [[DSH-TUI内部机制与键盘卡死陷阱]]
+- [[CORRECTIONS]]
+- [[Claude-Ops-KB-Home]]
+- [[repo-merge-2026-09-12]]
+- [[AGENTS]]
 
 ### 2026-09-06
 - [[逃生回滚导航]]

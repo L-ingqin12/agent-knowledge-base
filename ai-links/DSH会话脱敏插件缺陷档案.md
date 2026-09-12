@@ -12,9 +12,9 @@ status: review
 See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-TUI插件使用手册]] | [[DSH会话脱敏项目方法论复盘]] | [[CORRECTIONS]]
 
 > [!abstract] 本文档是什么
-> `dsh-plugin-redact`（在 TUI 里**原地改写**已落盘的 DSH 会话日志 `session.vN.jsonl.zstd`）在 v0.1.0 定稿前被查出的全部缺陷，按机制分六类，逐条给出**用户可见症状 / 机制与成因 / 如何被发现 / 如何修复 / 由哪条断言守住**。
+> `dsh-plugin-redact`（在 TUI 里**原地改写**已落盘的 DSH 会话日志 `session.vN.jsonl.zstd`）在 v0.1.0 定稿前被查出的全部缺陷，按机制分七类，逐条给出**用户可见症状 / 机制与成因 / 如何被发现 / 如何修复 / 由哪条断言守住**。
 >
-> 材料来源：红队报告 `docs/reports/redteam/REPORT-zh.md`（F1–F10）、修复报告 `docs/reports/fix/REPORT-FIX-zh.md`、对话框根因与契约核对 `docs/reports/dialog-root-cause/ROOT-CAUSE.zh.md` / `docs/reports/dialog-contract/REPORT.zh.md`、启动扫描 `docs/reports/boot-verify/`、两个包的 README 与 `test/` 套件。所有夹具均为合成日志，未读取任何真实会话内容、缓存或 `*.jsonl.zstd`。
+> 材料来源：红队报告 `docs/reports/redteam/REPORT-zh.md`（F1–F10）、修复报告 `docs/reports/fix/REPORT-FIX-zh.md`、对话框根因与契约核对 `docs/reports/dialog-root-cause/ROOT-CAUSE.zh.md` / `docs/reports/dialog-contract/REPORT.zh.md`、启动扫描 `docs/reports/boot-verify/`、两个包的 README 与 `test/` 套件；第七类来自推送后 **GitHub Actions 首跑（`ubuntu-latest`，37 秒红）** 与随后新增的 `.github/scripts/portability.mjs` 守卫及其自检。所有夹具均为合成日志，未读取任何真实会话内容、缓存或 `*.jsonl.zstd`。
 >
 > **为什么值得单独立档**：这个工具改的是**不可再生**的数据。它的每一条缺陷都不是"功能不好用"，而是"用户以为抹干净了 / 以为还能打开，实际相反"。同类工具的缺陷清单就是安全模型的一部分。
 
@@ -33,8 +33,9 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 | 四、输出误导 | D-10 D-11 D-12 D-13 | 报告与实际不符 | 决策错误、隐私泄漏 |
 | 五、分页与识别 | D-14 D-15 | 目标不可达 / 认不出目标 | 功能不可用 |
 | 六、工程卫生 | D-16 D-17 D-18 D-19 | 外人跑不起来 / 静默变绿 | 交付物不可复现 |
+| 七、可移植性 | D-20 D-21 D-22 | 目标平台首跑（CI 37 秒红） | 陌生人的 `npm test` 直接崩溃 / 源码目录被测试残留污染 |
 
-红队编号 F1–F10 与本档编号不是一一对应：本档还含作者自查与启动扫描查出的缺陷（D-07、D-08、D-10、D-11、D-12、D-16–D-19）。凡来自红队的条目在正文里标出 F 编号。
+红队编号 F1–F10 与本档编号不是一一对应：本档还含作者自查与启动扫描查出的缺陷（D-07、D-08、D-10、D-11、D-12、D-16–D-19），以及**首次推送 CI 后暴露的 D-20–D-22**。凡来自红队的条目在正文里标出 F 编号。
 
 ---
 
@@ -269,6 +270,8 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 
 **由哪条断言守住。** 无断言，只有**发布清单**：`package.json` 的 `files` 显式列出随包发布的文件（两份含 `preflight.mjs` 与 `handler.selftest.mjs`，`packages/dsh-plugin-redact/package.json:17-28`），其余套件只在源码仓库里。
 
+> [!note] 后续补充（2026-09-12 首次推送 CI 后） —— D-16 只清掉了「**写进输出里**的作者绝对路径」，没有清掉「**代码里对 Windows 专有环境变量**的依赖」。后者更狠：它在作者本机永远绿，却让随包发布的 `npm test` 在 Linux/macOS 上直接崩溃 —— 见 **D-20**。同一张 `files` 清单既是 D-16 的判据，也是 D-20 的放大镜（"会发出去"的文件才需要可移植性判据）。
+
 ### D-17 依赖 DSH 的套件在跑不了的时候退出码 0
 
 > [!bug] 卫生 · 陌生人的 `npm test` 静默变绿 —— 症状：机器上没有 DSH 安装目录时，套件打印一句"跳过"就 **exit 0**。CI 与本地都显示通过，实际**一个字都没测**。
@@ -301,6 +304,54 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 
 ---
 
+## 七、可移植性类（2026-09-12 首次推送 CI 后补充）
+
+共同点：**这些缺陷在作者的开发平台上完全隐形**。整套开发与自测都在 Windows 上，本地永远是绿的；暴露它们不需要新功能，只需要**换一个平台跑一次**——第一次 GitHub Actions（`ubuntu-latest`）**37 秒就红了**，失败点是随包发布的 `test/preflight.mjs`。更普遍的形状是：**平台专有假设在写它的平台上隐形**。
+
+### D-20 随包发布的测试用 `process.env.USERPROFILE` 推导 DSH 主目录
+
+> [!danger] 陌生人 `npm test` 直接崩 —— 症状：任何 Linux / macOS 消费者装完包跑 `npm test`，得到的不是断言失败，而是一句 `TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received undefined`，位置在 `path.join`。**CI 首跑 37 秒红**，就是这一条。
+
+**机制与成因。** `packages/dsh-plugin-redact/test/preflight.mjs` 用 `process.env.USERPROFILE` 推导 DSH 主目录。这个环境变量**只存在于 Windows**：在 `ubuntu-latest` 上是 `undefined`，于是 `path.join(undefined, '.dsh')` 在**参数校验**阶段就抛错——不是断言失败，是套件起不来。
+
+**为什么严重（这不是 CI 配置问题）。** `test/preflight.mjs` 在 `package.json` 的 `files` 白名单里（与 D-16 同一张清单），**会随包发布**。所以问题不是"我们的 CI 环境少配了一个变量"，而是**发布物本身的缺陷**：包一旦被装走，`npm test` 必炸。CI 只是第一个把它说出来的东西。
+
+**为什么本地一直没发现。** 整套开发与自测都在 Windows 上，本地永远绿。**在 Windows 上跑的测试，看不见 Windows-only 的假设**——缺陷恰好在写它的地方隐形。
+
+**如何修复。** `os.homedir()` 取代平台专有环境变量（内置、三平台一致）；同类写法按下一条一并改写。
+
+**由哪条断言守住。** `.github/scripts/portability.mjs` 的**第一条规则**（平台专有环境变量后面没有紧跟 `??` 或 `||` 回退即报错）+ 它的自检 `portability.selftest.mjs`：把本条缺陷**重新注入** `preflight.mjs` 之后，断言守卫必须失败、并指对文件与行号。
+
+### D-21 `new URL(import.meta.url).pathname` 在含空格/中文的路径上残留 `%20`
+
+> [!bug] 平台相关 · 路径被 URL 转义污染 —— 症状：2 个文件用 `new URL(import.meta.url).pathname` 取自身路径。它在 Linux/macOS 上返回**未解码**的 URL 路径：目录名里只要有空格（或中文），拿到的是 `…/my%20project/…`，再喂给 `fs` 就是"文件不存在"。
+
+**机制与成因。** `.pathname` 是 **URL 组件**，不是文件系统路径：它保留百分号转义，无法区分"路径里的空格"与"字面的 `%20`"；在 Windows 上还会给出 `/C:/…` 这种前导斜杠形态——**同一行代码在三个平台上给出三种东西**。正确写法是 `fileURLToPath(import.meta.url)`（`node:url`，专门做这层解码与平台归一）。
+
+**如何被发现。** 与 D-20 同一批判定：CI 红之后按"平台专有符号"把源码过了一遍，`.pathname` 属于同一类假设（本机路径既没有空格也不含中文，所以 2 个文件的错误从未显形）。
+
+**如何修复。** 换成 `fileURLToPath(import.meta.url)`（2 处）。
+
+**由哪条断言守住。** `portability.mjs` 的**第二条规则**：`import.meta.url` 与 `.pathname` 出现在**同一行、同一表达式内**即报错（匹配范围故意收窄，理由见下）。
+
+### D-22 同一份 `engine.selftest.mjs` 的两个拷贝悄悄分叉，测试在源码目录留垃圾
+
+> [!bug] 卫生 · 一份文件两份拷贝，改一份不生效 —— 症状：每跑一次测试，源码目录里就多出 `broken.zstd`、`needle.txt`、`plan-*.json` 等夹具残留，越积越多。清理逻辑**写得有**，但写在了另一份拷贝里。
+
+**机制与成因。** 同一个套件存在**两个副本**：仓库里的 `test/engine.selftest.mjs` 与实际部署运行的那一份。**部署那份有一段夹具清理代码，仓库那份没有**——于是"跑测试会留垃圾"这件事只在仓库侧发生。两份拷贝各自演进、没有任何机制保证它们同步，这就是这类分叉的通用形状：**改一份不生效，看另一份看不出差别**。
+
+**如何被发现。** 与 D-20/D-21 同批：修 CI 时逐个文件与部署副本对照，发现同名字节不同。
+
+**如何修复。** 把清理块**补回仓库副本**（连同 `finally` 语义），再以 `.gitignore` 兜底。
+
+> [!warning] 兜底不等于判据 —— `.gitignore` 只能保证垃圾进不了版本库，**不能替代清理**：它不解决"源码目录被污染"，也不解决"两份拷贝继续分叉"。所以真正的判据是套件自己清理干净（与 D-19 的 `npm test` 入口同一层），`.gitignore` 只是第二道网。
+
+**由哪条断言守住。** 套件自清理断言（跑完不留夹具）；`.gitignore` 是兜底而非判据。
+
+> [!bug] 这一类还留下一条"防线自己"的记录 —— 守卫的两条规则第一版都是错的，而且**错法与它要抓的缺陷同形**：① 判断"平台专有变量是否安全"时按**整行**找 `??`，于是 `DSH_HOME ?? path.join(process.env.USERPROFILE, '.dsh')` 被判为安全——**正是要抓的那个 bug**（正确判据是回退必须**紧跟那个变量本身**）；② `import.meta.url` 配 `.pathname` 的规则最初用 **±2 行窗口**匹配，结果被它**自己那句解释性注释**（注释里写了 `.pathname` 四个字）误报（改成只在同一行、同一表达式内匹配）。这两条与 D-20/D-21 一起录进 [[CORRECTIONS]] C-012 —— **守卫的判据必须与缺陷同形，匹配范围必须窄到不会命中解释性文字**。
+
+---
+
 ## 收尾对照表：缺陷 → 严重度 → 由哪条断言/套件守住
 
 | id | 严重度 | 守住的断言 / 套件 |
@@ -324,6 +375,9 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 | D-17 | 卫生（跑不了却 exit 0） | 退出码契约：缺依赖 `exit 3`；`real-reader.mjs` 抛错不跳过；CI 注释说明 |
 | D-18 | 卫生（缺 LICENSE） | 无断言；`files` 清单 + `npm pack` 实测 |
 | D-19 | 卫生（无 `test` 脚本） | 无断言；两个包的 `scripts.test` + CI 调用同一入口 |
+| D-20 | 可移植性（随包发布的测试在 Linux/macOS 直接崩 = 发布物缺陷） | `portability.mjs` 规则一（平台专有变量后必须紧跟 `??`/`||` 回退）+ `portability.selftest.mjs`（把真实缺陷注入回去，断言退出码 1 且指对文件与行号） |
+| D-21 | 可移植性（路径被 URL 转义污染，含空格/中文即失效） | `portability.mjs` 规则二（同一行、同一表达式内匹配 `import.meta.url` + `.pathname`） |
+| D-22 | 卫生 · 可移植性（同名两份拷贝分叉，测试残留污染源码目录） | 套件自清理断言；`.gitignore` 兜底（**兜底不等于判据**） |
 
 ### 最终实跑计数（本档写作时，Node 22.21.0，全部退出码 0）
 
@@ -339,8 +393,9 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 |---|---|
 | [[DSH会话脱敏项目方法论复盘]] | 姊妹篇：这些缺陷为什么能活到红队介入（绿测试陷阱、被推翻的假设、委派得失） |
 | [[DSH插件与Hook开发最佳实践]] | 上游规范：`inject`、patch 语义、Config 契约、"配置错误要响亮" |
-| [[CORRECTIONS]] | 同源条目：**C-005**（拿工具自检当读取端验收 → D-01/D-02）、**C-006**（"通知会是多行" → D-14 与 200 格预算）、**C-007**（`--dump-config` 当运行时证明 → D-07/D-08）、**C-008**（绿色测试当可用性证据 → 元发现）、**C-009**（服务存在 → D-09）、**C-010**（`!!js disabled` 当稳定值 → D-08 同批）、**C-011**（只测常规值不测边界 → D-10）、**C-003**（未校准的扫描器 → D-17）；共同根源是"把观察到的现象直接当成结论" |
+| [[CORRECTIONS]] | 同源条目：**C-005**（拿工具自检当读取端验收 → D-01/D-02）、**C-006**（"通知会是多行" → D-14 与 200 格预算）、**C-007**（`--dump-config` 当运行时证明 → D-07/D-08）、**C-008**（绿色测试当可用性证据 → 元发现）、**C-009**（服务存在 → D-09）、**C-010**（`!!js disabled` 当稳定值 → D-08 同批）、**C-011**（只测常规值不测边界 → D-10）、**C-012**（本机绿测当跨平台验收 → D-20/D-21）、**C-003**（未校准的扫描器 → D-17）；共同根源是"把观察到的现象直接当成结论" |
 | [[DSH-TUI插件使用手册]] | D-09 的宿主侧机制（键盘让出、面板挂载点、200 格渲染）所在前端 |
+| `.github/scripts/portability.mjs` | D-20/D-21 的防线：扫两个包**发布代码与测试**的四条规则；`portability.selftest.mjs` 用「把缺陷重新注入」证明它抓得住（不会失败的检查比没有检查更糟） |
 | `%USERPROFILE%\dsh-redaction\docs\reports\` | 原始证据：红队报告与复现脚本、修复报告与 before/after 存档、启动扫描矩阵 |
 
 ## 变更记录
@@ -348,3 +403,4 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH-
 | 日期 | 变更 |
 |---|---|
 | 2026-09-12 | 建库：汇总红队 F1–F10、修复报告、对话框根因/契约、启动扫描与两个包的测试套件，形成 19 条缺陷档案与收尾对照表 |
+| 2026-09-12 | 追加**第七类「可移植性」D-20–D-22**：首次推送 GitHub Actions 首跑 37 秒红（`USERPROFILE` 进了随包发布的 `preflight.mjs`、`import.meta.url` 配 `.pathname`、同名两份拷贝分叉）；补 `.github/scripts/portability.mjs` 静态守卫与它的可证伪自检；D-16 加前向指引；分类总览 19 → 22 条 |

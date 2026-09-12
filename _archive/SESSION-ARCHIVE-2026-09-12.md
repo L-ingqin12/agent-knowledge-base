@@ -14,7 +14,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 > [!abstract] 主题
 > **起因**：一次公开检索 / 一条 `gh` 命令 / 一次日志抓取，返回的内容里有你不该留存的东西。在 DSH 里它不只是"经过"——**落盘的 `tool/result` 事件本身就是面向模型的那条消息**，一次写入同时提交给持久化会话日志与之后每一轮 provider 请求。撞上服务端内容风控（`Content Exists Risk`）时，失败的不只是那一轮，而是此后每一轮（历史一直带着它）。
 > **做法**：两个可分发插件（事前预防 + 事后修复）+ 一套把 DSH 读穿的实测研究（会话日志格式、持久化写路径、工具结果管线、TUI 扩展面）。
-> **产出**：公开仓库 <https://github.com/L-ingqin12/dsh-redaction>（MIT，2 个包）+ 6 篇笔记 + [[CORRECTIONS]] 新增 C-005~C-011。
+> **产出**：公开仓库 `dsh-redaction`（MIT，2 个包）+ 6 篇笔记 + [[CORRECTIONS]] 新增 C-005~C-012（其中 C-012 是首次推送 GitHub Actions CI 之后追加的）。
 
 ## 一、要求与交付
 
@@ -24,7 +24,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 | 已经落盘的字节抹掉（修复） | `dsh-plugin-redact` **0.1.0**：原地脱敏 / 按轮回退既有 `session.vN.jsonl.zstd`，帧级引擎同时是 `dsh-redact` 离线 CLI；含会话内 `hide`、`rollback`、`undo` | `packages/dsh-plugin-redact/` |
 | 能被别人复现 | 原始证据：`docs/reports/{redteam,fix,dialog-root-cause,dialog-contract,boot-verify}` + `surveys-existing-plugins.zh.md`；设计稿归档在 `docs/design-notes/` | 同仓库 |
 | 能在本机真的用上 | 两份本地工作副本 `%USERPROFILE%\dsh-plugin-redact`、`%USERPROFILE%\dsh-plugin-content-policy`，以 `link:` 依赖装进 `dsh-tui` profile，并进 `bundles`（复核 `~/.dsh/profiles/dsh-tui/package.json`） | 本机 profile |
-| 知识沉淀 | 6 篇新笔记 + 6 处既有文档回写（MOC / HOME / 两篇 DSH 手册 / `AGENTS.md` / `CORRECTIONS.md`） | 本库 |
+| 知识沉淀 | 6 篇新笔记 + 6 处既有文档回写（MOC / HOME / 两篇 DSH 手册 / `AGENTS.md` / `CORRECTIONS.md`）；首次推送 CI 之后再补三处：[[CORRECTIONS]] C-012、[[DSH会话脱敏插件缺陷档案]] 第七类 D-20–D-22、[[DSH会话脱敏项目方法论复盘]] §2.6 与 §六·五 | 本库 |
 
 **两个包是刻意分开的**：预防救不了已经在盘上的东西，修复也管不了下一条检索结果。
 
@@ -32,7 +32,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 
 **主线**：`/redact` 命令面（`list|nodes|pick|scan|hide|plan|apply|verify|purge|rollback|undo`）→ 自测全绿 → **独立红队对抗审查**（F1–F10 + 一条元发现）→ 逐条修复并用**真实读取端**当判据 → 启动路径扫描（boot-verify）→ 打包发布准备。
 
-### 2.1 失败的九处（按发生顺序）
+### 2.1 失败的十处（按发生顺序）
 
 | # | 失败 | 机制 | 处置 |
 |---|---|---|---|
@@ -45,6 +45,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 | 7 | `/redact pick` 的模态对话框**锁死 TUI 键盘** | promise 停在 `TuiDialogStore` 里 → `Chat.js:2566` 无条件让出聊天键盘、`PromptInput` 变 `isActive:false`（光标还在闪但打字没反应）；而面板**唯一**的挂载点被 approval 面板无提示压掉，approval 又**没有超时**。`Ctrl+C` 也退不出（`exitOnCtrlC: false`） | 面板路径**默认关闭**（`allowDialogs: false`）——不是保守，是根因结论；改两段式 `/redact nodes` 看编号 → `/redact hide <序号> --commit`，**结构上不可能冻结**。唯一无条件自救是等超时（实测 15011 / 15026 ms）→ [[CORRECTIONS#C-009 把服务存在外推为效果出现]] |
 | 8 | 隐私开关 `argsCells: 0` 反而留下了痕迹 | 截断函数 `clamp(s, 0)` 循环第一步就 `break`，返回 `'' + '…'`——「完全不显示命令行」变成"留一个 `…` 占位符" | `clamp` 对 `budget <= 0` 短路返回 `''`；套件加"不留占位符"断言 → [[CORRECTIONS#C-011 只测常规值不测边界]] |
 | 9 | **自伤回归**：profile 补丁行漏写 `allowDialogs: true` | patch 命中的行是**整个 config 被替换**（不是深合并），不写这一项就落回默认 `false`，那行 `inject: [commands, tuiDialogs]` 等于白加——**刚确认可用的面板被自己悄悄关掉** | 已改正：`~/.dsh/profiles/dsh-tui/cordis.patch.yml:33-41` 现含 `allowDialogs: true` 及"必须显式写出来"的注释（本归档写作时复核）。⚠️ 笔记 [[DSH-TUI内部机制与键盘卡死陷阱]] §8.2 仍写着"没有 `allowDialogs: true`"——**那句已过期** |
+| 10 | **首次推送 CI 37 秒红**：随包发布的测试里写着 Windows 专有假设 | `packages/dsh-plugin-redact/test/preflight.mjs` 用 `process.env.USERPROFILE` 推导 DSH 主目录；这个变量**只存在于 Windows**，在 `ubuntu-latest` 上是 `undefined` → `path.join(undefined, '.dsh')` 抛 `ERR_INVALID_ARG_TYPE`（**不是断言失败，是套件起不来**）。同批另两处同类：`new URL(import.meta.url).pathname`（2 个文件，路径含空格/中文时残留 `%20`）、同名 `engine.selftest.mjs` **两份拷贝分叉**（部署那份有夹具清理、仓库那份没有 → 每跑一次测试就在源码目录留下 `broken.zstd`、`needle.txt`、`plan-*.json`） | `os.homedir()` 取代平台专有环境变量、`fileURLToPath` 取代 `.pathname`、清理块补回仓库副本、`.gitignore` 兜底；新增 `.github/scripts/portability.mjs` 静态守卫（四条规则）+ 可证伪自检 `portability.selftest.mjs`（把真实缺陷注入回 `preflight.mjs`，断言守卫退出码 1 且指对文件与行号，`finally` 恢复）。**严重性**：该文件在 `files` 白名单里 ⇒ 任何 Linux/macOS 消费者的 `npm test` 都会炸，是发布物缺陷而非 CI 配置问题 → [[CORRECTIONS#C-012 拿本机绿测当跨平台验收]] |
 
 ### 2.2 红队与修复的账（数据丢失级）
 
@@ -73,20 +74,22 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 - 键盘卡死有结构性替代（两段式命令 + 序号快照校验），模态路径默认关闭
 - 隐私开关、`--session` 被静默忽略、"报成功而正文未变"等误导类缺陷闭合（D-10~D-12）
 - 卫生类 D-16~D-19：作者绝对路径、跑不了却 `exit 0`、缺 `LICENSE`、无 `test` 脚本
+- **可移植性类 D-20~D-22（首次推送 CI 后新增）**：随包发布的 `preflight.mjs` 里的 Windows 专有假设、`import.meta.url` 配 `.pathname`、同名两份拷贝分叉——三处全部修复，并落地 `.github/scripts/portability.mjs` 静态守卫 + 可证伪自检
+- **CI 从"没推上去"变成"跑起来且全绿"**：`.github/workflows/ci.yml` 随首次推送入库，在 GitHub Actions 上真实执行；首跑 37 秒红（见 §2.1 第 10 条），修复后推送前在 WSL2 里 **1:1 复现 `ubuntu-latest` 全部步骤 7/7 绿**，Windows 侧 9/9 套件全绿（复现方法见 §5.4）
 - 公开仓库两次提交 `1a440d9`（两包 + 研究）+ `3cbf0a5`（残帧恢复 + 证据脚本去个人路径）
 
 ### 3.2 未解决 ⚠️
 
-1. **CI 工作流没能推上去**：`gh` token 缺 `workflow` 作用域。复核结论：已发布仓库里 `.github/workflows/` 是**空目录**，`ci.yml` 从未被 git 跟踪（`git ls-files .github` 为空）——而笔记与 README 里已经在引用 `.github/workflows/ci.yml:16 / :32-44 / :46-47`。**下次推送前先补这一条，否则文档引用的是不存在的文件。**
+1. ~~**CI 工作流没能推上去**：`gh` token 缺 `workflow` 作用域。复核结论：已发布仓库里 `.github/workflows/` 是**空目录**，`ci.yml` 从未被 git 跟踪（`git ls-files .github` 为空）——而笔记与 README 里已经在引用 `.github/workflows/ci.yml:16 / :32-44 / :46-47`。**下次推送前先补这一条，否则文档引用的是不存在的文件。**~~ → **已解决**（`ci.yml` 已入库并真的跑起来。而且它**第一次跑就红了**——见 §2.1 第 10 条：当初担心的"文档引用了不存在的文件"，变成了"那个文件替我们抓到了发布物缺陷"。文档里引用的行号现已指向真实文件。）
 2. **模态对话框路径仍默认关闭**：机制还在（`allowDialogs: true` + 行级 `inject: [commands, tuiDialogs]` 可开），approval 挂起时仍会锁键盘；而且那层 `inject` 在没有 `tuiDialogs` 提供者的 profile 上会让该行永远 PENDING → 整个 profile 起不来。
 3. **live 原地写入的 syscall 内部仍有残余窗口**：`write(2)` 对大 buffer 不是原子的，"写到一半进程死"仍会留下「新前缀 + 旧尾巴」。彻底关掉要独占写句柄/锁或改名安装，超出本轮最小修复范围。
 4. **`undo` 在日志本身缺失时无法恢复**：源码注释曾承诺"日志缺失也允许恢复"，实现做不到（F8 未修，注释与实现不一致）。
 5. **两个包都还没发布到 npm**，目前只以 `link:` 装进本机 `dsh-tui` profile。
 6. ~~**笔记缺口**：`DSH工具结果管线与meta陷阱` 被三处链接但文件不存在~~ → **已解决**（本会话末补写完成，259 行，已登记进 [[AI-Links-KB-Home]] 文档地图，悬空 wikilink 已消除）。
-7. ~~引擎 / CLI 那份 34 条套件只在本地开发树，未随仓库发布~~ → **已解决**（提交 `dcf5c93`：`test/engine.selftest.mjs` 随包发布、纳入 `npm test` 与 CI，且套件自己清理夹具不留残留）。
+7. ~~引擎 / CLI 那份 34 条套件只在本地开发树，未随仓库发布~~ → **已解决**（提交 `dcf5c93`：`test/engine.selftest.mjs` 随包发布、纳入 `npm test` 与 CI，且套件自己清理夹具不留残留）。⚠️ **但"不留残留"只对部署那一份成立**：随后发现仓库那份**没有夹具清理块**（部署那份有），每跑一次测试仍在源码目录留下 `broken.zstd` / `needle.txt` / `plan-*.json`——同一文件两份拷贝悄悄分叉，见 §2.1 第 10 条与 [[DSH会话脱敏插件缺陷档案]] D-22。
 8. **`dsh-tui` profile 里那两个包仍是 `link:` 依赖**，指向本地工作副本而非已发布版本；改包后需重启 profile 才加载新模块（行级配置是热重载，模块内容不是）。
 
-## 四、被撤回的结论（本会话写入 [[CORRECTIONS]] C-005~C-011）
+## 四、被撤回的结论（本会话写入 [[CORRECTIONS]] C-005~C-012）
 
 | 条目 | 被撤回的结论 | 事实 |
 |---|---|---|
@@ -97,9 +100,12 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 | [[CORRECTIONS#C-009 把服务存在外推为效果出现]] | "`ctx.get('tuiDialogs')` 有值 ⇒ 面板会弹" | **服务存在 ≠ 效果可达**：准入守卫（`bindOwnerEffect` 失败即立刻以取消结清）+ 挂载点优先级（`approvalPanelNode` 无提示压掉对话框）+ 键盘归属，三道独立闸门任一关闭效果就不存在 |
 | [[CORRECTIONS#C-010 把配置字段当作稳定值]] | "`disabled` 是个布尔字段，写个 `!!js` 判据就能让两种 profile 自动二选一" | `Entry.disabled` 是**实时 getter**，判据随挂载进度翻转（提供者排在后面时），启动器把未激活/PENDING 升级为致命错误 → **整个 boot 中止**。要二选一就用**静态的两层** |
 | [[CORRECTIONS#C-011 只测常规值不测边界]] | "预算设成 `0` 就等于这个字段不存在" | 只按常规值验收 = 没验收；`clamp(s, 0)` 返回 `'' + '…'`，**"关闭"档必须单独测，判据落在成品上**（产物里到底有没有那个字符） |
+| [[CORRECTIONS#C-012 拿本机绿测当跨平台验收]] | "本机 9 套全绿 ⇒ 交付物在任何平台都跑得起来；CI 只是把本机做过的事再做一遍" | **平台专有假设在写它的平台上隐形**：`USERPROFILE` 只存在于 Windows，CI 首跑 37 秒就红；该文件随包发布 ⇒ 陌生人 `npm test` 必炸。判据是「**在目标平台上跑过**」，不是「本机跑过」 |
 
 > [!note] 同步改动：[[AGENTS]] §六·五
 > 本会话新增 [[AGENTS]] §六·五（错误记忆协议：出结论前回查 [[CORRECTIONS]] 速查索引）。该节把记录数口径写成 **11 条、同一根源的两个变体**——C-001~C-004 把**外部信息**当结论，C-005~C-011 把**自己这一侧的通过**当**对方的验收**（自检通过 / 假设渲染 / 配置组合当运行时 / 绿测试当可用性 / 服务当效果 / 配置字段当稳定值 / 只测常规值）。本库同日早些时候建库时只有 C-001~C-004 四条。
+>
+> **后续口径（首次推送 CI 之后）**：追加 [[CORRECTIONS#C-012 拿本机绿测当跨平台验收]] 后，C-012 归入**第二个变体**（"自己这一侧的通过 = 对方的验收"从"读取端"扩展到了"目标平台"）；同日另一条工作线（[[repo-merge-2026-09-12]]）又补了 C-013 / C-014，因此 [[AGENTS]] §六·五 里那句「4 条记录」的旧口径已同步改为当前的 **14 条**。
 
 ## 五、可复用产物
 
@@ -172,6 +178,29 @@ dsh --profile <name> --dump-config     # 只证明配置组合，不证明加载
 | `%USERPROFILE%\dsh-redact-fix\` | before/after 存档、`run-all.ps1` |
 | `%USERPROFILE%\session-surgery\` | 引擎 / CLI 套件与 `zsplice.mjs`（与 `lib/engine.mjs` 逐字节相同的孪生件） |
 
+### 5.4 在本地 1:1 复现 `ubuntu-latest`（WSL2 + 官方 Linux Node）
+
+> [!warning] 本机是 Windows，"CI 红不红"以前只有推上去才知道
+> 首次 CI 首跑 **37 秒红**（§2.1 第 10 条）之后补的流程：**平台专有假设在写它的平台上隐形**，所以必须在**目标平台**上跑一次。不需要 Docker，也不需要第二台机器——本机已有 Debian 与 Ubuntu 两个 WSL2 发行版。
+
+```sh
+# 1) 装一份官方 Linux Node（解到 /opt；发行版仓库里的版本通常 < 22.15，缺 zlib 的 zstd API）
+curl -LO https://nodejs.org/dist/v22.21.0/node-v22.21.0-linux-x64.tar.xz
+sudo tar -xf node-v22.21.0-linux-x64.tar.xz -C /opt
+export PATH=/opt/node-v22.21.0-linux-x64/bin:$PATH
+node --version        # 必须 >= 22.15，否则会把"版本不足"误诊成"日志损坏"（D-13）
+
+# 2) 在仓库根，按 .github/workflows/ci.yml 的步骤顺序逐步执行
+#    （依赖安装 → 两个包的 npm test → .github/scripts/portability.mjs 与它的自检）
+```
+
+| 侧 | 本次实测（推送前） |
+|---|---|
+| WSL2（Linux，与 CI 同平台） | 按 `ci.yml` 顺序 **7/7 步全绿** |
+| Windows | **9/9 套件全绿**（Node 22.21.0） |
+
+这样"推上去看 CI 红不红"就变成了"**推之前本地就能确认**"：CI 不再是第一道验证，而是最后一道确认。
+
 ## 六、下次注意
 
 1. **改「别人要读的文件」时，判据去读对方的校验代码**，不要用自己的自检清单——说不出 `文件:行号` 就是没验证过（C-005）。
@@ -184,6 +213,8 @@ dsh --profile <name> --dump-config     # 只证明配置组合，不证明加载
 8. **一次改动后必须做一次启动自检**（插件在共享启动路径上，单行错误 = 整个 profile 用不了）；扫描用修订号包夹，别拿两次不同字节的结果对比。
 9. **不可再生数据（会话日志）的工具，红队审查的投入产出比极高**——一次审查换来"数据丢失类缺陷归零 + 78 条真实读取端回归"。
 10. **别让写盘成功之后的旁枝异常污染成功路径**：`purgeCache` 抛 `EISDIR` 曾把一次**已经成功的改写**报成失败（"命令炸了"），而磁盘上原文已经没了、还多出一份含原文的隔离备份。成功的操作必须有一个不会被旁枝异常改写结论的返回路径。
+11. **推送前在目标平台跑一遍**（WSL2 + 官方 Linux Node 即可 1:1 复现 `ubuntu-latest`，见 §5.4）——**本机全绿不构成跨平台证据**：平台专有假设在写它的平台上隐形（C-012）。
+12. **静态守卫必须能失败**：把 `USERPROFILE`/`HOMEDRIVE`/`APPDATA`/`LOCALAPPDATA`、`import.meta.url` 配 `.pathname`、硬编码盘符、`path.win32` 这类写法做成守卫，并配一个"**把真实缺陷注入回去**"的自检（断言它红、并指对文件与行号）。写完再问一遍：「什么样的缺陷能从我的规则里穿过去？」——第一版守卫恰恰放过了它要抓的那一行（`??` 判在整行而不是变量本身）。
 
 ## Related
 

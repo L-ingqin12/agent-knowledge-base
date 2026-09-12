@@ -3,7 +3,7 @@ title: DSH 插件与 Hook 开发最佳实践
 aliases: [DSH插件开发, DSH Hooks, Cordis插件]
 tags: [ai/agent, ai/skills, ai/links]
 created: 2026-08-17
-updated: 2026-08-25
+updated: 2026-09-12
 status: review
 source: "官方仓库 deepseek-harness-official + deepseek-harness-desktop-src + dsh-tui-repo 文档（2026-08 快照）"
 source_urls:
@@ -405,6 +405,9 @@ Codex 桥（Codex 10 个 hook 点中支持 5 个）：`PreToolUse`、`PostToolUs
 | 4 | dispose 必须达到完全停稳 | 清理要**等待**子进程退出、关闭监听器注册表，不能只发终止信号就返回（否则留孤儿进程） |
 | 5 | 在分发器中隔离回调异常 | 用户监听器抛异常不得 reject 所在 promise 或饿死后续监听器；try/catch 包裹分发循环 |
 | 6 | 绝不暴露环境变量/可预测路径给不可信输出 | 启动命令用清理后的 env（移除 `*KEY*/*SECRET*/*TOKEN*/*PASSWORD*`）；临时文件放 0700 私有目录、`'wx'` + `0o600` 独占打开；删除可能是 symlink/junction 的路径先用 `lstatSync()` 判断再 `unlinkSync`（unlink 只删链接、拒绝真实目录） |
+| 7 | 平台假设是**发布物缺陷**，不是环境问题 | 别用平台专有环境变量（`USERPROFILE` / `HOMEDRIVE` / `APPDATA` / `LOCALAPPDATA`）推导路径，用 `os.homedir()`；自身路径用 `fileURLToPath(import.meta.url)` 而不是 `new URL(...).pathname`。**在 Windows 上跑的测试看不见 Windows-only 的假设**——随包发布的东西必须在**目标平台**上真跑一次，并把这类写法做成**会失败的静态守卫**（本库实例：[[DSH会话脱敏插件缺陷档案]] D-20/D-21、[[CORRECTIONS]] C-012） |
+
+> 第 7 条来自 2026-09-12 的实例（[[DSH会话脱敏插件缺陷档案]] D-20–D-22：随包发布的 `preflight.mjs` 用 `USERPROFILE` 推导 DSH 主目录，Linux 上 `npm test` 直接崩），形状与官方 `defensive-patterns` 同类——**每条都是实际发布过的缺陷类**。
 
 ### 5.2 跨框架插件设计教训（mature-plugin-frameworks 调研）
 
@@ -582,6 +585,7 @@ profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依�
 
 - [[DSH跨框架Skills与MCP加载]] — 跨框架 Skills/MCP 桥接（mcp-client / dsh-bridges 详表）
 - [[DSH-TUI插件使用手册]] — 本机 TUI profile 的使用手册
+- [[DSH会话脱敏插件缺陷档案]] — §5.1 第 7 条的现场：D-20–D-22（可移植性三连）与守住它们的静态守卫
 - [[2026-08-16-AI链接综述与归档]] — 16 链接调研综述（DeepSeek Harness 生态条目）
 - [[TYPORA-KB-Home]] — 插件式扩展机制对照
 - [[AGENTS]] — 知识库协作规范
