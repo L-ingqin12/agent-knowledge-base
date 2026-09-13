@@ -1,0 +1,32 @@
+# 行尾策略（2026-09-13 加）
+#
+# 背景：本仓库此前没有 .gitattributes，而 Windows 上 core.autocrlf 常为 true。
+# 结果是所有 .sh 在检出时被转成 CRLF，bash 报 `$'\r': command not found`，
+# 使 pre-push 钩子（scripts/prepush-selfscan.sh）、scripts/install-hooks.sh 与
+# scripts/kb-push.sh 在**新克隆**上全部失效——门禁形同虚设。
+# （当前机器之所以还能跑，只是因为那三个文件当初是本地写入的 LF、从未被重新检出。）
+#
+# 已核对：受版本控制的 59 个 .sh 的 blob 本来就是 LF，所以下面的规则
+# 只固定策略，不触发任何既有文件的内容变更。
+
+# 文本一律按 LF 入库（检出形态仍按平台，Windows 上 md 等会是 CRLF）
+* text=auto
+
+# 但 shell 脚本必须永远是 LF —— 这是本次修复的核心
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# 本文件自身也固定为 LF（否则每次 git 操作都会提示它将被转成 CRLF）
+.gitattributes text eol=lf
+
+# 二进制：不参与行尾转换与 diff
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.xlsx binary
+*.docx binary
