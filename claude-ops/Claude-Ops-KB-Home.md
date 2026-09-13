@@ -69,6 +69,12 @@ See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECT
 > `hermes-ops/pi/architecture/api-key-leak-postmortem.md` 原含**明文 ARK API 密钥**（原仓库为私有）。
 > 并入公开库前已替换为 `ark-<REDACTED>`——事故叙事保留，凭据移除。
 > 全库合并后已扫描 `sk-` / `ghp_` / `AKIA` / `glpat` / JWT / 私钥头 / 本机用户名，均无命中。
+>
+> ⚠️ **2026-09-13 订正：上面这句在「本机用户名」一项上不成立。**
+> 对**公开远端**（`origin/main`，而非本地工作树）复核后发现 8 个文件仍含本机标识符：6 处 `C:\Users\<用户名>\…` 绝对路径，以及 Typora machineCode 里的 `<机器名> | <用户名> | Windows`（同时暴露机器名）。已全部替换为 `%USERPROFILE%` 与 `%COMPUTERNAME% | %USERNAME%` 形态。
+> 密钥类结论**仍然成立**：复核时 `sk-` 与 `ghp_` 的命中经逐条确认全是误报——`sk-` 来自 wikilink 笔记名 `…tasks-exploration-2026-07-06`，`ghp_` 来自密钥扫描脚本自身的正则模式和一句扫描记录。
+> 教训：**一句「已扫描、均无命中」比没有这句话更危险**，它会让后来的人（包括未来的自己）跳过检查。审计结论必须写明扫描范围、模式、**扫描对象是哪一份**（工作树 ≠ 远端）与日期，并且要能重跑。
+> 另一个更隐蔽的坑：复核脚本第一次用 `git ls-files` 取文件列表，而它对非 ASCII 路径默认输出带引号的转义形式，导致 5 个中文名文件被静默跳过、并谎报「已无残留」——加 `-c core.quotePath=false` 才拿到真实清单。**过滤器把待查对象全筛掉，却当成结论。**
 
 > [!note] 三篇 hermes 文档未覆盖
 > `2026-06-24-hermes-feishu-outage-postmortem`、`hermes-parallel-task-report`、`hermes-session-optimization-report`

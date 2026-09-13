@@ -35,10 +35,10 @@ See also: [[AI-Links-KB-Home]] | [[2026-08-16-AI链接综述与归档]] | [[DSH�
 
 | 项 | 实测值 |
 |------|----------|
-| 安装位置 | profile `tui`：`C:\Users\28064\.dsh\profiles\tui\package.json` |
+| 安装位置 | profile `tui`：`%USERPROFILE%\.dsh\profiles\tui\package.json` |
 | 依赖 | `@dsh-tui/dsh-tui` `^0.1.2` |
 | bundles | `dsh.profile.bundles` = `["@deepseek-ai/dsh-base", "@dsh-tui/dsh-tui"]` |
-| dsh CLI | `C:\Users\28064\nodejs-x64\node-v22.21.0-win-x64\dsh.ps1`，版本 0.1.0-rc.6 |
+| dsh CLI | `%USERPROFILE%\nodejs-x64\node-v22.21.0-win-x64\dsh.ps1`，版本 0.1.0-rc.6 |
 | dsh 自带 Node | `node-v22.21.0-win-x64\node.exe` → v22.21.0 |
 | 系统 PATH node | v18.16.1（⚠ 不满足插件要求） |
 

@@ -3,7 +3,7 @@ title: DSH 插件与 Hook 开发最佳实践
 aliases: [DSH插件开发, DSH Hooks, Cordis插件]
 tags: [ai/agent, ai/skills, ai/links]
 created: 2026-08-17
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 source: "官方仓库 deepseek-harness-official + deepseek-harness-desktop-src + dsh-tui-repo 文档（2026-08 快照）"
 source_urls:
@@ -15,10 +15,10 @@ fetched_at: 2026-08-19
 
 # DSH 插件与 Hook 开发最佳实践
 
-See also: [[AI-Links-KB-Home]] | [[DSH跨框架Skills与MCP加载]] | [[DSH-TUI插件使用手册]] | [[2026-08-16-AI链接综述与归档]] | [[AGENTS]]
+See also: [[AI-Links-KB-Home]] | [[DSH跨框架Skills与MCP加载]] | [[DSH-TUI插件使用手册]] | [[DSH插件发布与分发]] | [[2026-08-16-AI链接综述与归档]] | [[AGENTS]]
 
 > [!abstract] 概述
-> 本文整理 DeepSeek Harness（DSH）插件与 Hook 的开发与使用最佳实践，覆盖 Cordis 插件模型、工具/服务/事件开发、hooks 桥接子系统、发布分发与防御性模式。资料来源：官方仓库 deepseek-harness-official（`docs/user/develop/**`、`docs/capability-seams.zh.md`、`docs/defensive-patterns.zh.md`、`docs/subsystems/{tools,approval}.zh.md`、`packages/hooks/**`）、deepseek-harness-desktop-src（`docs/plugin-development.md`、`docs/plugin-ecosystem.md`、`dsh-plugin-desktop/docs/plugin-services.zh.md`、`dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md`）、`dsh-tui-repo/cordis.patch.yml` 与本机 `C:\Users\28064\.dsh` profile 实测，均为 2026-08 快照。
+> 本文整理 DeepSeek Harness（DSH）插件与 Hook 的开发与使用最佳实践，覆盖 Cordis 插件模型、工具/服务/事件开发、hooks 桥接子系统、发布分发与防御性模式。资料来源：官方仓库 deepseek-harness-official（`docs/user/develop/**`、`docs/capability-seams.zh.md`、`docs/defensive-patterns.zh.md`、`docs/subsystems/{tools,approval}.zh.md`、`packages/hooks/**`）、deepseek-harness-desktop-src（`docs/plugin-development.md`、`docs/plugin-ecosystem.md`、`dsh-plugin-desktop/docs/plugin-services.zh.md`、`dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md`）、`dsh-tui-repo/cordis.patch.yml` 与本机 `%USERPROFILE%\.dsh` profile 实测，均为 2026-08 快照。
 
 ---
 
@@ -122,7 +122,7 @@ export default class MetricsService extends Service {
 3. home 级 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好）；
 4. 每个 `--patch <path>` overlay（按 argv 顺序）。
 
-> [!info] 本机 profile（`C:\Users\28064\.dsh\profiles`，2026-08 实测）
+> [!info] 本机 profile（`%USERPROFILE%\.dsh\profiles`，2026-08 实测）
 > | profile | `dsh.profile.bundles` | 备注 |
 > |---|---|---|
 > | `web` | `@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` | 浏览器界面 |
@@ -482,11 +482,20 @@ dsh --profile demo --dump-config   # 先验证层（应出现 "# == dsh-hello-pl
 - 内置组合包名称（如 `@deepseek-ai/dsh-base`）始终从 dsh 安装目录本身解析；pnpm 只管理树外包，所以你的组合包可放心依赖 `@deepseek-ai/dsh-base` 存在且与安装一致。
 - 跨环境（Desktop + 普通 DSH）插件：把 `dsh-plugin-desktop` 作为编译所需 dev dependency；若发布的 declaration 暴露其类型，声明为 **optional peer**。仅探测 service 不需要 runtime import（type-only import 会被 JS 消除）。
 
+### 6.4 发布之后：开发闭环的最后一环
+
+以上讲的是"怎么让插件**能**被装上"；**发出去之后还有一环**——别人怎么**找得到**它。2026-09-13 的实测结论（详见 [[DSH插件发布与分发]]）：
+
+- **官方没有市场**：`dsh plugin` 是 **pnpm 的薄包装**（`bin.js:105-106` 原文即 "forwarding the remaining arguments to pnpm"），官方仓库无 marketplace / registry 目录，npm 上 `@deepseek-ai/` 作用域下的 `dsh-marketplace`、`dsh-registry`、`dsh-plugins`、`dsh-plugin-registry`、`dsh-store`、`dsh-plugin-store` **六个包名全部 404**——官方通道只有"按名安装"，**没有浏览 / 发现能力**；
+- **发现只有两个信号**：GitHub topic `dsh-plugin`（官方 README「Community and support」唯一推荐的机制）+ npm keyword `dsh-plugin`；**两者都不是包名前缀要求**；
+- **monorepo 有一个关键坎**：目录扫描器**不遍历目录树**，只读根 `dsh.bundles`（复数、数组、目录列表）再逐个读子目录的 `dsh.bundle`（单数、对象）；根上没有 `package.json` ⇒ 子包对扫描器**等于不存在**，topic 加得再对也没用；
+- **发布物本身要被守卫**：`files` 白名单**打不到包目录之外**的文件；随包发布的测试必须能在**目标平台**跑（§5.1 第 7 条 / [[CORRECTIONS]] C-012）；tarball 完整性、manifest 闸门与 monorepo 登记都要有断言——而且**守卫必须可证伪**（把真实缺陷注入回去当自检）。
+
 ---
 
 ## 七、实例对照表
 
-> 来源：`dsh-tui-repo/cordis.patch.yml`、本机 `C:\Users\28064\.dsh`、[[DSH跨框架Skills与MCP加载]]
+> 来源：`dsh-tui-repo/cordis.patch.yml`、本机 `%USERPROFILE%\.dsh`、[[DSH跨框架Skills与MCP加载]]
 
 ### 7.1 mcp-client 配置形态（原生 MCP，每服务器一个实例）
 
@@ -556,7 +565,7 @@ TUI 本身就是一个 bundle patch 层，展示"覆盖 base 行 + 插入 TUI-on
 ### 7.4 本机 profile 的 bundles 结构
 
 ```json
-// C:\Users\28064\.dsh\profiles\web\package.json
+// %USERPROFILE%\.dsh\profiles\web\package.json
 {
   "name": "dsh-profile-web",
   "private": true,
@@ -576,6 +585,7 @@ profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依�
 - **rc 线快速迭代**：本机 dsh CLI 为 v0.1.0-rc.6（见 [[DSH跨框架Skills与MCP加载]]），文档与接口随 rc 快速演进，字段/事件以上游最新文档与生成区块为准。
 - **hooks 桥接是子集**：CC 30 个事件仅支持 7 个、Codex 10 个仅支持 5 个；`updatedInput` 会被解析+警告但**不应用**；`SessionStart` 部分功能；未实现 per-session hook 配置发现（`TODO(per-session-hook-config)`）、`Stop` 连续阻塞上限等。
 - **Fabric 仍是 Draft**：dsh-community-fabric 的 manifest/capability/事件模型是社区 RFC Draft，尚不能作为依赖或发布目标；插件市场仍处设计阶段，目录收录 ≠ 安全审核。
+  > **2026-09-13 复核（更硬的口径）**：**官方没有市场**——`dsh plugin` 只是 pnpm 转发，官方仓库无 marketplace/registry 目录，npm 上相关包名全部 404；社区目录全部**自动抓取**、自述**不做代码审查**（见 [[DSH插件发布与分发]] §一、§七）。
 - **Desktop 契约边界**：第三方公开 service 仅 `desktopProfiles` 与 `desktopPnpm`；`desktopRuntime`、`desktopPnpmBootstrap`、Electron 细节非兼容 contract；`dshmarket@1.2.3` 早于该契约且缺完整 MIT 文本，Desktop 不预装。
 - **mcp-client 限制**：只桥接工具能力，MCP 的 resources/prompts 暂不支持。
 
@@ -584,6 +594,7 @@ profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依�
 ## Related
 
 - [[DSH跨框架Skills与MCP加载]] — 跨框架 Skills/MCP 桥接（mcp-client / dsh-bridges 详表）
+- [[DSH插件发布与分发]] — §6.4 的展开：官方无市场、topic/keyword 双信号、monorepo 收录坎、`files` 白名单与可证伪守卫
 - [[DSH-TUI插件使用手册]] — 本机 TUI profile 的使用手册
 - [[DSH会话脱敏插件缺陷档案]] — §5.1 第 7 条的现场：D-20–D-22（可移植性三连）与守住它们的静态守卫
 - [[2026-08-16-AI链接综述与归档]] — 16 链接调研综述（DeepSeek Harness 生态条目）

@@ -44,15 +44,15 @@ try{
 var __crypto=require("crypto");
 var __pd=__crypto.publicDecrypt;
 // Fake plaintext, fields must match this machine's real machine code (CHECKPOINT):
-// machineCode={"v":"win|1.13.2","i":"t6aaDrYAHd","l":"ZEROJEAN | 28064 | Windows"}
+// machineCode={"v":"win|1.13.2","i":"t6aaDrYAHd","l":"%COMPUTERNAME% | %USERNAME% | Windows"}
 var __fakePlain=Buffer.from(JSON.stringify({
-  deviceId:"ZEROJEAN | 28064 | Windows",
+  deviceId:"%COMPUTERNAME% | %USERNAME% | Windows",
   fingerprint:"t6aaDrYAHd",
-  email:"zerojean@mail.local",
-  license:"Cracked_By_ZEROJEAN",
+  email:"user@mail.local",
+  license:"Cracked_By_USER",
   version:"win|1.13.2",
   date:(function(){var d=new Date();return ("0"+(d.getMonth()+1)).slice(-2)+"/"+("0"+d.getDate()).slice(-2)+"/"+d.getFullYear();})(),
-  type:"ZEROJEAN"
+  type:"USER"
 }));
 __crypto.publicDecrypt=function(){
   var a=Array.prototype.slice.call(arguments),key=a[0],buf=a[1];

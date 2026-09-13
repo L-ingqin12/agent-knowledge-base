@@ -3,7 +3,7 @@
 #   probe:    D:/ProgramData/Miniconda3/python.exe fix_rebuild_asar.py --mode probe
 #   activate: D:/ProgramData/Miniconda3/python.exe fix_rebuild_asar.py --mode activate
 #   optional jsc override (e.g. 4-byte-reverted official jsc):
-#             ... fix_rebuild_asar.py --mode activate --jsc "C:\\Users\\28064\\AppData\\Local\\Temp\\asar_out\\cur\\atom.compiled.dist.jsc.reverted"
+#             ... fix_rebuild_asar.py --mode activate --jsc "%USERPROFILE%\\AppData\\Local\\Temp\\asar_out\\cur\\atom.compiled.dist.jsc.reverted"
 # Preserves the ORIGINAL header integrity hashes EXACTLY (do not recompute): the app's
 # integrity check reads package.json / launch.dist.js / page-dist via the fs hook which
 # redirects to app.bak, so header hashes must stay the values of the ORIGINAL files.

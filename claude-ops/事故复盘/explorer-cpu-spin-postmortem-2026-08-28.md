@@ -125,5 +125,5 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 |------|------|
 | `D:\SoftWare\ExplorerOptimize\` | 全部修复脚本（fix_*/phase*/test1_*/monitor/check_now/verify/gen_phase5） |
 | `D:\SoftWare\ExplorerOptimize\backup-20260828\` | .reg 备份 ×60+、overlay_values_before.txt、log_admin.txt、log_user.txt、DONE 标记 |
-| `C:\Users\28064\AppData\Local\Tencent\QQBrowser\User Data\QBShellIcon\` | QBShellIcon1341ee.dll → .bak |
+| `%USERPROFILE%\AppData\Local\Tencent\QQBrowser\User Data\QBShellIcon\` | QBShellIcon1341ee.dll → .bak |
 | 本会话 | [[SESSION-ARCHIVE-2026-08-28]]（对话归档） |

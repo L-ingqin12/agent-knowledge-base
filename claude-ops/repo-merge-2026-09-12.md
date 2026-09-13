@@ -108,7 +108,7 @@ ai-dev/agent-learn/MODULE_README.md、ai-dev/mcp-learn/examples/README.md、cs-b
 > 而它**同时泄露首尾两段**，比纯前缀更危险。
 
 > [!warning] 教训三：`git grep` 与 PowerShell 正则方言不同，会误报
-> 本轮**三次**被它误导（`Users[\\/]28064`、`ark-[0-9a-f]{8}-`、`sk-or-v1`），
+> 本轮**三次**被它误导（`Users[\\/]<用户名>`、`ark-[0-9a-f]{8}-`、`sk-or-v1`），
 > 每次都说「远程有残留」，逐文件遍历后**均为 0**。
 > **判定敏感内容必须用「逐文件取全文再匹配」，不能只信 `git grep`。**
 

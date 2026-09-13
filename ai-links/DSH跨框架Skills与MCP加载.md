@@ -148,7 +148,7 @@ dsh --profile web --dump-config | grep -A2 bridges
 ## 五、与本机环境的对应
 
 - 本机 profiles：`web`（dsh-base + dsh-web-app）、`tui`（[[DSH-TUI插件使用手册]]）。
-- dsh CLI v0.1.0-rc.6；配套 Node 22.21（`C:\Users\28064\nodejs-x64\node-v22.21.0-win-x64\`），系统 PATH 里的 node 仍是 v18（TUI 需要 ^22.19，勿混用）。
+- dsh CLI v0.1.0-rc.6；配套 Node 22.21（`%USERPROFILE%\nodejs-x64\node-v22.21.0-win-x64\`），系统 PATH 里的 node 仍是 v18（TUI 需要 ^22.19，勿混用）。
 - 与 [[2026-08-16-AI链接综述与归档]] 的关联：#1 antigravity-awesome-skills（1900+ 技能聚合）、#6 i-have-adhd（SKILL.md 最小样本）、#14/#15 图表技能，均可在 DSH 中以原生 skill 或 bridges 方式使用。
 
 > [!warning] 时效性

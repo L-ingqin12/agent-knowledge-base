@@ -3,18 +3,20 @@ title: SESSION-ARCHIVE 2026-09-12
 aliases: [会话归档 2026-09-12, DSH会话脱敏归档, dsh-redaction归档]
 tags: [meta, session-archive, ai/tools, incident]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
 # 会话归档 — 2026-09-12：DSH 会话日志脱敏（预防 + 修复两个插件）与平台研究
 
-See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH插件组合与启动中止语义]] | [[DSH会话日志格式与读取端约束]] | [[DSH会话持久化与活跃改写安全]] | [[DSH-TUI内部机制与键盘卡死陷阱]] | [[DSH会话脱敏插件缺陷档案]] | [[DSH会话脱敏项目方法论复盘]]
+See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH插件发布与分发]] | [[DSH插件组合与启动中止语义]] | [[DSH会话日志格式与读取端约束]] | [[DSH会话持久化与活跃改写安全]] | [[DSH-TUI内部机制与键盘卡死陷阱]] | [[DSH会话脱敏插件缺陷档案]] | [[DSH会话脱敏项目方法论复盘]]
 
 > [!abstract] 主题
 > **起因**：一次公开检索 / 一条 `gh` 命令 / 一次日志抓取，返回的内容里有你不该留存的东西。在 DSH 里它不只是"经过"——**落盘的 `tool/result` 事件本身就是面向模型的那条消息**，一次写入同时提交给持久化会话日志与之后每一轮 provider 请求。撞上服务端内容风控（`Content Exists Risk`）时，失败的不只是那一轮，而是此后每一轮（历史一直带着它）。
 > **做法**：两个可分发插件（事前预防 + 事后修复）+ 一套把 DSH 读穿的实测研究（会话日志格式、持久化写路径、工具结果管线、TUI 扩展面）。
 > **产出**：公开仓库 `dsh-redaction`（MIT，2 个包）+ 6 篇笔记 + [[CORRECTIONS]] 新增 C-005~C-012（其中 C-012 是首次推送 GitHub Actions CI 之后追加的）。
+>
+> **2026-09-13 追加**：本会话的收尾工作（两个包发布到 npm、两次版本迭代、仓库公开、收录信号、守卫体系、供应链核查）已完成，完整记录见 **§七**；同时新增笔记 [[DSH插件发布与分发]] 与 [[CORRECTIONS]] C-015~C-022（后者含本轮实测：一次「退出码 0 但标签被静默丢弃」的机制、以及两条真正导致第三方收录失败的根因）。
 
 ## 一、要求与交付
 
@@ -77,6 +79,9 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 - **可移植性类 D-20~D-22（首次推送 CI 后新增）**：随包发布的 `preflight.mjs` 里的 Windows 专有假设、`import.meta.url` 配 `.pathname`、同名两份拷贝分叉——三处全部修复，并落地 `.github/scripts/portability.mjs` 静态守卫 + 可证伪自检
 - **CI 从"没推上去"变成"跑起来且全绿"**：`.github/workflows/ci.yml` 随首次推送入库，在 GitHub Actions 上真实执行；首跑 37 秒红（见 §2.1 第 10 条），修复后推送前在 WSL2 里 **1:1 复现 `ubuntu-latest` 全部步骤 7/7 绿**，Windows 侧 9/9 套件全绿（复现方法见 §5.4）
 - 公开仓库两次提交 `1a440d9`（两包 + 研究）+ `3cbf0a5`（残帧恢复 + 证据脚本去个人路径）
+- **2026-09-13 追加：两个包发布到 npm**，且**从 registry 真装验收**（不是从磁盘）；两个包各经历一次版本迭代（已发布版本不可覆盖，见 §七）
+- **2026-09-13 追加：收录信号与守卫体系落地**——GitHub topic `dsh-plugin` + npm keyword `dsh-plugin`；仓库级守卫补成 portability / pack-check 两道 + 注入式自检 + 显式豁免标记（见 §七）
+- **2026-09-13 追加：三个手动通道提交完成，两条目录条目预检均 `passed`**（`#811` 14/14 文件 Critical 0/Warning 0/Info 2；`#823` 8/8 文件 Critical 0/Warning 0/Info 0）。提交过程踩到两个真实门槛（表单字段结构、候选插件歧义），见 §七与 [[DSH插件发布与分发]] §6.3
 
 ### 3.2 未解决 ⚠️
 
@@ -84,10 +89,10 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 2. **模态对话框路径仍默认关闭**：机制还在（`allowDialogs: true` + 行级 `inject: [commands, tuiDialogs]` 可开），approval 挂起时仍会锁键盘；而且那层 `inject` 在没有 `tuiDialogs` 提供者的 profile 上会让该行永远 PENDING → 整个 profile 起不来。
 3. **live 原地写入的 syscall 内部仍有残余窗口**：`write(2)` 对大 buffer 不是原子的，"写到一半进程死"仍会留下「新前缀 + 旧尾巴」。彻底关掉要独占写句柄/锁或改名安装，超出本轮最小修复范围。
 4. **`undo` 在日志本身缺失时无法恢复**：源码注释曾承诺"日志缺失也允许恢复"，实现做不到（F8 未修，注释与实现不一致）。
-5. **两个包都还没发布到 npm**，目前只以 `link:` 装进本机 `dsh-tui` profile。
+5. ~~**两个包都还没发布到 npm**，目前只以 `link:` 装进本机 `dsh-tui` profile。~~ → **已解决**（2026-09-13：两个包均已发布到 npm，并各经历一次版本迭代；发布验收按「**从 registry 真装**」执行，不是从磁盘。详见 §七。）
 6. ~~**笔记缺口**：`DSH工具结果管线与meta陷阱` 被三处链接但文件不存在~~ → **已解决**（本会话末补写完成，259 行，已登记进 [[AI-Links-KB-Home]] 文档地图，悬空 wikilink 已消除）。
 7. ~~引擎 / CLI 那份 34 条套件只在本地开发树，未随仓库发布~~ → **已解决**（提交 `dcf5c93`：`test/engine.selftest.mjs` 随包发布、纳入 `npm test` 与 CI，且套件自己清理夹具不留残留）。⚠️ **但"不留残留"只对部署那一份成立**：随后发现仓库那份**没有夹具清理块**（部署那份有），每跑一次测试仍在源码目录留下 `broken.zstd` / `needle.txt` / `plan-*.json`——同一文件两份拷贝悄悄分叉，见 §2.1 第 10 条与 [[DSH会话脱敏插件缺陷档案]] D-22。
-8. **`dsh-tui` profile 里那两个包仍是 `link:` 依赖**，指向本地工作副本而非已发布版本；改包后需重启 profile 才加载新模块（行级配置是热重载，模块内容不是）。
+8. **`dsh-tui` profile 里那两个包曾是 `link:` 依赖**，指向本地工作副本而非已发布版本；改包后需重启 profile 才加载新模块（行级配置是热重载，模块内容不是）。⚠️ **2026-09-13 补记**：两个包现已发布，本地工作副本与已发布版本是**两条线**——已发布版本**不可覆盖**，任何改动（哪怕只改文档）都必须发新版本号，见 §七。
 
 ## 四、被撤回的结论（本会话写入 [[CORRECTIONS]] C-005~C-012）
 
@@ -106,6 +111,7 @@ See also: [[HOME]] | [[AGENTS]] | [[AI-Links-KB-Home]] | [[CORRECTIONS]] | [[DSH
 > 本会话新增 [[AGENTS]] §六·五（错误记忆协议：出结论前回查 [[CORRECTIONS]] 速查索引）。该节把记录数口径写成 **11 条、同一根源的两个变体**——C-001~C-004 把**外部信息**当结论，C-005~C-011 把**自己这一侧的通过**当**对方的验收**（自检通过 / 假设渲染 / 配置组合当运行时 / 绿测试当可用性 / 服务当效果 / 配置字段当稳定值 / 只测常规值）。本库同日早些时候建库时只有 C-001~C-004 四条。
 >
 > **后续口径（首次推送 CI 之后）**：追加 [[CORRECTIONS#C-012 拿本机绿测当跨平台验收]] 后，C-012 归入**第二个变体**（"自己这一侧的通过 = 对方的验收"从"读取端"扩展到了"目标平台"）；同日另一条工作线（[[repo-merge-2026-09-12]]）又补了 C-013 / C-014，因此 [[AGENTS]] §六·五 里那句「4 条记录」的旧口径已同步改为当前的 **14 条**。
+> **2026-09-13 再更新**：发布与分发实践又补了 C-015~C-022，当前口径为 **22 条**（四个变体，见 §七）。
 
 ## 五、可复用产物
 
@@ -166,6 +172,10 @@ dsh plugin --profile <name> add ./dsh-plugin-content-policy
 dsh --profile <name> --dump-config     # 只证明配置组合，不证明加载（见 C-007）
 ```
 
+> [!success] 2026-09-13 实况：两个包已按此流程发布
+> 执行时补上三条当初没写的：① 在 `package.json` 里设 `publishConfig.registry` 固定到 npmjs（别只靠命令行参数——本机默认 registry 是镜像，不设就有发错地方的风险）；② **2FA 是常见拦路虎**：非交互 shell 下 `npm publish` 报 `E403 ... Two-factor authentication or granular access token with bypass 2fa enabled is required`，出路是"自己在终端里交互输入 6 位码"或"granular token 勾 bypass 2FA"；③ `--dry-run` **不需要凭据**，可随时检查将发布什么。
+> 完整流程、`files` 白名单的两个坑、守卫体系与收录图谱见 §七与 [[DSH插件发布与分发]]。
+
 ### 5.3 证据与现场
 
 | 路径 | 是什么 |
@@ -216,6 +226,51 @@ node --version        # 必须 >= 22.15，否则会把"版本不足"误诊成"�
 11. **推送前在目标平台跑一遍**（WSL2 + 官方 Linux Node 即可 1:1 复现 `ubuntu-latest`，见 §5.4）——**本机全绿不构成跨平台证据**：平台专有假设在写它的平台上隐形（C-012）。
 12. **静态守卫必须能失败**：把 `USERPROFILE`/`HOMEDRIVE`/`APPDATA`/`LOCALAPPDATA`、`import.meta.url` 配 `.pathname`、硬编码盘符、`path.win32` 这类写法做成守卫，并配一个"**把真实缺陷注入回去**"的自检（断言它红、并指对文件与行号）。写完再问一遍：「什么样的缺陷能从我的规则里穿过去？」——第一版守卫恰恰放过了它要抓的那一行（`??` 判在整行而不是变量本身）。
 
+## 七、发布与分发（2026-09-13 补记）
+
+本会话的收尾工作：把研究产物**变成别人能装、也能找到的东西**。落点笔记是 [[DSH插件发布与分发]]，这里只记"这一轮做了什么、撤回了什么"。
+
+### 7.1 本轮做完的事
+
+| 项 | 内容 |
+|---|---|
+| **发布** | 两个包（`dsh-plugin-redact` / `dsh-plugin-content-policy`）发布到 npm；**各经历一次版本迭代**（已发布版本不可覆盖，任何改动靠新版本号） |
+| **验收顺序** | **CI 绿 → publish → 从 registry 真装验收**（不是从磁盘） |
+| **仓库** | **公开**；本轮共 **三个提交**，落进仓库的内容是：守卫体系（`portability.mjs` / `pack-check.mjs` + 注入式自检）、monorepo 根 `dsh.bundles` 登记、发布元数据 |
+| **发现信号** | GitHub topic `dsh-plugin` + npm keyword `dsh-plugin`——**两者扫的不是同一批目录**，都要加 |
+| **手动提交** | 三个通道：`awesome-dsh-plugin` 的 `data/plugins/` PR、`DSH-Store` 的 issue 模板、dsh.so 的 GitHub tracker；**两条目录条目预检均 `passed`**（`#811` 14/14 文件 Critical 0/Warning 0/Info 2，`#823` 8/8 文件 Critical 0/Warning 0/Info 0）——对方独立扫描器报出的两处 Info 正是我们自己标出的子进程能力，构成一次独立互相印证 |
+| **守卫体系** | `portability.mjs`（平台专有假设）+ `pack-check.mjs`（tarball 完整性 / manifest 闸门 / monorepo discovery）+ 两者的**注入式自检** + 显式豁免标记 `portability-allow` |
+| **供应链核查** | 发布令牌强度（账号级 + bypass 2FA vs 限定到包的 granular）、`.npmrc` 的 `strict-ssl`、pnpm 的 `minimumReleaseAge` 是否启用 |
+
+### 7.2 本轮新增的被撤回结论
+
+全部录入 [[CORRECTIONS]] **C-015~C-022**（原来的 14 条 → 22 条）：
+
+| 条目 | 被撤回的结论 | 事实 |
+|---|---|---|
+| [[CORRECTIONS#C-015 把过滤器筛空的零命中当成「不存在」]] | 「DSH 没有 `plugin` 子命令」 | 一个 `-notmatch '\\node_modules\\'` 把 **8677 个文件全排除、实际扫了 0 个**，却报告"未发现"；`bin.js:105` 就有 |
+| [[CORRECTIONS#C-016 凭推断给扫描器定行为，方向反了]] | 「monorepo 加根 `package.json` 可能误导扫描器」 | **方向相反**：根 `dsh.bundles` 正是**发现子包**的机制，没有它子包等于不存在 |
+| [[CORRECTIONS#C-017 把「写法不同」当成「不一致」]] | 「`otherCopies()` 用 homedir 找 `.dsh-tui` 不一致」 | **核实后是对的**：dsh-tui 自己就写 `join(homedir(), '.dsh-tui', …)`（`bin/dsh-tui.js:358`、`:569`） |
+| [[CORRECTIONS#C-018 把「应该有」当成「已有」]] | 「官方 profile 模板带 `minimumReleaseAge` 供应链保护」 | 实测 **`undefined`，未启用**；配套的 exclude 列表因此空转 |
+| [[CORRECTIONS#C-019 把「表单存在」当成「提交通道可用」]] | 「dsh.so 提交表单可用」 | 服务端**未配置**（`The submission service is not configured yet`），需走 GitHub tracker |
+| [[CORRECTIONS#C-020 把「命令退出 0」当成「副作用已生效」]] | 「`gh issue create --label …` 退出 0 ⇒ 标签已打上」→ 进而推断「缺标签所以没被处理」 | 前半为真：非维护者无权打标签，`--label` 被**静默丢弃**（`gh issue edit --add-label` 才报权限错误）。**后半已被同日撤回**：其 workflow 触发条件是 **OR**，标题以 `[Plugin]` 开头即成立，**创建后 8 秒就已运行**——标签从来不是必需的 |
+| [[CORRECTIONS#C-021 把 issue 表单当成给人看的渲染层]] | 「表单只是给人填的界面，正文写全信息就行」 | 自动化按 `/^### (.+)$/` 切分 `### <字段名>` 段落取值——自由 markdown 正文直接报 `SUBMISSION_FIELD_MISSING` |
+| [[CORRECTIONS#C-022 把「人知道它不可用」当成「工具知道」]] | 「快照在 `docs/` 下且 README 已标注不可用，不会干扰工具」 | 预检把**所有带 `dsh.bundle` 的 `package.json`** 当候选；逐字节冻结的 5 份快照 + 1 份设计原型仍带该字段 ⇒ **7 个候选**（真实 2 个），报 `SUBMISSION_PACKAGE_AMBIGUOUS` |
+
+> [!warning] C-015 与 C-019 是同一类失败的两个面
+> 一个是**自己这一侧的过滤器**把目标全筛掉（零命中当不存在），一个是**对方那一侧的服务**根本没开（表单在当通道通）。
+> 加上 C-020/C-021/C-022（退出码 0 当副作用生效 / 正文当字段结构 / 文档标注当机器可读），五条合起来是同一句话：**"看起来没有" / "看起来有" / "看起来成功" / "看起来完整" / "看起来已标注" 都不是证据**。
+> C-020 还额外贡献了一条元规则：**回查到的异常是线索，不是结论**——机制为真、因果为假（已在 issue 上评论撤回）。
+
+### 7.3 顺手记下的两个数字
+
+| 项 | 值 |
+|---|---|
+| `minimumReleaseAge`（本机） | `undefined` —— **未启用**（供应链延迟保护实际不存在） |
+| 发布前的 npm 默认 registry | 镜像（`registry.npmmirror.com`）⇒ 必须显式固定 npmjs |
+
+---
+
 ## Related
 
-[[DSH会话脱敏插件缺陷档案]] · [[DSH会话脱敏项目方法论复盘]] · [[DSH插件组合与启动中止语义]] · [[DSH会话日志格式与读取端约束]] · [[DSH会话持久化与活跃改写安全]] · [[DSH-TUI内部机制与键盘卡死陷阱]] · [[DSH-TUI插件使用手册]] · [[DSH插件与Hook开发最佳实践]] · [[DSH提效与Token插件调研]] · [[CORRECTIONS]] · [[AGENTS]] · [[HOME]] · [[AI-Links-KB-Home]] · [[SESSION-ARCHIVE-2026-08-30]]
+[[DSH插件发布与分发]] · [[DSH会话脱敏插件缺陷档案]] · [[DSH会话脱敏项目方法论复盘]] · [[DSH插件组合与启动中止语义]] · [[DSH会话日志格式与读取端约束]] · [[DSH会话持久化与活跃改写安全]] · [[DSH-TUI内部机制与键盘卡死陷阱]] · [[DSH-TUI插件使用手册]] · [[DSH插件与Hook开发最佳实践]] · [[DSH提效与Token插件调研]] · [[CORRECTIONS]] · [[ci-and-prepush-gates]] · [[AGENTS]] · [[HOME]] · [[AI-Links-KB-Home]] · [[SESSION-ARCHIVE-2026-08-30]]
