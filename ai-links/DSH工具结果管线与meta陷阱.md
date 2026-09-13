@@ -224,6 +224,8 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 > dsh --profile web --dump-config    # 过滤 spill-policy 那一段，看最终 config.maxInlineBytes
 > ```
 > 若回查结果等于 50000，§八 的「4000 vs 50000 未复核」一项即可定案为"shipped 值生效，README 的 4000 属另一台机器/另一份组合"。
+>
+> **2026-09-13 回查结果（已执行）**：`dsh --profile web --dump-config` → `maxInlineBytes: 50000` ✅（本节推论的生效值正确）。**但同一命令对 `dsh-tui` profile 的结果是 `maxInlineBytes: 4000`**，来源为该 profile 的用户补丁层 `%USERPROFILE%\.dsh\profiles\dsh-tui\cordis.patch.yml:16-18`（文件内注明「出厂值是 50000，这里下调到 4000」）。⇒ **本节「生效值」的一切表述都必须带 profile 名**：`web` = 50000（shipped）、`dsh-tui` = 4000（用户覆盖）。本地插件 README 的「本机当前 `4000`」指的就是 `dsh-tui`，与 shipped 值不矛盾。
 
 ## 六、没有任何接缝能修的
 
@@ -263,6 +265,15 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 | 本地插件 README 记的 `maxInlineBytes: 4000` 与本机 shipped `50000` 的差异 | **未复核**（本机 `web` profile 与 home 级补丁层均无该行；其余 profile 与启动 overlay 未穷尽） |
 | 本文全部结论的运行期实测 | 本文**未新增**运行时实验；结论为源码直读，或引自本库已有实测报告 |
 
+> [!success] 残余复核（2026-09-13）：五条逐条定论（前三条由进程内夹具实测收口）
+> 复核方式：**进程内夹具**——直接用本机安装树的 `dsh-tools` 构造真实 `ToolRuntime`，注册带 `presentationMeta` 的工具，再挂真实 `tools/post-execute` 监听器跑 `execute()`；第 1 条另挂**真实 `dsh-spill-policy`**（真实 `apply(ctx,{maxInlineBytes:4000})` ＋ 桩 `ctx.spillStore`）。脚本 `%TEMP%\dsh-kb-recheck\tools-fixture.mjs`、`spill-fixture.mjs`。**不是完整 DSH 会话**（无 TTY、无真实后端），但走的是**真代码路径**而非转写。
+>
+> 1. **`dsh-spill-policy` 不 bound `meta`**：**端到端成立**。夹具返回 9013 字节纯文本，`maxInlineBytes: 4000` 生效后 `content` 被压到**恰好 4000 字节**并带 spill 通知（`… Full formatted result stored at: <locator>. …`），而 **`meta.sources[0].snippet` 仍是 9013 字节原文**，`value.text` 同样是 9013 字节原文。⇒ 超长结果的原文在 `meta` 与 `value` 里**原样存活**，只有面向模型的那份 content 被收敛。（与源码形状一致：`dsh-spill-policy/lib/index.js:164-170` 返回的是 `accept{content}`，不含 `value`。）
+> 2. **本机 shipped 工具里「`finalizeContent` 从参数重拼 content」的实现**：**不存在**。遍历 `node_modules\@deepseek-ai\` 全树，`finalizeContent` 的实现只有 **2 处**（`dsh-mcp-client/lib/index.js:211`、`dsh-tool-jobs/lib/index.js:184` 的 `finalizeTaskContent`，注册点 `:246`/`:318`；`dsh-tool-cordis` 的命中只是内嵌类型声明字符串）。**两者都不读 `exec.arguments`**，且都带等价性守卫：MCP 桥仅在 `result.value` 与 `result.content` 都等于它捕获的投影时才还原（深比较，任一不等 `return void 0`）；`job_output` 仅在 `rawSingleText(result.content)` 等于由 `value` 重拼的那串时才重建。⇒ 原文担心的「参数重拼覆盖 post-execute 结果」在**本机 shipped 组合**里没有实例。
+> 3. **同一接缝上多个改写者都给 `accept{value}` 时「谁赢」**：**最外层赢**。实测：内层返回 `FROM-A-INNER`、外层（`{prepend:true}`）返回 `FROM-B-OUTER` → 最终 `content`/`meta`/`value` **全部**是 `FROM-B-OUTER`；外层若不调 `next()`，内层根本不跑，结果同样取外层。⇒ 与 §2.1 的 Koa 式语义一致，「谁赢」= **`prepend` 最外层 > 默认注册顺序的内层**。
+> 4. **`maxInlineBytes: 4000` vs `50000`**：**两个都对，是两个 profile**。`dsh --profile web --dump-config` 的 `spill-policy` 段 = **`maxInlineBytes: 50000`**（无覆盖 ⇒ shipped 值生效，原文判断正确）；`dsh --profile dsh-tui --dump-config` 同一段 = **`maxInlineBytes: 4000`**，来源是用户补丁层 `%USERPROFILE%\.dsh\profiles\dsh-tui\cordis.patch.yml`（该文件 14-18 行明确写「出厂值是 50000，这里下调到 4000」）。本地插件 README 记的「本机当前 `4000`」即指 `dsh-tui` profile ⇒ **不是冲突，是 profile 差异**；§五 的结论只在 `web` profile 的口径下成立，引用时须带 profile 名。
+> 5. **「本文全部结论的运行期实测」**：属**范围声明**不是待办项。原句保留；上行 1-3 条已把「核心接缝结论」补成实测，其余仍为源码直读。
+
 ### 复现配方（2026-09-13 补：把 §三 的核心结论端到端跑一遍）
 
 「`accept{content}` 保活 `meta`」是全文最重要的结论，而它有一条低成本验证路径（不必读源码）：
@@ -295,3 +306,7 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 | 加厚 | §三 的核心结论只有源码引用，缺可执行判据；且未把「同样适用于第 5 号接缝」提为并列结论 | 补「三步判据 + 对照组」，并明确 `finalizeContent` 与 `accept{content}` 同形；依据本机 0.1.5-rc.2 安装树 `dsh-tools/lib/index.js:3401-3405` 逐字核对 |
 | 加厚 | §五 的「生效值就是 shipped 的 50000」由"没人覆盖"推出，缺一次独立回查 | 补 `--dump-config` 回查命令与期望结果，并把 §八 的「4000 vs 50000 未复核」指向该回查；依据 `dsh-base/cordis.patch.yml:383-386` 与 home 级补丁层不存在（`Test-Path` = False） |
 | 加厚 | §八 声明「未新增运行时实验」，而核心结论有一条低成本端到端路径未使用 | 新增「复现配方」小节：注册监听器 → 跑 `web_search` → 读日志 `data.meta` → 对照组换 value 复核 |
+| 结项 | §八「`dsh-spill-policy` 不 bound `meta` 的端到端实测」未验证 | 进程内夹具收口：真实 `dsh-spill-policy.apply` + 真实 `ToolRuntime`，9013 B 结果被 spill 到 4000 B content 而 **`meta.sources[].snippet` 仍 9013 B 原文**（`value.text` 同）。夹具 `%TEMP%\dsh-kb-recheck\spill-fixture.mjs` |
+| 结项 | §八「是否存在 `finalizeContent` 从参数重拼 content 的实现」未验证 | 遍历本机 `node_modules\@deepseek-ai\` 全树：实现仅 **2 处**（`dsh-mcp-client/lib/index.js:211`、`dsh-tool-jobs/lib/index.js:184`），**均不读 `exec.arguments`** 且都带深比较 / 文本等价守卫 ⇒ 无实例 |
+| 结项 | §八「多个改写者同给 `accept{value}` 谁赢」未构造夹具 | 夹具实测：`{prepend:true}` 的**最外层赢**（`FROM-B-OUTER` 覆盖内层 `FROM-A-INNER`，`content`/`meta`/`value` 三处一致）；外层不调 `next()` 时内层不跑，同样外层赢 |
+| 纠错 | §五「生效值就是 shipped 的 50000」缺 profile 限定；§八「4000 vs 50000 未复核」 | 执行 `dsh --profile web --dump-config` → `50000` ✅；`--profile dsh-tui` → **`4000`**（用户补丁层 `profiles/dsh-tui/cordis.patch.yml:16-18`，文件内自述"出厂值是 50000，这里下调到 4000"）⇒ **两个值都对，是两个 profile**；§五 表述已加 profile 限定 |

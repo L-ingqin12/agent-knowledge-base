@@ -105,6 +105,14 @@ See also: [[2026-08-16-AI链接综述与归档]] | [[DSH插件与Hook开发最�
 >
 > 同表 AI Gateway 行的 `"anthropic/claude-haiku-4-5"` 取自课程页原文；该 id 是否为 Gateway 当前有效清单成员**本次无法核实**（Gateway 模型页客户端渲染），按原文保留、待人工确认。
 
+> [!success] 残余复核（2026-09-13）：本条**已结项——该 id 与当前清单不符，应以点号版本为准**
+> 取回方式：`https://ai-gateway.vercel.sh/v1/models`（**无需鉴权即返回 200**，取回日期 **2026-09-13**，响应约 386 KB）。逐串检索结果：
+> - `anthropic/claude-haiku-4-5`（课程页写的**连字符**形态）→ 在该响应中**出现 0 次**。
+> - `anthropic/claude-haiku-4.5`（**点号**形态）→ **在册**，条目为 `{"id":"anthropic/claude-haiku-4.5","name":"Claude Haiku 4.5","released":1760486400,"context":200000}`（另有 `anthropic/claude-3-haiku`）。
+> ⇒ **课程页原文的模型串是课程录制期的写法，不是 Gateway 当前有效 id**；照抄会得到未在册的 id。正确写法是 `anthropic/claude-haiku-4.5`。
+> 同时**勘误原句口径**：原来写的「Gateway 模型页客户端渲染」是**未经核实的渲染方式推测**——本轮实测该清单端点**是可直接 GET 的 JSON**（无需鉴权、无需浏览器），故「客户端渲染导致拿不到」这一理由**不成立**；当初只是没找对端点。
+> 残留（判据具体）：本结论是**时点值**（2026-09-13）；Gateway 清单会随上游发版变动，引用时请带取数日期，并注意 `<provider>/<model>` 里**版本号用点号**（`4.5`）而非连字符。
+
 - **因果序列教学法**：每步因上一步「坏了」而存在——step1 加 read（看不见文件）→ step2 加 grep（不会搜）→ step3 加 bash（能跑命令了，但也能 rm -rf 了）。
 - Module 1-6 全程跟做（写码→运行→验证）；Module 7 纯概念；8-11 混合。
 - **前置**：TypeScript/async-await/终端基础；`AI_GATEWAY_API_KEY`；Node 20+ 或 Bun；推荐先学《Building Filesystem Agents》。
@@ -137,5 +145,6 @@ See also: [[2026-08-16-AI链接综述与归档]] | [[DSH插件与Hook开发最�
 | 补疏漏 | 开篇五痛点只当引子，未映射到模块与对策 | 新增「五痛点 → 模块 → 机制 → 验收判据」映射表；判据取证源于官方单课页（如 /pruning-old-results 的 Done-When 清单与 `npx tsc --noEmit` 门） |
 | 补疏漏 | Module 4「沙箱抽象」、Module 7「状态机/快照/durable workflow」均只有一句结论 | 新增「二·附」节：三后端取舍对照表、`Sandbox` 接口契约与「换后端工具不变」验证法、快照/恢复幂等性判据 |
 | 补疏漏 | frontmatter 只有课程首页一条来源，正文无任何单课链接；Gateway 示例模型名是否有效未标 | `source_urls` 追加单课页与 AI SDK 官方页（迁移指南、pruneMessages）；正文就地标注该模型 id「本次无法核实、待人工确认」 |
+| 纠错 | Gateway 示例模型 id `"anthropic/claude-haiku-4-5"` 是否在册未核实，且给出了未核实的「模型页客户端渲染」理由 | 直取 `https://ai-gateway.vercel.sh/v1/models`（**无需鉴权，HTTP 200**，2026-09-13）：连字符串 `claude-haiku-4-5` **命中 0 次**；在册的是 **`anthropic/claude-haiku-4.5`**（`Claude Haiku 4.5`，context 200000）⇒ 课程页串为录制期写法、非当前有效 id；并勘误：该清单端点本可直接 GET JSON，「客户端渲染所以拿不到」的理由不成立 |
 
 依据：[Vercel Academy 课程页](https://vercel.com/academy/build-ai-agent-harness)、[Pruning Old Results 课页](https://vercel.com/academy/build-ai-agent-harness/pruning-old-results)、[npm `ai`](https://registry.npmjs.org/ai)、[AI SDK v6→v7 迁移指南](https://ai-sdk.dev/docs/migration-guides/migration-guide-7-0)。方法论回链：[[CORRECTIONS]]。

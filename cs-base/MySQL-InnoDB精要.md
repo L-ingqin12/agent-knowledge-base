@@ -3,7 +3,7 @@ title: MySQL-InnoDB精要
 aliases: [InnoDB, MySQL调优, mysql-innodb]
 tags: [cs/db, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: MySQL 8.x Reference Manual / InnoDB 引擎章节口径；参数默认值随版本核对，存疑标待确认
 fetched_at: 2026-08-26
@@ -111,6 +111,29 @@ tmp_table_size/heap 到顶转磁盘临时表 → 看 Created_tmp_disk_tables
 
 > ① 8.4 起默认值变动清单（如 redo capacity 自适应）；② Group Replication vs 半同步在跨机房 RTT 下的选型阈值；③ Instant DDL 各操作支持矩阵版本差异。
 
+> [!warning] 残余复核（2026-09-13）：三条**均仍开放**，且都不是「本机翻文档能定」的类型——本轮离线手段（本机二进制/源码、库内交叉核对、链接巡检缓存）对它都不适用。
+> - ① 需要 **8.4** 的实例或手册才能列「变动清单」；本机只装了 **MySQL 8.0.25**（`mysql --version` 实测），版本区间覆盖不到，无法比对。
+> - ② 「跨机房 RTT 下的选型阈值」是**压测结论**，不是参数表事实——GR 与半同步在不同的 RTT/丢包下有不同的提交延迟拐点，只能测。
+> - ③ Instant DDL 的支持矩阵是**逐版本表**，本机 8.0.25 连 8.0.29+ 的新增行都覆盖不到。
+> 判据：① 用官方镜像起两实例后逐项 diff——`docker run --rm mysql:8.0 mysqld --verbose --help` 与 `mysql:8.4` 同命令输出求差，或抓 MySQL 8.4 Reference Manual 的 "Changes in MySQL 8.4" 默认值小节（本机有 Docker CLI，但 daemon 未运行、拉镜像需联网，故本轮不做）；② 在延迟注入下分别压 GR（`group_replication_*`）与半同步（`rpl_semi_sync_*`）的提交延迟/吞吐曲线，取拐点 RTT，并注明副本数与 `sync_binlog` 前提；③ 抓手册 "Online DDL Operations" 表，按 INSTANT/INPLACE/COPY 三列逐操作核对并标注引入版本。
+
+> [!success] 残余复核（2026-09-13 联网轮）：**① 与 ③ 已结；② 仍开放**（保留判据）。
+> - **① 已结**：8.4 手册 "What Is New in MySQL 8.4 since MySQL 8.0" 内有专表 *InnoDB system variable default values in MySQL 8.4 differing from MySQL 8.0*，即原问的「变动清单」本体。要点：`innodb_adaptive_hash_index` ON→**OFF**；`innodb_change_buffering` all→**none**；`innodb_io_capacity` 200→**10000**（`innodb_io_capacity_max` 随之改为 2×，取消 2000 下限）；`innodb_log_buffer_size` 16 MiB→**64 MiB**；`innodb_numa_interleave` OFF→**ON**；`innodb_use_fdatasync` OFF→**ON**；Linux 上 `innodb_flush_method` fsync→**O_DIRECT（支持时，否则 fsync）**；`innodb_doublewrite_files` 由 `instances*2`→**2**、`innodb_doublewrite_pages` 由 `= innodb_write_io_threads`（默认 4）→**128**；`innodb_buffer_pool_in_core_file` ON→**OFF（支持 MADV_DONTDUMP 时）**；`innodb_buffer_pool_instances` / `innodb_page_cleaners` / `innodb_purge_threads` / `innodb_read_io_threads` / `innodb_parallel_read_threads` 由定值改为**按 buffer pool 与 CPU 数自适应**；`temptable_max_ram` 1 GiB→**总内存 3%（1–4 GiB 区间）**、`temptable_max_mmap` 1 GiB→**0（即 OFF）**、`temptable_use_mmap` ON→**OFF**。关于原问点名的「redo capacity 自适应」：8.4 的变更落在 **`--innodb-dedicated-server` 开时 `innodb_redo_log_capacity` 的算法由「按内存」改为「按 CPU」**（该变量本身默认仍为 OFF，与 8.0 同）。同页另有非 InnoDB 的默认变更：8.4.0 起 `mysql_native_password` **默认不再启用**（需 `--mysql-native-password=ON`）；`CHANGE REPLICATION SOURCE TO` 的 `SOURCE_RETRY_COUNT` 默认改为 **10**。
+> - **③ 已结（结论与预期相反）**：把 8.0 与 8.4 手册的 *Online DDL Operations* 页并排比对，**列操作支持矩阵的五列（Instant / In Place / Rebuilds Table / Permits Concurrent DML / Only Modifies Metadata）逐格一致**——12 行（加列/删列/改列名/重排列/改默认值/改数据类型/扩 VARCHAR/删默认值/改自增值/改 NULL/改 NOT NULL/改 ENUM-SET）在 8.0 与 8.4 之间**没有一格变化**。真正的版本差异全在**同页注记**里：8.0 页保留了历史版本门（「INSTANT 自 8.0.12 起为默认算法，之前是 INPLACE」、加列位置「8.0.29 之前只能加在末尾」、「该限制于 8.0.29 加入」），而 8.4 页把这些历史门**删掉**、同位置改写为「**INSTANT is the default algorithm in MySQL 8.4**」，并新增「允许的 row version 上限为 64（**as of MySQL 9.1.0 为 255**）」。即：该矩阵**不是**逐版本表，查版本差异要查注记与上限，不是查矩阵。
+> - **② 仍开放**（判据收紧）：GR vs 半同步在跨机房 RTT 下的拐点属**压测结论**，官方手册不含阈值数字；判据仍是在延迟注入下分别压 `group_replication_*`（单主/多主、`group_replication_consistency` 档位）与 `rpl_semi_sync_*`（`rpl_semi_sync_source_timeout`、`sync_binlog`、副本数）的提交延迟/吞吐曲线取拐点。本轮联网未取得任何官方阈值口径，不得以社区经验值代替。
+> 依据：https://dev.mysql.com/doc/refman/8.4/en/mysql-nutshell.html （含 Table 1.1 InnoDB 默认值差异）与 https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-operations.html ；对照页 https://dev.mysql.com/doc/refman/8.0/en/innodb-online-ddl-operations.html （三页均经 Wayback 取回，取回于 2026-09-13）
+
 ## Related
 
 [[CS-KB-Home]] · [[数据库原理与调优]] · [[Redis原理与实践]] · [[MongoDB原理与实践]] · [[操作系统八股]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 残余复核 | §七 待确认项三条（8.4 默认值变动 / GR vs 半同步的 RTT 阈值 / Instant DDL 支持矩阵） | 逐条判定**仍开放**，理由与判据写进 §七 callout：本机仅 MySQL 8.0.25（`mysql --version` 实测）、覆盖不到 8.4；RTT 阈值是压测结论；Instant DDL 矩阵是逐版本表。三条判据落到可执行动作（`mysqld --verbose --help` 双版本求差 / 延迟注入下压 GR 与半同步曲线取拐点 / 按手册 Online DDL Operations 表逐操作核对） |
+| 加厚 | 本页此前无「待确认项处置」记录，修正与来源没有落点 | 新建本节并回链 [[CORRECTIONS]] · [[AGENTS]] |
+| 残余复核（联网轮） | §七 待确认①「8.4 起默认值变动清单（如 redo capacity 自适应）」 | **已结**：取 MySQL 8.4 手册 1.4 节内 Table 1.1（InnoDB 默认值 8.4 vs 8.0 差异表），列全 adaptive_hash_index/change_buffering/io_capacity(200→10000)/log_buffer_size(16→64MiB)/numa_interleave/use_fdatasync/flush_method/doublewrite_files/doublewrite_pages/buffer_pool_in_core_file/temptable_* 等；原问点名的「redo capacity 自适应」实为 `--innodb-dedicated-server` 下 `innodb_redo_log_capacity` 算法由按内存改为按 CPU。依据：https://dev.mysql.com/doc/refman/8.4/en/mysql-nutshell.html （Wayback 取回） |
+| 残余复核（联网轮） | §七 待确认③「Instant DDL 各操作支持矩阵版本差异」 | **已结**：8.0 与 8.4 手册 Online DDL Operations 页并排比对，12 行操作 × 5 列的支持矩阵**逐格一致**；版本差异全在同页**注记**（8.0 保留「INSTANT 自 8.0.12 起为默认」「8.0.29 前只能加在末尾」等历史门，8.4 删除并改写为「INSTANT is the default algorithm in MySQL 8.4」，新增 row version 上限 64／MySQL 9.1.0 起 255）。依据：https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-operations.html 对照 8.0 同名页（均经 Wayback 取回） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

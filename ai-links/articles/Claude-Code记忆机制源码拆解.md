@@ -148,6 +148,9 @@ This memory was saved 5 days ago. Verify it's still accurate before acting on it
 
 > [!warning] 未能核验（2026-09-13）：「**2 天**」这个老化阈值只在本文与其 canonical 原文（小林coding）这一条链上出现，**无独立来源**，按库内标准标 unverifiable；数字源自原文，引用请注明核验日。
 
+> [!success] 残余复核（2026-09-13 补录）：上一条「无独立来源」的判断**已被推翻**——独立源码分析 [lhl/agentic-memory — ANALYSIS-claude-code-memory.md](https://raw.githubusercontent.com/lhl/agentic-memory/a26d9df2e1f93cfc0a80900ccd98d25b681bef27/ANALYSIS-claude-code-memory.md)（本次经代理直取 HTTP 200）记：`memoryAge(mtimeMs)` 返回 "today / yesterday / N days ago"，`memoryFreshnessText()` 对**超过 1 天**的记忆注入 "This memory is N days old. Memories are point-in-time observations… Verify against current code before asserting as fact."——按整天粒度折算即「今天/昨天不警告、第 2 天起警告」，**与本节的「2 天」一致**，且验证提示语与本节的「先检查文件是否存在 / 先 grep 一下」同义。因此该阈值**有独立来源**，可摘掉 `unverifiable`，改标「两路独立源码分析一致」。
+> 唯一仍未独立确认的是**注入的包裹形态**：本节写作 `<system-reminder>`，该独立分析只写「注入到 user context」（"Inject selected memories with staleness caveats into user context"），未见该标签。引用时建议写成「随记忆一并注入提醒文本（本库所记形态为 `<system-reminder>`，未经第二来源确认）」。
+
 ---
 
 ## 四、可迁移的设计原则
@@ -171,5 +174,6 @@ This memory was saved 5 days ago. Verify it's still accurate before acting on it
 | 纠错 | 「Sonnet 返回 top-5」易被读成硬编码常量 | 精确化为「上限写在选择 prompt 内」（`findRelevantMemories.ts`、`max_tokens: 256`）；依据独立源码分析 |
 | 加厚 | 「不用向量数据库」与「截断双保险」两个关键论断缺独立出处 | 各补一条独立源码分析印证；197KB 极端案例标注「原文案例，未独立核验」 |
 | 补疏漏 | 「2 天 stale 阈值」只有单一来源链 | 标注本库未能核验（unverifiable），引用需注明核验日 |
+| 残余复核 | 上一条「2 天阈值无独立来源」的判断 | **已推翻并结案**：lhl/agentic-memory 独立源码分析（本次直取 200）记 `memoryAge` = today/yesterday/N days ago、`memoryFreshnessText()` 对 >1 天记忆注入 "This memory is N days old… Verify against current code"，与「2 天起警告」一致 → 该阈值有独立来源；残留仅 `<system-reminder>` 包裹形态未经第二来源确认 |
 
 - 回链：[[CORRECTIONS]]｜[[AGENTS]]

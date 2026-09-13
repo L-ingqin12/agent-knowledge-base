@@ -128,6 +128,10 @@ def read_large(path):
 
 > ① free-threading(PEP 703) 构建下第三方 C 扩展兼容面（2026-09-13 更新：3.14 起 free-threaded 已是**官方支持**的构建，见 §七，待确认的只剩扩展/生态兼容面）；② 解释器自适应特化指令(3.11+)对各 workload 的实测增益分布；③ ~~subinterpreters 跨进程通信 API 稳定化进度~~（2026-09-13 收口：该表述两处错——子解释器是**同进程内**隔离，且 PEP 734 已 Final/3.14 落地，见 §七）。
 
+> [!success] 残余复核（2026-09-13，联网核实）：③ 前轮已收口，不再计待办。
+> ① **已定论（抽样口径 + 首批数据）**：查 PyPI **当前发行版**的文件清单（`https://pypi.org/pypi/<pkg>/json` 的 `urls`，2026-09-13 抓取）。要点：free-threaded wheel 的命名形如 `<pkg>-<ver>-cp314-cp314t-<plat>.whl`——**带 `t` 的是 ABI tag（第 3 段之后）**，只按 interpreter tag 过滤会全部漏掉（这正是本轮先踩后纠的坑）。实测：numpy 2.5.3 **21/66**、scipy 1.18.1 **20/61**、pandas 3.0.5 **8/42**、cryptography 50.0.1 **13/46**、greenlet 3.5.5 **19/79** 已是 free-threaded 构建；**pywin32 312 为 0/21**（最新版完全无 t wheel）。结论：兼容面已不是"普遍缺位"而是**按包缺位**，且判据可复算（口径写死：只数当前发行版、只认 ABI tag 后缀 `t`）。**不要**用本机已装 wheel 的 tag 反推——默认 ABI 构建的 wheel 必然不带 `t`（本机 miniconda 3.13.9 所装即此类）。
+> ② **仍开放**：特化增益分布只能自建解释器做 A/B——计数侧需 `--enable-pystats` 构建（本机 3.13.9 解释器 `sys._stats` 不存在），对照组需 `--disable-specialization`，两者都不是发行版能力。判据：用官方 `pyperformance` 在同一机器上跑"特化开/关"两版解释器，按 workload 类别（数值/字符串/调度）给**分布**而非均值。
+
 ## 补完记录（2026-09-13）
 
 | 类型 | 原问题 | 处置与依据 |
@@ -137,6 +141,9 @@ def read_large(path):
 | 补疏漏 | §七 asyncio 只讲 `gather`，全文无 `TaskGroup`/`timeout` | 补 `asyncio.TaskGroup`、`asyncio.timeout()` 与 gather vs TaskGroup 取舍表；依据 asyncio Task 官方文档（3.11+） |
 | 补疏漏 | §四 GC 全篇按旧分代模型写，缺 3.14 增量 GC | 补增量 GC 变化与调优口径（`gc.set_threshold`/`freeze`/`disable` + `gc.get_stats()`/P99 前后对比）；依据 3.14 What's New |
 | 加厚 | §二 bisect 只有一段结论 | 补 4 点：insort/bisect 的 left/right 配对、`key=`/`lo`/`hi`、失效线与替代结构、需自测数量级；依据 bisect 官方文档 |
+| 残余复核 | §八 待确认①（free-threading 扩展兼容面） | **已定论**：抓 PyPI 各包当前发行版的 `urls` 文件清单（2026-09-13），版本敏感的 tag 口径写死（free-threaded 标在 **ABI tag**：`cp314-cp314t`）。实测 numpy 2.5.3 21/66、scipy 1.18.1 20/61、pandas 3.0.5 8/42、cryptography 50.0.1 13/46、greenlet 3.5.5 19/79 有 t wheel，pywin32 312 为 0/21；结论：按包缺位而非普遍缺位，且不得用本机已装 wheel 反推 |
+| 残余复核 | §八 待确认②（自适应特化增益分布） | **仍开放**（本机不可定论）：需 `--enable-pystats`（计数）与 `--disable-specialization`（对照）自建解释器，本机 3.13.9 无 `sys._stats`；判据=pyperformance 跑开/关两版出按 workload 类别的分布 |
+| 残余复核 | §八 待确认③（子解释器通信 API） | 前轮已收口（原文已划除），不再计待办 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]
 

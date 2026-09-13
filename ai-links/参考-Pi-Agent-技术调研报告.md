@@ -41,6 +41,11 @@ fetched_at: 2026-08-25
 | packages/web-ui 等 | …/pi-web-ui | Web UI 库、Slack bot、vLLM pods 为旧 monorepo 时期产物 | [镜像文档](https://mintlify.wiki/pt-act/pi-mono/packages/web-ui)、[旧描述镜像](https://github.com/dannote/pi-mono) |
 
 - 当前仓库自述收窄为 "AI agent toolkit: unified LLM API, agent loop, TUI, coding agent CLI"；web-ui/slack/pods 在新仓库的存续状态**待确认**。[来源](https://github-alan.17835411844.workers.dev/earendil-works/pi)、[来源](https://github.com/dannote/pi-mono)
+  > [!success] 残余复核（2026-09-13）：**已解决——web-ui 只剩停滞的 npm 包，slack/pods 在仓库与 npm 双双不存在**
+  > 取回方式：GitHub API `git/trees/main?recursive=1`（1921 条目）+ npm registry 直取，取回日期 **2026-09-13**。
+  > 1. **仓库侧**：`packages/` 顶层只有 `agent / ai / chord / client / coding-agent / evals / protocol / server / session-backends / telemetry / tui` —— 全树检索 `web-ui|webui`、`slack`、`pods` **各 0 命中**。⇒ 三者**均已从新仓库移除**。
+  > 2. **npm 侧**：`@earendil-works/pi-web-ui` = **0.75.3 @ 2026-05-18**（停滞约 4 个月）；`@earendil-works/pi-slack` = **HTTP 404**；`@earendil-works/pi-pods` = **HTTP 404**。同期主线四包（`pi-ai` / `pi-agent-core` / `pi-tui` / `pi-coding-agent`）**齐步在 0.85.1（2026-09-05）**。
+  > ⇒ 结论：**主线只有 ai / agent / tui / coding-agent 四包**；`pi-web-ui` 是**留存的休眠包**（无仓库源码对应），`slack` 与 `pods` **彻底不存在**。原句「web-ui/slack/pods 为旧 monorepo 时期产物」经取证成立，可去掉「待确认」。
 
 ### 1.3 定位哲学
 
@@ -56,6 +61,9 @@ fetched_at: 2026-08-25
 - **工具定义**：`defineTool()` 定义类型安全契约（名称/描述/参数 schema/`execute` 回调，execute 可拿 abort signal），以 `customTools: [myTool]` 注入；参数 schema 用 zod 还是原生 JSON Schema **待确认 → ✅ 已解决：TypeBox TSchema（见 §11.1）**。[来源](https://raw.githubusercontent.com/earendil-works/pi/v0.80.0/packages/coding-agent/docs/sdk.md)
 - **流式接口**：统一流式输出，事件流可直接对接 SSE 服务化场景。[来源](https://blog.frognew.com/2026/08/pi-sdk-lesson-02-events-and-sse.html)
 - **运行形态**："一个 runtime、四种使用姿势"（交互 TUI / print 非交互 / RPC 或 JSON 事件流 headless / SDK 进程内嵌入，官方命名细节**待确认**）。[来源](https://kimigao.com/blog/pi-sdk-runtime/)、[来源](https://lobehub.com/skills/tangledgroup-tangled-skills-pi-mono-0-66-1)、[来源](https://www.cnblogs.com/znlgis/p/20959176)
+  > [!success] 残余复核（2026-09-13）：**已解决——官方目录名给全，三形态有代码目录、一种走库导入**
+  > 取回方式：GitHub API `git/trees/main?recursive=1`（2026-09-13）。`packages/coding-agent/src/modes/` 顶层逐字为 **`index.ts`、`interactive/`、`json-event.ts`、`print-mode.ts`、`rpc/`**，另有 `src/rpc-entry.ts`。
+  > ⇒ 官方形态名为 **interactive / print-mode / json-event / rpc**（四种"使用姿势"里，前三种对应上列三个模式入口 + `rpc/`，**SDK 进程内嵌入没有独立的 modes 目录**——它走库导入 `createAgentSession`，见 §11.4「JSON 输出形态与 SDK 进程内嵌入未在目录级单独出现」的判断，本轮复核维持该判断）。文档侧对应 `docs/` 下的 `tui.md`、`rpc.md`、`json.md`、`sdk.md` 四篇。原文「官方命名细节待确认」可结项。
 - **与 CLI subprocess 方式的本质区别**：嵌入式下循环跑在业务 Node.js 进程内——共享内存、直接读写 session 对象、同步收结构化事件、函数调用注入工具/拦截事件；CLI/RPC 形态则隔着进程边界只能走 stdin/stdout JSON 协议，控制粒度与实时性低一档。[来源](https://www.cnblogs.com/znlgis/p/20959176)、[来源](https://deepwiki.com/agentic-dev-io/pi-agent/7-rpc-mode-and-headless-integration)
 
 **嵌入式 vs CLI / RPC headless 的失败模式对照（2026-09-13 补）**：
@@ -85,6 +93,8 @@ fetched_at: 2026-08-25
 - **约定目录自动发现**：`extensions/`、`skills/`、`prompts/`、`themes/`。[来源](https://socket.dev/npm/package/@pie-lab/coding-agent)
 - **Skills / Prompt 模板 / 上下文文件**：SKILL.md 技能体系 + prompt 模板 + AGENTS.md 类上下文文件（子目录上下文加载由社区扩展补充，反证根级加载为原生行为）。[来源](https://pi.dev/docs/latest/skills)、[DeepWiki](https://deepwiki.com/earendil-works/pi/8-skills-prompt-templates-and-context-files)、[来源](https://github.com/default-anton/pi-subdir-context)
 - **MCP：内核不内置，走社区扩展**——0xKobold/pi-mcp 支持 stdio/SSE/StreamableHTTP/WebSocket 并映射 tools/resources/prompts，另有 tickernelz/pi-mcp-tools 等；是否已有官方一等支持**待确认**。[来源](https://github.com/0xKobold/pi-mcp)、[来源](https://github.com/tickernelz/pi-mcp-tools)
+  > [!success] 残余复核（2026-09-13）：**已解决——仍无官方一等支持（仓库全树 `mcp` 零命中）**
+  > 取回方式：GitHub API `git/trees/main?recursive=1`（**1921 条目，全树检索 `/mcp/i` 命中 0**），文档目录 `packages/coding-agent/docs/` 30 篇 md 中**没有 mcp 篇**（只有 providers/models/skills/rpc/json/extensions 等）。与 §11.4 从 0.84.3 npm 分发物得到的结论一致。⇒ **内核不内置 MCP，官方一等支持不存在**（截至 2026-09-13）；要用 MCP 只能走社区扩展。原文可从「待确认」升级为**已确认的否定结论**。
 - **Provider/Model 切换**：ModelRegistry + models.json 自定义模型/供应商（任意 OpenAI 兼容端点→vLLM/Ollama 本地模型可接，v0.7.12 引入）；宣称 15+ providers。[来源](https://github.com/earendil-works/pi/commit/b2491aac2332a6f8cbfce3167d523ae22e3e3b1e)、[来源](https://openalternative.co/pi)
 
 ## 5. 内置工具集与权限模型
@@ -137,6 +147,17 @@ fetched_at: 2026-08-25
 
 > [!question] 主要待确认项汇总（2026-08-25 实机核验后更新）
 > ① 产品名 "LiblibPi" 无公开来源（维持原判：疑为记忆偏差）；② 工具参数 schema 用 zod 还是原生 JSON Schema——✅ **已解决：TypeBox `TSchema`**（见 §11）；③ web-ui/slack/pods 存续状态——**部分解决**：`pi-web-ui` npm 包存在但停滞在 0.75.x（见 §11）；④ 四种运行模式官方精确命名——**部分解决**：源码 modes 目录见 interactive/rpc/print 三形态（见 §11）；⑤ 内置工具完整权威清单——✅ **已解决**（见 §11）；⑥ LICENSE 文本原文——✅ **已确认 MIT**（package.json，见 §11）；⑦ 精确 star 数（未核验）（2026-09-13 更正：GitHub API 实测 **约 104,522** @2026-09-13，见 §9）；⑧ MCP 是否已有官方一等支持（0.84.3 dist 内未见 mcp 目录，倾向无内核支持）。
+>
+> [!success] 残余复核（2026-09-13）：本汇总块逐项清账——**八项中 ① 判为非待办，其余七项全部结项**
+> 取回方式：GitHub API（repo / git trees）+ npm registry 直取，取回日期 **2026-09-13**。
+> - **① 产品名 "LiblibPi"** —— 判为**非待办**：原句已自陈「未在公开检索中找到任何对应来源，疑为记忆偏差」，即以"任务描述的措辞有误"结案；本轮无新增可核手段（对一个不存在的名字无法"证实不存在"），不再作为未决项挂账。
+> - **② TypeBox** —— 已结项（§11.1，含 §11.1 末的开放复核路径）。
+> - **③ web-ui/slack/pods** —— **结项**（原本只到"部分解决"）：仓库全树 `web-ui|webui`/`slack`/`pods` **各 0 命中**；npm 侧 `pi-web-ui`=0.75.3@2026-05-18（停滞）、`pi-slack`/`pi-pods` **均 404**；主线四包齐步 **0.85.1@2026-09-05**。见 §1.2 复核块。
+> - **④ 运行模式官方命名** —— **结项**（原本只到"部分解决"）：`src/modes/` = `index.ts`、`interactive/`、`json-event.ts`、`print-mode.ts`、`rpc/`，另有 `src/rpc-entry.ts` ⇒ 官方名 **interactive / print-mode / json-event / rpc**；SDK 嵌入无独立 modes 目录（走库导入）。见 §2 复核块。
+> - **⑤ 内置工具清单** —— 已结项（§11.3）。
+> - **⑥ LICENSE** —— 已结项（§11.4，package.json `"license": "MIT"`）；本轮复核 GitHub API 亦返回 `license.spdx_id = MIT`。
+> - **⑦ star 数** —— 已结项（§9 更正）；**本轮刷新时点值**：`api.github.com/repos/earendil-works/pi` → `id=1035029907`、★**104,601**、MIT、`default_branch=main`、`pushed_at 2026-09-13T11:42:23Z`（与 §9 记的 104,522 同日、相差约 79，属取数时刻差）。版本快照亦复核：npm `@earendil-works/pi-coding-agent` latest = **0.85.1**、`time` = **2026-09-05T12:17:19.281Z**，与 §11.4 更正一致。
+> - **⑧ MCP 官方一等支持** —— **结项**（从"倾向无"升级为确认的否定）：仓库全树 `/mcp/i` **0 命中**，`docs/` 30 篇中无 mcp 篇。见 §4 复核块。
 
 ## 11. 实机核验增补（2026-08-25）
 
@@ -209,5 +230,9 @@ fetched_at: 2026-08-25
 | 加厚 | §11.1 TypeBox 结论无开放复核路径 | 新增「开放复核路径」块：`npm pack` 后看 `dist/core/extensions/types.d.ts` 的 typebox 导入与 `defineTool/registerTool` 的 `TSchema` 约束 |
 | 加厚 | §11.4 只有 bin/license/版本节奏，§9 只提「锁定版本 + 私有镜像」口号 | 新增 §11.5 升级与冒烟核验清单：版本对齐 / 作用域核验 / `defineTool`+`createAgentSession` 冒烟 / `types.d.ts` 类型约束复核，各带命令与判据 |
 | 补疏漏 | §2 把进程内嵌入写成单向优点（共享内存、直接读写 session），无失败模式对照 | 新增「嵌入式 vs CLI/RPC headless」六维对照表（隔离强度、跨进程续跑、跨语言、升级代价、并发写会话、控制粒度），引官方 sdk.md 的双向取舍原文 |
+| 结项 | §1.2「web-ui/slack/pods 在新仓库的存续状态待确认」 | 仓库全树（1921 条目）`web-ui\|webui`/`slack`/`pods` **各 0 命中**；npm `pi-web-ui`=0.75.3@2026-05-18（停滞）、`pi-slack`/`pi-pods` **404**；主线四包齐步 0.85.1@2026-09-05 ⇒ 三者均已移除，web-ui 只剩休眠包 |
+| 结项 | §2「四种运行形态官方命名细节待确认」 | `packages/coding-agent/src/modes/` 逐字为 `index.ts`、`interactive/`、`json-event.ts`、`print-mode.ts`、`rpc/`（另 `src/rpc-entry.ts`）⇒ 官方名 **interactive / print-mode / json-event / rpc**；SDK 嵌入走库导入、无独立 modes 目录（维持 §11.4 判断） |
+| 结项 | §4/⑧「MCP 是否已有官方一等支持待确认」 | 仓库全树 `/mcp/i` **0 命中**、`docs/` 30 篇无 mcp 篇 ⇒ 升级为**确认的否定**：内核不内置 MCP，官方一等支持不存在（截至 2026-09-13） |
+| 维持 | ⑩ 汇总块是索引，未标明哪些项已清账 | 就地补清账块：① 判为**非待办**（原句已自陈记忆偏差），②③④⑤⑥⑦⑧ **全部结项**；并刷新时点值——★**104,601**（id=1035029907，MIT，main，pushed 2026-09-13T11:42:23Z）、npm latest **0.85.1** @2026-09-05T12:17:19.281Z |
 
 依据：[registry.npmjs.org/@earendil-works/pi-coding-agent](https://registry.npmjs.org/@earendil-works/pi-coding-agent)、[api.github.com/repos/earendil-works/pi](https://api.github.com/repos/earendil-works/pi)、[api.github.com/repos/badlogic/pi-mono](https://api.github.com/repos/badlogic/pi-mono)、[sdk.md](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/sdk.md)。方法论回链：[[CORRECTIONS]] · [[AGENTS]]。

@@ -3,7 +3,7 @@ title: Agent 评测与可观测性知识
 aliases: [Agent评测, agent-evals, LLM-as-Judge, 可观测性知识]
 tags: [ai/ops, ai/agent]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: 外部依据：Anthropic Building Effective Agents/Multi-Agent Research System 评测章节、LangSmith trajectory evals 与 online evaluators 文档、LLM-as-Judge 校准实践；内部锚点：质量门控/实时交互/LogNet 各文档
 fetched_at: 2026-08-26
@@ -44,6 +44,11 @@ Anthropic 多代理系统的三件套（rubric judge / 人工真实任务 / 生�
 ## 四、可观测性采集要点
 
 - **Trace 结构化**：每次 LLM 调用/工具调用记为 span（输入摘要/输出摘要/token/延迟/错误）；父子关系=委派树。OpenTelemetry GenAI 语义约定可作为字段命名基准（成熟度演进中，**待确认**当前版本号）
+
+> [!success] 残余复核（2026-09-13）：**没有「稳定版本号」可填**——GenAI 约定整体仍在 experimental 面。
+> 本机依赖树内 `@opentelemetry/semantic-conventions@1.43.0`（DSH profile 的 node_modules）中，`gen_ai.*` 属性**全部**落在 `experimental_attributes`（83 处 `GEN_AI_*` 命中，含 `GEN_AI_AGENT_NAME` / `GEN_AI_INPUT_MESSAGES` / `GEN_AI_CONVERSATION_ID` 等），`stable_attributes` **零命中**；`index-incubating` 亦无 gen_ai。故字段命名基准可用，但引用时必须写成「semconv 包的 experimental 模块 + 所依包版本」，**不能**宣称 stable。
+> 依据（本机）：`%USERPROFILE%\.dsh\profiles\node_modules\@opentelemetry\semantic-conventions\`（`experimental_attributes.d.ts` vs `stable_attributes.d.ts`）
+
 - **本库既有实践**：
   - DSH `session.jsonl`（事件级全量回放，本会话重建即靠它）
   - `builder.stats` 结构化统计（解析侧可审计性，见 deployment-log 2026-08-26 条目）
@@ -73,6 +78,28 @@ Anthropic 多代理系统的三件套（rubric judge / 人工真实任务 / 生�
 
 > ① OpenTelemetry GenAI 语义约定的稳定版本号与字段全集；② LangSmith 在线评估对本库私有部署形态的支持方式；③ judge 校准的最小标注样本量经验值（文献口径不一）；④ DSH 侧 trace 导出为 OTLP 的可行性。
 
+> [!success] 残余复核（2026-09-13）：①④ 已就地定论。
+> - **① 稳定版本号不存在**，字段全集 = semconv `experimental_attributes` 的 `GEN_AI_*` 集（随包版本演进）——见 §四 复核块。
+> - **④ 可行，但导出的是「会话日志」不是「span trace」**：DSH 自带官方后端 `@deepseek-ai/dsh-session-telemetry-otel`，经 OTel JS SDK 走 **OTLP/HTTP logs 信号**（端点形如 `<collector>/v1/logs`，由 `DSH_TELEMETRY_OTLP_URL` 覆盖默认值；该包依赖 `exporter-logs-otlp-http` 而非 trace 导出器），**并非 traces/span**；且 mode 只有 `FEEDBACK_ONLY`（默认）与 `DISABLED` 两态，`FULL` 被显式拒绝，而本库 dsh-tui profile 又把 mode 钉在 `DISABLED`（`DSH_TELEMETRY_MODE` 可覆盖）。
+>   结论：**要 span 级 trace 得自建**——本库 `session.jsonl`（§四 既有实践）就是现成数据源，别指望官方导出器产出委派树 span；「委派边界落 span 边界」这条多代理特有要求，在 DSH 上目前无官方出口。
+> - 依据（本机）：`%USERPROFILE%\.dsh\profiles\node_modules\@deepseek-ai\dsh-session-telemetry-otel\README.zh.md`、同 profile 的 `@deepseek-harness-tui\dsh-tui\cordis.patch.yml`（`session-telemetry-otel` 行）
+> - **② 有官方私有部署形态，但门槛是 Enterprise 授权**：LangSmith **Self-hosted** 是 **Enterprise 套餐的附加项（add-on，需 license key）**，可在自有基础设施（AWS / GCP / Azure，Kubernetes + Terraform 装机，亦提供 BYOC）内跑完整栈——服务含 frontend(nginx)/backend/Platform backend/Playground/queue/ACE；存储依赖 **ClickHouse（traces+feedback）+ PostgreSQL（运维数据）+ Redis（队列与缓存）**，另可选 blob。→ 结论：**技术上支持私有部署，但不是零成本自托管**；对本库这种个人/小规模形态，自建 ClickHouse+PG+Redis 的代价高于收益，在线评估若要用，仍以走云版或改用轻量自研采样评估更划算。
+>   依据（取回 2026-09-13）：<https://docs.langchain.com/langsmith/self-hosted>
+> - **③ 有可用经验口径，「口径不一」的根因是 N 应由统计目标反推而非取常数**：绝对下限 **50** 条人工标注（低于 50 被视为统计上无意义）；生产常用 **100–200**，未测过 judge 一致性时以 **N=200** 作初始默认；若要求 95% CI 半宽 ≤0.10 或存在稀有类（如 ~6% 基率的安全违规），需抬到 **300–400+**。可达性锚点：**用 100–200 条专家金标注可把 judge 与人类一致率校准到 ~85%**（Netflix 案例：4 个质量维度、100–200 条 gold 标注、与专业编剧一致率 >85%）。另：judge 提示内的 few-shot（2–3 条/维度）与「人工标注校准集」是两件事，别混算。
+>   依据（取回 2026-09-13）：<https://labelstud.io/learningcenter/getting-started-with-llm-evaluation/>、<https://www.langchain.com/resources/llm-as-a-judge>（后者给流程与 ~80% 人类一致率锚点，**不给**最小样本量——这正是「文献口径不一」的来源）
+
 ## Related
 
 [[agent-harness-anatomy]] · [[state-machine-quality-gate-loop]] · [[Anthropic多智能体研究系统拆解]] · [[main-subagent-realtime-interaction]] · [[lognet-rootcause-multiagent-architecture]] · [[opencode-pi-base-development-analysis]] · [[Claude-Ops-KB-Home]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 定论 | §四「OpenTelemetry GenAI 语义约定…待确认当前版本号」 | 加复核块：本机 semconv 1.43.0 中 `gen_ai.*` 全部只在 `experimental_attributes`（83 命中）、`stable_attributes` 零命中 → **无稳定版本号**，引用须标 experimental；依据本机依赖树 |
+| 定论 | §七 ①「GenAI 语义约定稳定版本号与字段全集」 | 同上一行结论；「字段全集」= experimental 的 `GEN_AI_*` 集，随 semconv 包版本演进，不可当稳定契约 |
+| 定论 | §七 ④「DSH 侧 trace 导出为 OTLP 的可行性」 | 加复核块：DSH 有官方 `dsh-session-telemetry-otel`，但走 **OTLP logs 信号**（非 traces）、mode 仅 FEEDBACK_ONLY/DISABLED，本库 profile 钉在 DISABLED → span 级 trace 需自建（`session.jsonl` 为现成源）；依据本机 README 与 profile 配置 |
+| 定论 | §七 ②「LangSmith 在线评估对本库私有部署形态的支持方式」 | 加复核块：官方 **Self-hosted** 为 Enterprise 附加项（需 license key），AWS/GCP/Azure + K8s/Terraform，存储依赖 ClickHouse+PostgreSQL+Redis → 技术上支持但非零成本自托管。依据取回 2026-09-13：docs.langchain.com/langsmith/self-hosted |
+| 定论 | §七 ③「judge 校准的最小标注样本量经验值（文献口径不一）」 | 加复核块给出可用口径：下限 50、生产 100–200、未测一致性时默认 N=200、CI≤0.10 或稀有类需 300–400+；100–200 条专家金标注可达 ~85% 一致率（Netflix 案例）。根因说明：N 应由目标 kappa/CI 与类别平衡反推，故文献无普适常数。依据取回 2026-09-13：labelstud.io 学习中心 + langchain.com/resources/llm-as-a-judge |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

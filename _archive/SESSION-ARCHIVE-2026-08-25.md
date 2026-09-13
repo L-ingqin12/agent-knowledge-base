@@ -125,6 +125,18 @@ status: review
 2. artget 为内部工具，接入设计按"制品拉取"口径完成（用户确认），实际 CLI 参数待对齐
 3. Doc C/D 的 Phase/M 路线图为设计稿，未启动实施
 
+> [!success] 残余复核（2026-09-13）：**遗留 1「两份调研报告各含 6-8 处待确认，后续可实机核验」已闭环** —— 实机核验当时已完成（见 [[SESSION-ARCHIVE-2026-08-26]] §一：npm 包 `.d.ts` 逐条比对 + 平台二进制字符串取证），本轮再补开放网络复核，逐项定论如下。
+> - [[参考-OpenCode-技术调研报告]]：① org 归属 = `anomalyco/opencode`（`sst/opencode` 为 301 重定向）✅；② 内置 `explore` agent ✅；③ `top_p` 支持 ✅；⑤ MCP timeout ✅；⑥ 无 `linter` 键、`doom` 实为 `doom_loop` ✅。
+>   - **④ skill 的 `allowed-tools` 是否被执行 → 源码级定论：不被解析、不被执行。** 依据（`dev` 分支）：`packages/schema/src/skill.ts` 的 `SkillV2.Info` 只有 `name/description/slash/location/content`；`packages/opencode/src/skill/discovery.ts`、`packages/core/src/skill/discovery.ts`、`packages/opencode/src/skill/index.ts`、`packages/core/src/skill.ts` **均无 `allowed` 字段与工具白名单逻辑** ⇒ 该字段即使写进 frontmatter 也进不了运行时，与「二进制未见执行逻辑」的取证一致。该键名只是沿用 Anthropic Agent Skills 规范的写法，**OpenCode 侧忽略它**。
+>   - **⑤ 的 MCP 分隔符源码级确认 → 已定论：单下划线 `<server>_<tool>`。** 依据：`packages/opencode/src/mcp/catalog.ts` L119 `toolName = (clientName, name) => sanitize(clientName) + "_" + sanitize(name)`，且 `sanitize = v => v.replace(/[^a-zA-Z0-9_-]/g, "_")`；`mcp__` 双下划线形态**不存在**于该实现。此写法亦解释了上游 `sverklo_sverklo_*` 双重前缀缺陷（服务器名自带前缀时重复）。
+> - [[参考-Pi-Agent-技术调研报告]]：② TypeBox ✅；⑤ 九件套工具 ✅；⑥ MIT ✅；⑦ star 数约 104,522（2026-09-13）✅。
+>   - **③ web-ui/slack/pods 存续 → 已解决：均不存在。** `main` 分支 `packages/` 现为 11 个包（agent/ai/chord/client/coding-agent/evals/protocol/server/session-backends/telemetry/tui），无 `web-ui`/`slack`/`pods`。
+>   - **④ 四种运行形态官方命名 → 已解决。** `packages/coding-agent/src/modes/index.ts` 是权威清单：`InteractiveMode` / `runPrintMode` / `runRpcMode`（另导出 `json-event` 事件流类型）⇒ **interactive / print / rpc + JSON 事件流**，与「四种使用姿势」一一对应。
+>   - **⑧ MCP 是否官方一等支持 → 已解决：无。** `main` 分支全仓库 **1713 个 blob 中路径含 `mcp` 的为 0**，即连 MCP 相关包/目录都不存在（社区扩展路线不变）。
+> - **① 产品名 "LiblibPi" → 本轮已定论：该名称不存在，全库统一用 "pi / Pi coding agent"。** 依据（2026-09-13 取回）：GitHub 仓库检索 `LiblibPi` **total_count = 0**；npm registry `https://registry.npmjs.org/liblibpi` **HTTP 404**；公开检索亦无该名（命中项全是 libGDX 作者 Mario Zechner 的 Pi）。「LiblibPi」最可能是 libGDX 与 Pi 的记忆混淆（此句为推断，非取证结论）。取回：<https://api.github.com/search/repositories?q=LiblibPi>、<https://registry.npmjs.org/liblibpi>。
+> - 范围说明：以上取自上游 `dev`/`main` 分支与 npm registry 的**当日快照**；报告正文内的「待确认」标记属其归属复核范围，本条只记结论与依据、不改报告正文。
+> 来源：<https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/mcp/catalog.ts>、<https://github.com/anomalyco/opencode/blob/dev/packages/schema/src/skill.ts>、<https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/index.ts>
+
 > 相关：[[Network-KB-Home]] · [[Claude-Ops-KB-Home]] · [[AI-Links-KB-Home]] · [[TYPORA-KB-Home]]
 
 ## 补完记录（2026-09-13）
@@ -135,5 +147,6 @@ status: review
 | 加厚 | 遗留项 3 只写「NVD 描述确认」，无外部锚点 | 第三方库 #VU46722 与库内 [[参考-小米路由器API认证与利用]] 同口径（R3600 `set_WAN6` 命令注入，修复 1.0.66）均成立；附注该编号 OSV API 实测 404，CNA 直发编号须回 NVD / 第三方库 / 厂商公告 |
 | 纠错 | 遗留项 6「沙箱限制备忘」被后续会话当作现行约束 | 该条属会话级环境备忘：复核会话策略为 danger-full-access，已用 pwsh 在库内 `_out/` 完成写入与删除探测；执行前先用无害读写探测 |
 | 纠错 | 遗留项 8「本地已领先 origin/main 三个提交（4edd7ef / ce7c593）」 | 两个哈希在当前仓库（94 个提交，2026-09-12 克隆）实测不存在；已由 [[SESSION-ARCHIVE-2026-08-26]] §六闭环（v4 `a518edf..fadb1f4` 与 v5/v6 推送完成） |
+| 排除 | §十.本会话遗留 1「两份调研报告各含 6-8 处待确认，后续可实机核验」 | 核验已完成（[[SESSION-ARCHIVE-2026-08-26]] §一）+ 本轮补充网络复核：OpenCode ④ `allowed-tools` **不被解析/执行**（skill schema 与 4 处 loader 均无该字段）、⑤ MCP 分隔符 = `sanitize(server) + "_" + sanitize(tool)`（`mcp/catalog.ts` L119）；Pi ③ `web-ui`/`slack`/`pods` 不存在、④ 模式命名 = interactive/print/rpc(+JSON 事件流)、⑧ 全仓 0 个 mcp 路径。Pi「LiblibPi」名称经 GitHub 仓库检索（total_count=0）+ npm registry（404）确证不存在，全库统一用 pi / Pi coding agent 口径 |
 
 相关：[[CORRECTIONS]]

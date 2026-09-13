@@ -209,6 +209,8 @@ approvalPanelNode !== null ? (approvalPanelNode)
 
 > [!bug] 这张矩阵的来源要如实说明
 > 上表是**逐条转写 `Chat.js` 判据表达式**在状态空间上求值的结果，**不是** headless 挂载真实 `Chat` 跑出来的（`Chat` 不在包的 `exports` 表里，也没有无 TTY 挂载它的公开 API）。行 A1 是**代码级确定**的；B1–B5 需要"对话框挂起期间又打开了整屏"，其**实际可达路径未经端到端点击验证（未验证）**——键盘路径被 `:2566` 挡住，现实中更可能经由鼠标点击或后台异步事件触发。
+>
+> 2026-09-13 复核补：**"更可能经由鼠标点击或后台异步事件"这句已落到具体代码**。逐条定位入口后：**B1 由第三方 `tuiScenes.open()` 驱动**（`dsh-adapter/channel.js:414,535-537`）；**B4/B5 由消息行组件的属性回调驱动**（`Chat.js:3563` → `components/MessageList.js:1080` 的 `JobCard onClick`、`:994` 的行激活），两者**都不经 `:2566`**，故升为**代码级可达**；**B2/B3 的入口是 `/resume`、`/settings` 斜杠命令**（`:1617`、`:1770`），走已被停用的 `PromptInput`，**纯键盘路径不可达**。另修正：B5 一条把「详情」与「仪表盘」并写，实际**详情可达、仪表盘（Ctrl+A，`:3164`）被 `:2566` 挡住**。**端到端点击验证仍未做**（详见 §未验证清单 第 1 行）。
 
 ### 5.5 唯一无条件的自救：调用方自己的超时
 
@@ -305,6 +307,23 @@ approvalPanelNode !== null ? (approvalPanelNode)
 | 2 | 真实 TUI 进程内的行激活顺序、`requirePluginCaller` 追踪器与真实 boot 的先后 | 未启动/未重启 TUI；只给出离线模拟与"重启后自测法"（依赖模块导入耗时竞争，离线无法判定） |
 | 3 | 修复后的插件在真实前端里的面板行为 | 无 TTY，键位/滚动只在代码层核对 |
 
+> [!success] 残余复核（2026-09-13）：第 3 行**就地结项**（范围消解）；第 1 行**大幅窄化**；第 2 行维持开放
+> 复核手段：只读**本机安装的 0.10.1 打包产物**（`$DSH_HOME/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/lib/types/…`）与本地插件仓库副本；**未启动 TUI**。
+>
+> **第 3 行「修复后的插件在真实前端里的面板行为」⇒ 已解决（该项在出厂默认下无对象）**
+> `dsh-plugin-redact` 的 `allowDialogs` 默认值是 **`false`**（`index.js:620`，`cfg.allowDialogs === undefined ? false : …`），且为 `false` 时 `/redact pick` 在**碰 `tuiDialogs` 之前**就早返回并给出替代指引（`index.js:879-883`，原文案含「pick 的模态对话框默认关闭」）。⇒ **默认配置下这个插件根本不弹面板**，「面板行为」没有可核对的对象。残留（具体判据）：只有同时设 `allowDialogs: true` **且** 行级 `inject: [commands, tuiDialogs]` 时才存在面板，那种 opt-in 组合下的键位/滚动仍未在真实前端核对——但那是**用户显式开启**的风险面，不是本插件的默认行为。
+>
+> **第 1 行「B1–B5 可达路径」⇒ 仍开放，但判据已从「都未验证」窄化到「三可达 / 两不可达 / 端到端仍未跑」**
+> 按键入口逐个定位后，矩阵里那七条「整屏早返回」**并不共享同一个触发通道**：
+> - **B1（插件 scene）——代码级可达。** 判据是 `channel.pluginScene`，由 dsh-tui-scenes 运行时写入（`dsh-adapter/channel.js:414`、`:535-537`），即**第三方插件代码**通过 `tuiScenes.open()` 驱动，**不是按键**；任何异步上下文都能调。
+> - **B4（jobs 面板）/ B5（subagent 详情）——代码级可达。** 入口是**消息行组件的属性回调**，不是 Chat 的全局键处理：`Chat.js:3563` 给 `MessageList` 传 `onOpenJobs: () => setJobsPanelOpen(true)`、`onOpenSubagent: (agentId) => setSubagentDetailId(agentId)`；落到 `components/MessageList.js:1080`（`JobCard` 的 `onClick: onOpenJobs`）与 `:994`（行激活回调）。**`Chat.js:2566` 的让出只管 Chat 自己那一个监听器**，管不到这些行内回调。
+> - **B2（会话浏览器）/ B3（设置屏）——纯键盘路径不可达。** 入口是 `/resume`（`Chat.js:1617`）与 `/settings`（`:1770`）两个**斜杠命令**，而命令提交走的是**已被停用**的 `PromptInput`（见 §5.1 第 3 条）。⇒ 除非有插件程序化触发，否则对话框中打不开这两屏（该"程序化触发"路径**未验证**）。
+> - **对照修正**：subagent **仪表盘**（Ctrl+A，`Chat.js:3164`）走的是 Chat 自己的 `actionMatches` 按键匹配 ⇒ **被 `:2566` 挡住**；§5.4 把 B5 写成「subagent 详情/仪表盘」并列为一条，实际**详情可达（行回调）、仪表盘不可达（按键）**，两者应拆开。
+> 残留（具体判据）：**端到端点击验证仍未做**——本环境无 TTY，无法在「对话框挂起」的真实时刻去点 `JobCard` 或让插件开 scene；上面给的是**代码级可达性**，不是运行时复现。要闭环需在真机 TUI 里：起一个 `tuiDialogs.select` 挂起 → 鼠标点一条 job 卡片 / 让插件行调用 `tuiScenes.open()` → 观察键盘是否仍被冻结。
+>
+> **第 2 行「真实 TUI 进程内的行激活顺序、`requirePluginCaller` 追踪器与真实 boot 的先后」⇒ 仍开放**
+> 这一条**必须启动/重启真实 TUI 才能观测**（§8.2 的准入竞态依赖模块导入耗时竞争），离线只能给"重启后自测法"。判据不变；本轮未做真机实验，**不编结论**。
+
 ## Related
 
 - [[DSH-TUI插件使用手册]] — 使用者视角：安装、运行、快捷键、端点配置
@@ -321,5 +340,8 @@ approvalPanelNode !== null ? (approvalPanelNode)
 |---|---|---|
 | 加厚 | §一 证据基线未写上游 owner 与仓库 URL | 补记上游 `ccch1mneyyy/dsh-TUI`（★2995、2026-09-13 仍在推送）与 npm `dist-tags.latest` 对照，并澄清上游**不是** `dsh-tui/dsh-tui`；依据 registry 元数据与 GitHub 搜索 API |
 | 纠错 | §八.1 的 15011/15026 ms 与 §4.1 的 `DIALOG_DEFAULT_TIMEOUT_MS = 30_000` 两处数字对不上 | 补更正块：15 秒来自调用方显式传入的 `timeoutMs`；**没传时实际等 30 秒**；store 层无默认值 ⇒ 永久挂起。同时声明全部行号只对 0.10.1 成立（旧线 0.1.2 已退役）。来源：npm registry |
+| 结项 | 未验证清单 第 3 行「修复后的插件在真实前端里的面板行为」 | 范围消解：`dsh-plugin-redact` 的 `allowDialogs` 默认 `false`（`index.js:620`），`false` 时 `/redact pick` 在碰 `tuiDialogs` **之前**早返回（`index.js:879-883`）⇒ 默认配置下无面板可核对，该项无对象；opt-in 组合的残留已按判据写明 |
+| 窄化 | 未验证清单 第 1 行「B1–B5 可达路径未端到端验证」 | 逐条定位按键/回调入口：**B1**（`channel.pluginScene` ← 插件 `tuiScenes.open()`，`dsh-adapter/channel.js:414,535-537`）与 **B4/B5**（行回调 `Chat.js:3563` → `MessageList.js:1080`/`:994`）**不经 `:2566`** ⇒ 升为代码级可达；**B2/B3**（`/resume`、`/settings`，`Chat.js:1617`/`:1770`）走已停用的 `PromptInput` ⇒ 纯键盘不可达；并修正 B5 应拆「详情可达 / 仪表盘（`:3164`）不可达」。**端到端点击验证仍未做**（无 TTY） |
+| 维持 | 未验证清单 第 2 行「真实 TUI 进程内的行激活顺序与 boot 先后」 | 需启动/重启真实 TUI 观测（依赖模块导入耗时竞争），离线无法判定；本轮未做真机实验，按判据保留开放 |
 
 更正与依据登记：[[CORRECTIONS]]

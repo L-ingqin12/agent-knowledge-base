@@ -180,6 +180,11 @@ DeepSeek 响应 → permafrost 收 chunk
 > - 内存：`ps -o rss= -p <proxy_pid>`（单位 KB），取改造前后各 ≥30 次请求的峰值。
 > - 判定门槛：改造前后各取 ≥30 次样本，比较 TTFB 的 p50/p95 与 RSS 峰值；样本不足 30 次时只写「单次观察，非统计量」。
 
+> [!warning] 残余复核（2026-09-13）：本节的实测回填**仍开放，且无法在本库离线完成**。
+> - `proxy.log` 是**部署侧产物**（现役链路跑在手机 Termux/PRoot 内），不随库分发：库内 `find . -name proxy.log` 无命中，`proxy.log.<port>`（零中断重启时的备用端口日志）同样只在部署机。改造前的基线样本**已不可补采**，只能等改造后按下述判据一次性取证。
+> - 关键判据：①样本量 ≥30 才写 p50/p95，否则如实写「单次观察，非统计量」；②改造后必须给出的是**流式 TTFB**（客户端侧 `time_starttransfer`），不能拿全量缓冲模式下的整响应耗时冒充——两者在本节语义不同。
+> - 依据：库内无 `proxy.log`（本机实测，2026-09-13）；采集命令由上文给出。
+
 ---
 
 ## 附1: Proxy 层工具归一化 (预研, 待落地)
@@ -213,6 +218,12 @@ proxy.js 第73行后插入 ~15行, 读取 `~/.claude/tool-anchor.json` 配置,
 - 「≥1 周」的度量口径：以 permafrost 补丁进程的**连续运行时间**计（`ps -o etime= -p <pid>` ≥ 7 天），且期间无因该补丁导致的会话中断或工具丢失记录；只数日历天数不算。
 - 端口核实（2026-09-13）：:8789 **不能假定空闲** —— 诊断中继 `diagnostic-relay/relay.js` 默认 `RELAY_PORT=8789`，`claude-permafrost-deploy.sh` 也把 8789 列入候选端口池。隔离测试前先 `ss -tlnp | grep 8789` 确认，或改用 8791+ 的空闲端口。
 
+> [!warning] 残余复核（2026-09-13）：附1 整体仍判「**预研，待落地**」（落地三条件全部未达成），本轮把上文两条表述就地订正：
+> - 「读取 `~/.claude/tool-anchor.json` 配置…**version-hook.sh 自动维护配置**」与库内实现不符：`claude-version-hook.sh` 的 `update_patch()` 算出的是 `_ANCHOR_TOOLS` 排除列表，随后**跑 `claude-permafrost-deploy.sh force` 去更新 permafrost 补丁**（`permafrost_align.py`），**不写任何 `tool-anchor.json`**；`tool-anchor.json` 在本库脚本与前端代码中均无实体。若真要采用 JSON 配置方案，必须同步改 `version-hook.sh`，否则「自动维护」这一环无人执行。
+> - 端口建议偏窄：上文「改用 8791+ 的空闲端口」不足 —— `claude-permafrost-deploy.sh` 的 `restart)` 分支会从 `8789 8790 8791 8792` 里挑**零中断重启的备用端口**，即 8791/8792 也可能被瞬时占用。隔离测试应选**该池之外**的端口。
+> - 仍开放的部分：三条落地条件（隔离测试通过 / 逃生通道验证 / permafrost 补丁连续运行 ≥7 天）都需在真机上执行，库内无法定论。
+> - 依据：`scripts/claude-ops-deployments/root-scripts/claude-version-hook.sh`（`update_patch` 段）、`scripts/claude-ops-deployments/root-scripts/claude-permafrost-deploy.sh:258-266`（核验于 2026-09-13）。
+
 ---
 
 ## 补完记录（2026-09-13）
@@ -221,5 +232,7 @@ proxy.js 第73行后插入 ~15行, 读取 `~/.claude/tool-anchor.json` 配置,
 |---|---|---|
 | 加厚 | §六 预期效果表（25s / 76s / ~1MB→~16KB）无样本量、无采集命令与测量条件 | 标题改标「设计目标，未验证」，补口径说明与采集命令（proxy.log 耗时行取 p50/p95、`curl -w '%{time_starttransfer}'` 取 TTFB、`ps -o rss=` 取内存），并给出 ≥30 次样本的判定门槛 |
 | 加厚 | 附1 只写「待隔离测试(:8789)」，无测试项、通过标准、超时与「≥1 周」口径 | 补隔离测试清单表（含解析失败/配置缺失/锚点缺失/逃生）、通过与回退判据、「≥1 周」按进程连续运行时间计；并核实 :8789 为 diagnostic-relay 默认端口与 permafrost 候选端口，落地前需 `ss` 确认 |
+| 残余复核 | §六 预期效果表 4 行（L167-172）与口径说明块（L174-181）被重新登记为待办 | **非待办（表行）+ 仍开放（回填）**：表已由 [!note] 判为设计目标；回填本身在本库无法离线完成——`proxy.log` 是部署机产物，库内 `find . -name proxy.log` 无命中，改造前基线不可补采。判据：≥30 样本才写 p50/p95，且须量流式 TTFB（`time_starttransfer`）而非整响应耗时（本机实测，2026-09-13） |
+| 残余复核 | 附1「…version-hook.sh 自动维护配置」与「改用 8791+ 的空闲端口」两条表述 | 就地订正：①`claude-version-hook.sh` 的 `update_patch()` **不写 `tool-anchor.json`**，它只跑 `claude-permafrost-deploy.sh force` 更新 permafrost 补丁的 `_ANCHOR_TOOLS`，该 JSON 在库内无实体；②`claude-permafrost-deploy.sh:258-266` 的 `restart)` 会从 `8789 8790 8791 8792` 挑零中断重启的备用端口，故 8791/8792 亦可能被占，隔离测试须选该池之外。附1 整体仍判「预研，待落地」（三条落地条件均需真机执行） |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

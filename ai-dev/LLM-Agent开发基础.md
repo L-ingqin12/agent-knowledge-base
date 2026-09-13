@@ -320,6 +320,7 @@ if __name__ == "__main__":
 | 纠错 | 四组件表「DeepSeek-V3 / GPT-4o / Claude」、架构表「DeepSeek-V3 + R1」、Demo `model="deepseek-chat"` | 三处就地加注 + 集中更正块：官方计费页现只列 `deepseek-flash`（DeepSeek-V4.1-Flash）与 `deepseek-v4-pro`（DeepSeek-V4-Pro-0813）；`deepseek-chat` / `deepseek-reasoner` 于 2026-07-24 停用。措辞按复核结论写为「本文写法在写作时已失效」，未反推「写作时就该知道 deepseek-flash」（该模型 2026-09-10 才发布） |
 | 加厚 | 手写循环伪代码 `messages += [reply, observation]` 未交代成本面 | 新增「上下文的成本面：Observation 回填、预算与压缩」小节（预算上限 / 压缩阈值 / 状态外置 / 可观测四行表），并强调「先外置、后压缩」的次序；伪代码该行加注释指向本节 |
 | 补疏漏 | 失效模式速查表只有 5 条，缺错误传播、上下文污染、检索退化、终止条件误判 | 表扩到 8 行（新增 3 条并合并错误传播/上下文污染），附「补疏漏依据」说明：三类缺口与 ReAct 论文摘要的 error propagation 论述及项目主页对 reason-only 基线的批评直接对应 |
+| 残余复核 | 「上下文的成本面」表「状态外置」行（`压缩前先把结论写进结构化状态（任务清单 / 已知事实 / 待办）`）被待办提取器登记为未决项 | **非待办（提取误报）**：命中的「待办」是外置状态的**内容枚举之一**（任务清单 / 已知事实 / 待办），不是未决事项；该行「判据 / 阈值」列给的是可验收的设计陈述（压缩后仍能凭外置状态续跑）。本表真正的开放项在**上一行**——「预算上限」行已自认「token 预算需另设、原文未给数值」，该缺口原文已写明，无需另行处置 |
 
 > 未改动项（已核实、不属纠错）：「论文原格式 vs 现代变体」提示经复核**无事实错误**——论文身份与结构成立（ReAct: Synergizing Reasoning and Acting in Language Models，Shunyu Yao 等，2022，arXiv:2210.03629）。但 `Thought N:` / `Act N:` / `Obs N:` 与 `Search[]` / `Lookup[]` / `Finish[]` 的**逐字格式**本轮未能重新取证（arxiv.org 在复核环境不可达），故原文**保持不动**，待人工再核一次。
 

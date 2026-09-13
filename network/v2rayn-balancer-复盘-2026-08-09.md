@@ -170,6 +170,14 @@ live balancer 实测（2026-08-09），**运行池已换成 4 个稳定节点**�
 > v2rayN GUI 均衡组仍显示「新加坡2 + 韩国×2」。watcher 只修规则不换节点，若 v2rayN 重新生成配置会把不稳节点加回池 → **建议在 GUI 中把均衡组成员也改为 SG1/US1/US3/JP1**（一次性同步）。
 > **状态**: GUI 池同步为待办；未完成前以配置文件（balancer 池 SG1/US1/US3/JP1）为准。
 
+> [!success] 残余复核（2026-09-13）：**「GUI 池同步」已无同步对象，待办可结** —— 本机只读核查显示该均衡组当前**不存在**。
+> - `guiConfigs/guiNDB.db`（SQLite；本机 v2rayN **7.19.5.0**，与本复盘环境同版本）：`ProfileGroupItem` 表 **0 行**（该表字段 `ChildItems`/`SubChildItems`/`Filter`/`MultipleLoad` 即「组 / 多路负载」的载体）；对**全部表的所有文本列**检索 `balancer` **零命中**。
+> - `guiConfigs/guiNConfig.json` 中**不含** `group`/`balancer`/`load` 任何键；31 条 ProfileItem 即当前全部服务器条目。
+> - `v2rayN.exe` 二进制内含 `GroupProfileManager` / `AddGroupServerViewModel` / `get_MultipleLoad` / `get_TbLeastLoad`，可确认 7.19.5 的均衡组正是由上述两张表承载 ⇒ **0 行 = 无组可同步**。
+> - 同属该兜底链路的现状（同日实测）：`binConfigs\` 目录**为空**（`config.json` 不在盘上）⇒「以配置文件为准」这条判据**当前无对象可读**；`%AppData%\Microsoft\Windows\Start Menu\Programs\Startup\` 下**已无** `v2rayN-balancer-fix.vbs`（仅剩 alist / mathpix / MEGAsync / QuickLook / OneNote 等条目），全盘检索 `balancer-fix`、`fix_balancer` 只命中库内 `network/scripts/fix_balancer_watcher.ps1` ⇒ **方案 B 的开机自启当前不在位**。
+> - 边界：本次复核**只读**——未启停任何服务、未改本机配置；上述两处「无对象 / 不在位」是**当时状态**，不构成对原因的判断。
+> - 回退判据：若 GUI 中重建均衡组，或 `binConfigs\config.json` 重新生成且含 `balancers` 段，本待办**需重开**，并按该组实际成员与配置文件实际池逐项比对。
+
 验证结果（新池，10808 live proxy）：Google generate_204 204 ×3（1.1s/1.1s/7.9s）、YouTube 200、出口 [IP已脱敏]。
 
 ---
@@ -187,6 +195,16 @@ v2rayN 的 balancer 路由在多个版本间反复回归（[[ARCHITECTURE]] Phas
 > - **#8849 是 Pull Request**：API 返回 `title: "Fix balancer routing"`、`merged: true`、`merged_at 2026-02-27`，`html_url` 为 `.../pull/8849`。同页下文把 #9727 正确写成 PR，说明本可区分——请统一为「PR #8849」。
 > - **版本已漂移**：`7.24.6` 的 `prerelease=true`（published 2026-08-08），其 release body 为 Avalonia 12 / 内置下载器 MITM 安全修复 / HappyEyeballs 等，**确无 balancer 修复条目**；此后 `7.25.1`（published **2026-09-10**，同为预发布）成为最新，**仍未验证是否修复 balancer**。结论（不可依赖升级、watcher 兜底）不变。
 > 来源：<https://github.com/2dust/v2rayN/pull/8849>、<https://api.github.com/repos/2dust/v2rayN/releases/tags/7.24.6>、<https://api.github.com/repos/2dust/v2rayN/releases?per_page=5>
+
+> [!warning] 残余复核（2026-09-13）：「最新版是否已修复 balancer」**仍不能收口**，但已拿到源码级负面证据 + 一个新风险点。
+> - **版本现状**（GitHub API 实测）：最新为 `7.25.1`（2026-09-10，**预发布**），其下 `7.25.0`（09-05，预发布）、`7.24.9`（08-29，**稳定版**）、`7.24.8`（08-22，稳定）、`7.24.7`（08-15，预发布）；`7.24.6` → `7.25.1` 各 release body **均无 balancer 条目**（release notes 未提及 ≠ 源码未改）。
+> - **源码对比（同文件两个 tag）**：`ServiceLib/Services/CoreConfig/V2ray/V2rayRoutingService.cs` 的 balancer 改写段在 `7.19.5`（L37-47）与 `7.25.1`（L66-76）**逐行同构**——命中 balancer 时写入 `balancerTag` 并同时把 `outboundTag` **置 null**（符合 Xray「二选一」口径，属正确写法）。**未见针对本复盘症状的功能性改动**。
+> - **新风险点**：`ServiceLib/Global.cs` 的 `BalancerTagSuffix` 由 `7.19.5` 的 **`-round`** 改为 `7.25.1` 的 **`-balancer`**；`GenBalancer` 中 balancer tag = `<selector> + 后缀`（selector 默认 `proxy`）⇒ **升级后 balancer tag 命名即改变**。方案 B 的 watcher 是对 `outboundTag -eq 'balancer'` 的**字面匹配**，任何按旧 tag 名硬编码的修补在升级后都会失配 —— 升级前务必重新生成配置核对规则字段。
+> - **修订「修复被回退」的父句（本轮新增取证，2026-09-13）**：PR **#9727「Revert "Fix"」只改了 `V2rayBalancerService.cs`（+11 -12）**，**未触碰 `V2rayRoutingService.cs`** ⇒ 路由侧修复**没有被这次 Revert 撤掉**；#8849 的补丁（该文件 +24 -0）正是引入 `balancerTag` 与 `outboundTag = null` 的那段，且它在 7.19.5、7.25.1 中都还在。同期 issue **#9699「负载均衡策略组选用 xray core 报错」**（created 2026-07-07 / closed 2026-07-11, completed）与该 PR 同日闭环，对应的是"策略组"侧的改动而非路由侧。取回：`/pulls/8849/files`、`/pulls/9727/files`（2026-09-13）。
+> - **改名落在哪个区间**：`BalancerTagSuffix` 实测 `7.19.5 = -round`、**`7.23.2` 起 = `-balancer`**（`7.24.6`/`7.24.9`/`7.25.1` 同）⇒ 改名发生在 7.20–7.23.2 之间，本复盘所用的 7.19.5 属改名前口径。
+> - **仍定不了的部分**：**破损规则的产生路径未定位到源码分支**。两版的该生成路径都会清掉 `outboundTag`，而本复盘观测到的是「规则只带 `outboundTag`、无 `balancerTag`」；#8849 的修复又自 7.19.5 起就在，说明该破损形态**不由这段改写逻辑产生**，其来源仍未定位。判据：需在 7.19.5 上重建一个均衡组并检查生成的 `geosite:google` 规则字段（本次复核禁改本机配置；且本机 `guiNDB.db` 已无任何组定义，离线无从复现）。
+> - 结论（不变）：**升级不构成修复手段** —— release notes 无相关条目、路由侧逻辑两版同构，只有 tag 命名变了（这正是升级后需要重新核对的地方）。
+> 来源（均 2026-09-13 取回）：<https://api.github.com/repos/2dust/v2rayN/releases?per_page=6>、<https://api.github.com/repos/2dust/v2rayN/pulls/9727/files>、<https://api.github.com/repos/2dust/v2rayN/issues/9699>、<https://github.com/2dust/v2rayN/blob/7.19.5/v2rayN/ServiceLib/Services/CoreConfig/V2ray/V2rayRoutingService.cs>、<https://github.com/2dust/v2rayN/blob/7.25.1/v2rayN/ServiceLib/Global.cs>
 
 > [!tip] 结论
 > 此功能版本间反复横跳，升级 v2rayN 不能依赖，watcher 是当前最稳妥的兜底。
@@ -227,6 +245,9 @@ v2rayN 的 balancer 路由在多个版本间反复回归（[[ARCHITECTURE]] Phas
 | 加厚 | 根因与机制章节原无上游来源 | 加「已核验」块：路由文档「二选一、同时指定 outboundTag 生效」+ Xray-core `default.go` 的 `non existing outTag` 分支（结论无需改动） |
 | 纠错 | 上游信息把 PR #8849 写成 issue | 保留原列表并加更正块：#8849 为 PR（merged 2026-02-27），与同页 #9727 的写法保持一致 |
 | 纠错 | 「最新版 7.24.6（2026-08-08）」已过期且未标注预发布 | 保留原句并加更正块：7.24.6 prerelease=true 且 release body 无 balancer 修复；最新为 7.25.1（2026-09-10，同为预发布），仍未验证是否修复 |
+| 排除 | §6 遗留事项「GUI 池同步为待办；未完成前以配置文件为准」 | 只读核查本机 v2rayN 7.19.5.0：`ProfileGroupItem` 0 行、全库文本列无 `balancer`、`guiNConfig.json` 无组键 ⇒ **均衡组不存在，同步无对象**；附注 `binConfigs\` 空、Startup 无 `v2rayN-balancer-fix.vbs`（方案 B 自启不在位） |
+| 加厚 | §7「最新版 7.24.6 —— 未验证是否修复」 | GitHub API：7.24.6→7.25.1 各 release body 均无 balancer 条目；源码对比 7.19.5/7.25.1 的 balancer 改写段逐行同构（均置空 `outboundTag`），唯 `BalancerTagSuffix` 自 7.23.2 起由 `-round` 改为 `-balancer`；破损规则产生路径未定位，标注判据与升级注意 |
+| 纠错 | §7 父句「PR #9727 — Revert "Fix"（修复被回退）」 | 保留原句 + 新增取证（2026-09-13 取回 `/pulls/8849/files`、`/pulls/9727/files`）：#9727 仅改 `V2rayBalancerService.cs`（+11 -12），**未触碰 `V2rayRoutingService.cs`** ⇒ 路由侧修复（#8849 引入的 `balancerTag` + `outboundTag = null`，+24 -0）**未被回退**，7.19.5 与 7.25.1 中俱在；同期 issue #9699（负载均衡策略组选用 xray core 报错，2026-07-07 开 / 07-11 关）对应的是策略组侧改动 |
 
 相关：[[CORRECTIONS]] · [[AGENTS]]
 

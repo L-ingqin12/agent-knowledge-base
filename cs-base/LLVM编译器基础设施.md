@@ -29,6 +29,8 @@ See also: [[CS-KB-Home]] · [[计算机组成原理]] · [[lognet-rootcause-mult
 - **IR 版本敏感点（指针类型模型）**：LLVM 15 起不透明指针 `ptr` 默认开启（typed pointers 仍支持）；16 起 typed pointers 仅 best-effort、不再测试；**17 起只支持不透明指针**，`LLVMGetElementType()` 一类 API 被移除。这正是旧教程里 `i32*`/`%struct.Foo*` 在新版 IR 变成 `ptr`、GEP 必须显式给源元素类型的原因
   > 来源：https://llvm.org/docs/OpaquePointers.html
 
+> [!success] 残余复核（2026-09-13）：§一「GCC 对照」行尾的**待确认**（"部分基准代码生成互有胜负，口径随版本波动"）已收口——它不是一个"缺一手资料"的洞，而是**本来就没有单一答案**：代码生成优劣逐版本、逐负载翻转，任何静态断言都会过期。处置是去掉这个软标记、换成可验收口径：① 引用公开基准（LLVM test-suite、Phoronix 固定子集）时必须同机同 flag（如固定 `-O2`）对跑，并记版本号；② 自家结论一律走 [[LLVM使用调优与SO优化]] §四 的单变量纪律（一次只动一个变量、多轮取分布、归档 bench+build-id+flag diff）；③ 本机复跑入口：`clang -S -O2` 与 `gcc -S -O2` 对同一 TU 出汇编，比指令数/分支数。正文该行不再挂"待确认"。
+
 ## 二、关键优化 Pass（读懂 -O2 在干什么）
 
 | Pass | 干什么 | 直觉 |
@@ -101,6 +103,11 @@ CI 组合拳：单测跑 ASan+UBSan，并发专项跑 TSan——[[CPP-核心知�
 
 > ① MLIR 在非 ML 领域(硬件/策略扩展)的生产案例边界；② Rust cranelift 后端绕开 LLVM 的调试信息完备度；③ C++20 modules 对 LTO/build 缓存工具链(bazel/ccache)的实际兼容矩阵。
 
+> [!success] 残余复核（2026-09-13）：① 已定论；②③ 仍开放（判据已写具体）。
+> - **① MLIR 非 ML 生产案例边界——已定论**：MLIR 官方 Users 页（mlir.llvm.org/users/，2026-09-13 取回）本身就是权威清单，非 ML 方向的代表条目：**硬件设计/EDA**（CIRCT）、**硬件验证**（BTOR2MLIR，面向 BTOR2 硬件验证格式）、**语言前端**（Flang＝LLVM 的 Fortran 前端，用 FIR/HLFIR 表示并下沉；ClangIR(CIR) 在 Clang AST 与 LLVM IR 之间插一层高层 MLIR；Beaver 给 Elixir/Zig 提供 MLIR/LLVM 工具）、**密码学**（HEIR 与 Concrete 的同态加密编译、Enzyme／EnzymeMLIR 的自动微分）、**量子**（Catalyst 的 PennyLane JIT、CUDA-Q）、**DSP**（DSP-MLIR）。该页还显式标注归档项目（Firefly，2024-06 归档）——"边界"的判据就是这一页的收录状态（在册＝有公开项目，归档＝已死），加上本项目是否接受 nightly 生态。
+> - **② cranelift 后端调试信息完备度——仍开放**：其 README（rust-lang/rustc_codegen_cranelift，2026-09-13 取回）确认两件事：它是 **nightly-only** 组件（`rustup component add rustc-codegen-cranelift-preview --toolchain nightly`），且「Not yet supported」**只列 SIMD 与 panic 展开**、并未把调试信息列为缺口（平台矩阵 Linux/macOS/Windows-x86_64 全绿）。但"完备度"是测量题、README 不答：判据＝装 nightly＋该组件后编译一个含内联/泛型的 crate，用 `llvm-dwarfdump --debug-info` 与同源 LLVM 后端产物比对 DWARF 版本、`.debug_line` 行表与内联帧。本机无 rustc（`command -v rustc` 为空），故未做。
+> - **③ modules × LTO/build 缓存矩阵——仍开放（ccache 侧已定）**：ccache 官方手册原文「Ccache does currently not support standard C++20 modules」（仅对 Clang `-fmodules` 有限支持），这条可直接进结论（与 [[LLVM使用调优与SO优化]] §一/§七③ 同一份依据）；CMake 侧本机 4.1.2 已具备 `CXX_SCAN_FOR_MODULES`（3.28 起）与 `CXX_MODULE_STD`。缺的是 **bazel 侧**：判据＝查 bazel 官方文档／其 C++ modules 支持状态（含 experimental flag），并对同一 module 用例在 bazel 与 CMake 下各跑一次 LTO 构建做对照。
+
 ## 补完记录（2026-09-13）
 
 | 类型 | 原问题 | 处置与依据 |
@@ -108,6 +115,10 @@ CI 组合拳：单测跑 ASan+UBSan，并发专项跑 TSan——[[CPP-核心知�
 | 纠错 | §六 DWARF 节区表无版本口径（默认版本已从 v4 变 v5） | 补版本说明（Clang 14 起默认 v5、`-gdwarf-4` 退回、平台 opt out）、v5 新增节区与 `llvm-dwarfdump` 判据；依据 [Clang 14 Release Notes](https://releases.llvm.org/14.0.0/tools/clang/docs/ReleaseNotes.html) |
 | 补疏漏 | §一 IR 三形态未提指针类型模型（opaque pointers） | 补 LLVM 15/16/17 三档演进与 GEP 显式元素类型的成因；依据 [OpaquePointers 文档](https://llvm.org/docs/OpaquePointers.html) |
 | 补疏漏 | §三 Sanitizer 表只有 ASan/UBSan/TSan/MSan | 增 HWASan 行（TG/TS/1:TG 影子内存、AArch64 标签、x86_64 页别名受限）与 ASan/HWASan 选型判据；依据 [HWASan 设计文档](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html) |
+| 残余复核 | §一「GCC 对照」行尾的“口径随版本波动**待确认**” | 收口为「本无单一答案」：代码生成优劣逐版本逐负载翻转，软标记换成可验收口径（同机同 flag 对跑公开基准 + 走 [[LLVM使用调优与SO优化]] §四 单变量纪律 + `clang -S -O2`/`gcc -S -O2` 本机比对） |
+| 残余复核 | §八① MLIR 在非 ML 领域的生产案例边界 | 已定论：以官方 Users 页（2026-09-13 取回）为准——CIRCT（硬件/EDA）、BTOR2MLIR（硬件验证）、Flang/ClangIR/Beaver（语言前端）、HEIR/Concrete/Enzyme（密码学与自动微分）、Catalyst/CUDA-Q（量子）、DSP-MLIR（DSP）；归档项目（Firefly 2024-06）亦标注 |
+| 残余复核 | §八② Rust cranelift 后端的调试信息完备度 | 仍开放：README 确认其 nightly-only 且「Not yet supported」只列 SIMD 与 panic 展开、未把调试信息列为缺口；判据=装 nightly＋组件后编译含内联/泛型的 crate，用 `llvm-dwarfdump` 与 LLVM 后端产物比对 DWARF 版本/行表/内联帧（本机无 rustc，未做） |
+| 残余复核 | §八③ C++20 modules 对 LTO/build 缓存(bazel/ccache)兼容矩阵 | 部分定论：ccache 手册明写不支持标准 C++20 modules（仅 Clang `-fmodules`）、CMake 4.1.2 有 `CXX_SCAN_FOR_MODULES`/`CXX_MODULE_STD`；仍缺 bazel 侧（判据=查 bazel 官方 modules 支持状态并按同一用例对照 LTO 构建） |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]
 

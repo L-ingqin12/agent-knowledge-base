@@ -39,6 +39,13 @@ relay 的锚点 dump（`~/.cache-relay/dump.jsonl`，后已清除）抓到 5 条
 > 另：`cache_control` 的「1h TTL」**未取得一手文档佐证**，暂降级为待验证——可复核判据 = 抓请求体看 `cache_control` 是否含 `ttl` 字段及取值，并对照服务端返回的 cache 统计（原表述为「用 `cache_control`（Anthropic 显式，1h TTL）」）。
 > 依据：https://code.claude.com/docs/en/permission-modes.md（核验于 2026-09-13）
 
+> [!success] 残余复核（2026-09-13）：**「TTL 取值待证」已结案——不改语义、改为可证的精确表述：TTL 取值是条件式的 `1h` / `5m`，不是固定 `1h`。**
+> 证据来自**第一方产物本身**（优于文档、且完全离线）：本机 Claude Code CLI 二进制 `claude.exe`（WinGet 安装，226MB Node SEA 包）内嵌 JS 实测——
+> - **写入侧**：`function U1({scope:e,ttl:t}={}){return{type:"ephemeral",...t&&{ttl:t},...e==="global"&&{scope:e}}}`；调用处 `let Jt=B1(e.querySource)?"1h":void 0; … let rn=Jt?xt.map((Ht)=>hJe(Ht,Jt)):xt`，而 `function hJe(e,t){if(!("cache_control"in e)||!e.cache_control||e.cache_control.ttl)return e;return{...e,cache_control:{...e.cache_control,ttl:t}}}` ⇒ 只在 `cache_control` 已存在且**尚无 ttl** 时补写，**不会覆盖**已有取值。
+> - **取值来源**：同一二进制内 `…prompt_cache_1h_config",{allowlist:[...DEe]}).allowlist??[],rTn(g);return LEe(e,g)?{ttl:"1h",reason:"subscriber"}:{ttl:"5m",reason:"default"}` ⇒ **`1h` 仅对「订阅者/命中 1h 白名单」成立，否则默认 `5m`**；`1h` 路径同时挂 beta 头 `PDe=Te("extended_cache_ttl","extended-cache-ttl-2025-04-11")`。
+> - **附带**：CC 自身的 400 分类器把含 `\bttl\b` 的报错归为 `cache_control_field` 类（`Aie()` 内 `if(/\bttl\b/i.test(e))return!1`）⇒ 说明 `ttl` 字段是会被上游拒的敏感字段，这与本文链路的相关性见下。
+> **对本篇结论的影响**：① §二 原「1h TTL」**只在订阅者场景对**，作为无条件陈述不成立——已按上表精确表述；② §三 表「`cache_control`（TTL 取值待证）」一行同理结案，可读作「`1h`（订阅者）/ `5m`（默认），二者均在 relay 被 `stripCacheControl` 整体剥离 ⇒ 到不了 DeepSeek」；③ 该 TTL 与 beta 头**在用户链路上被彻底剥离**，故对 ~52% 命中率的成因**无贡献**（与 §五 订正一致：成因是 ID 掉后缀、`relocateVolatile`、离散重置）。见 [[claude-cache-relay-design]]。
+
 ## 三、为什么在 DeepSeek 链路上失效
 
 | 环节 | 原生 Anthropic | 用户 DeepSeek 链路 |
@@ -58,6 +65,12 @@ relay 的锚点 dump（`~/.cache-relay/dump.jsonl`，后已清除）抓到 5 条
 2. **relay 分流分类器到独立缓存（有安全折中）**：relay 识别「0 tools + system 含 `security monitor`」→ 改投独立上游（复用 GLM fallback）。恢复原生「独立缓存」隔离，主会话命中率应回 ~85%+。**代价**：分类器从 Sonnet 4.6（默认已为 Sonnet 5，见 §二 更正）降到 GLM，安全判断力下降——省钱 vs 安全的权衡，需用户拍板。
 3. **修分类器报错**：`Request was aborted`（疑似 DeepSeek 400 内容审核，分类器 transcript 含敏感内容）→ 分流 GLM 或 sanitize。
 
+> [!success] 残余复核（2026-09-13）：**方向 2「需用户拍板」的现状已核实——代码早已就位，只差一个开关，决策点比原文更具体。**
+> `cache-relay.mjs` 内分类器分流**已实现**：识别判据为「0 tools + system 含 `security monitor` + `autonomous`」，命中后按 `cfg.classifier.upstream || fallback.upstream` 改投、可配 `cfg.classifier.authToken` 与 `cfg.classifier.modelMap`，并打 `[cache-relay] classifier → … status=`；另有 `cfg.classifier.sessionIdSuffix` 改写分类器请求的 `x-claude-code-session-id`（将其会话与主会话分开）。
+> **但 `%USERPROFILE%\.cache-relay\config.json` 实测 `classifier.enabled = false`（代码默认即关）** ⇒ 该分流**当前未生效**，主会话仍与分类器同源。
+> 所以「需用户拍板」是**安全 vs 省钱的取舍决策**，不是待开发项：开启 = 改一个配置键（`enabled: true`；`modelMap` 与 `sessionIdSuffix` 实测均已就绪）。见 [[claude-cache-relay-design]]。
+> **开启前须先解一处配置疑点（本次未定，勿盲开）**：`config.json` 未设 `classifier.upstream` ⇒ 现码会退回 `fallback.upstream`（OpenRouter），而 `classifier.modelMap` 实测把各模型映射到 **`deepseek-flash`**。「OpenRouter 上游 + `deepseek-flash` 模型 id」这一组合是否成立**未有证据**（OpenRouter 侧模型 id 通常带厂商前缀）。判据：开 `enabled: true` 后前台跑 relay，看 `[cache-relay] classifier → … status=` 是否非 2xx；或先直接查 OpenRouter `/api/v1/models` 有无该 id。
+
 ## 五、结论一句话
 
 ⚠️ **2026-09-13 订正：本句「不是……是……」的排他性归因不成立。**
@@ -74,6 +87,10 @@ relay 的锚点 dump（`~/.cache-relay/dump.jsonl`，后已清除）抓到 5 条
 
 分类器仍是一条**独立且几乎不复用的谱系**，白加约 **26%** 请求量 —— 但那是**成本问题，不是互顶问题**。
 逃生回滚导航侧已于 [[逃生回滚导航]] §四 同步（原待办：「`逃生回滚导航.md` 转引本结论处需一并订正。」）。
+
+> [!success] 残余复核（2026-09-13）：**该待办已闭环，这次复核逐字核对确认。**
+> `逃生回滚导航.md` §四 表格「分类器缓存 52% 根因 ⚠️**已订正**」行的现有文字为：「**原「两条世系互顶」不成立**：缓存是前缀精确匹配，分类器 `tools=0` 与主会话 `tools=39` **从第一个 token 就分叉**，不可能共享前缀、无从互相驱逐。实为多因叠加：…」——**转引口径与本文 §五 完全一致**，无残留旧结论。
+> 故本条从待办转为**已同步**，无需再动 [[逃生回滚导航]]。复核方式：仓库内只读 `grep`，非抽样推断。
 
 ## 来源
 
@@ -93,5 +110,7 @@ relay 的锚点 dump（`~/.cache-relay/dump.jsonl`，后已清除）抓到 5 条
 | 纠错 | §三 由「同模型 + 同 key → 共享一个缓存」推出「两条世系互顶」，与 §五 订正矛盾 | 按 §五 口径重写该行与结论：分类器 `tools=0`、主会话 `tools=39`，从第一个 token 即分叉，不存在共享前缀与互顶；未采用「路由到同一 deepseek 模型 id 导致共享」的说法 |
 | 纠错 | §二「`cache_control`（Anthropic 显式，1h TTL）」不可核验 | 降级为待验证并给出可复核判据（抓请求体看 `ttl` 字段及取值 + 对照服务端 cache 统计）；未取得一手文档前不断言 TTL |
 | 纠错 | §五 末句「`逃生回滚导航.md` 转引本结论处需一并订正」为过期待办 | 改为「已于 [[逃生回滚导航]] §四 同步」，原句以引文保留 |
+| 残余复核 | §二 注 / §三 表：`cache_control` 的「1h TTL」标为待证、无一手文档 | **结案并精确化**：第一方二进制 `claude.exe` 内嵌 JS 实测 TTL 为**条件式**——`U1({scope,ttl})` 产出 `{type:"ephemeral",ttl}`，写入方 `hJe` 仅在无 `ttl` 时补齐；取值解析处 `LEe(...)?{ttl:"1h",reason:"subscriber"}:{ttl:"5m",reason:"default"}` ⇒ **`1h` 仅订阅者/1h 白名单，默认 `5m`**，`1h` 挂 beta `extended-cache-ttl-2025-04-11`。故原「1h TTL」仅在订阅者场景成立。另：该字段与 beta 在链路被 `stripCacheControl` 整体剥离 ⇒ 对 ~52% 无贡献 |
+| 残余复核 | §四 方向 2「分流分类器到独立缓存…需用户拍板」未记实现状态 | 核实**已实现但默认关**：现码含 `security monitor`+0 tools 识别、`classifier.upstream/authToken/modelMap/sessionIdSuffix`，配置实测 `classifier.enabled=false` ⇒ 决策是「翻一个键」而非待开发；同时记下一处未定疑点（`classifier.upstream` 缺省退到 OpenRouter 而 modelMap 指向 `deepseek-flash`，组合成立性无证据）+ 判据 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

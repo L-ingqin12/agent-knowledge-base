@@ -274,6 +274,14 @@ Pi 无内置子 agent 但 SDK 全在手：官方 subagent 示例扩展与社区�
 - **优先级反转**：T2 打断正在持锁写文件的子 agent 可能留下半成品，需要与文件锁（参见 [[subagent-resource-architecture-2026-07-03]]）联动——先等锁释放窗口再打断；
 - **OpenCode 原生演进**：官方 agent-teams 方向（issue #15035）若落地，本文 supervisor 大部分能力会被原生吸收，迁移路径是把 `.agent-bus/` 协议映射到原生事件。
 
+> [!success] 残余复核（2026-09-13）：四条里三条已定论（前两条由**本文自己的 §6.4** 覆盖，第 4 条经 GitHub API 实取终结），仅 L3 误报率仍开放。
+> - **跨机部署（原第 2 条）→ 已定论**：§6.4 给的官方级答案就是结论——跨机**不必**换成 Redis/消息队列，走**会话层消息（cross-session messaging）+ worktree 隔离**即可；`.agent-bus/` 自建协议的价值收窄为「需要跨框架统一协议」（对应本文 [[A2A多智能体协作协议]] 那一列）时。判定矩阵不变、传输层替换这句仍然成立，只是「替换成什么」已有官方件可选。
+> - **优先级反转（原第 3 条）→ 已定论**：§6.4 表「隔离（防优先级反转）」行已把 **git worktree** 列为对策（每并行会话一条分支），「T2 打断持锁写文件的子 agent 会留半成品」在隔离层被挡在分支之外。文件锁联动细节仍归 [[subagent-resource-architecture-2026-07-03]]，但已不是未决项。
+> - **L3 语义活性误报率 → 仍开放**：需真机实现工具签名环检测并做按工具类的白名单豁免，本库无该实现。判据：以「同名测试反复跑」类合理重复用例实测误报率（验收口径：误报 ≤1 / 轮次）。
+> - **OpenCode 原生演进 → 已定论：原生 agent-teams 线整体关闭，「若落地」的前提不成立**。GitHub API 逐字取回：**#15035『about agent-teams』是 Question 类 issue，`state=closed`、`state_reason=not_planned`**，created 2026-02-25、closed **2026-06-23**、25 条评论（<https://github.com/anomalyco/opencode/issues/15035>）。与本文原句「官方 agent-teams 方向若落地」相对照：**该方向已被上游明确判为 not planned**，故「本文 supervisor 大部分能力被原生吸收」这一迁移路径**不应再作为规划假设**——重估条件是上游**新开**提案并落地，而非等待 #15035。
+>   同向旁证（同日已核实于他文）：opencode「Ephemeral Sub-Agent Teams」**#19999 亦为 `not_planned`**、其实现 PR **#20152 `merged=false`**（见 [[state-machine-quality-gate-loop]]）。
+>   依据（取回 2026-09-13）：<https://api.github.com/repos/anomalyco/opencode/issues/15035>
+
 ## Related
 
 - [[opencode-multi-agent-architecture]] — OpenCode 两层模型与本方案的宿主架构
@@ -293,5 +301,9 @@ Pi 无内置子 agent 但 SDK 全在手：官方 subagent 示例扩展与社区�
 | 补疏漏 | 注入纪律只给 OpenCode/Pi 两条路，无 Claude Code 原生映射 | 新增「本文机制 → Claude Code 原生 hook 事件」映射表 |
 | 补疏漏 | §6 蓝图无 Claude Code 版，§8 跨机开放问题只谈自建 | 新增 §6.4 原生设施对照（agent view / cross-session messaging / worktrees / agent teams） |
 | 加厚 | T0..T3 阈值只有经验起点，无定标法与验收判据 | 补定标法（trace 回放取 P50/P95）、验收判据（T2 误触发 ≤1、T3 漏杀 = 0）、退避参数与注意力预算依据 |
+| 定论 | §八「跨机部署」：`.agent-bus/` 限单机共享盘、跨机要换 Redis/消息队列 | 本条已被本文 §6.4 就地覆盖：跨机用**会话层消息 + worktree 隔离**即可，自建协议价值收窄为「跨框架统一协议」时；加复核块注明结论，依据同文档 §6.4 及其所引 Claude Code 官方页 |
+| 定论 | §八「优先级反转」：T2 打断持锁写文件的子 agent 可能留半成品 | §6.4 表「隔离（防优先级反转）」行已列 git worktree 对策；文件锁联动仍指向 [[subagent-resource-architecture-2026-07-03]]，但已非未决项；加复核块 |
+| 留开放 | §八「语义活性(L3)的误报率」需按工具类白名单豁免 | 需真机实现签名环检测并实测；判据：同名测试反复跑类用例的误报率（验收 ≤1/轮次）。本库无该实现 |
+| 定论 | §八「OpenCode 原生演进」issue #15035 | GitHub API 实取：**#15035『about agent-teams』为 Question、`closed`/`not_planned`**（created 2026-02-25、closed 2026-06-23、25 评论）→ 原生 agent-teams 方向已被明确关闭，「被原生吸收」不应再作规划假设；旁证 #19999 亦 `not_planned`、PR #20152 `merged=false`。依据取回 2026-09-13：api.github.com/repos/anomalyco/opencode/issues/15035 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

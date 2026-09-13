@@ -3,7 +3,7 @@ title: Explore 调研中间产物 — 关键发现汇总
 aliases: [Explore 调研发现, 调研中间产物, 防死循环机制调研]
 tags: [ai/agent, ai/ops]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: draft
 ---
 
@@ -103,6 +103,10 @@ SessionStart:
 | 技能系统 | 可能有（待确认） |
 | 目标环境 | Raspberry Pi (512MB) ~ 云服务器 |
 
+> [!success] 残余复核（2026-09-13）：**「技能系统：可能有（待确认）」已定论——确有**。
+> 库内两篇更晚成稿的 Pi 专文已给出确定口径：[[pi-agent-constraints-reference]] §3.7「Skills (渐进式披露)」记明**实现形态**——遵循 Agent Skills 标准（`agentskills.io`），`.md` 文件放在 **`.pi/skills/`** 目录（示例路径 `.pi/skills/log-analysis/SKILL.md`），由 `read` 工具**按需加载**（progressive disclosure 入口），系统提示词只放核心规则；[[pi-agent-framework-knowledge]] `:71` 独立复述同一机制，`pi.dev/docs/latest` 官方导航亦列有 `Skills` 栏目。故本行的「可能有」应读作**有**。
+> 同表另两行的时效一并说明（不另开条）：**「工具数量 4 (read/write/edit/bash)」已被库内勘误**——[[pi-agent-framework-knowledge]] 于 2026-08-26 起不再采信「4 原子工具」的宣传口径，[[pi-agent-constraints-reference]] 记为**官方 SDK 列 8 个内置工具名**（`tools: [...]` 白名单用这些名字）；「自定义工具 API 无」亦随之需重估。**保留原表以便追溯**，引用时以两篇专文为准。依据均可离线复跑（`grep -n "pi/skills" claude-ops/Agent-架构模式/pi-agent-constraints-reference.md`）。
+
 ### 与现有框架对比
 
 | 特性 | Pi Agent | Claude Code | OpenCode |
@@ -125,3 +129,12 @@ SessionStart:
 - [[fan-out-subagent-pattern]] — 并行分发，不同文件零冲突
 - 奥卡姆剃刀原则（本库暂无专文） — 从简到繁，用现有工具组合
 - 操作前强制检查清单（本库暂无专文） — 5 项检查 + 5 条硬规则
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 残余复核 | §来源 3「Pi Agent 框架画像」的「技能系统 \| 可能有（待确认）」 | **结案：确有**。库内 [[pi-agent-constraints-reference]] §3.7 记明实现形态（`.pi/skills/` 目录、`SKILL.md`、遵循 agentskills.io 标准、由 `read` 工具按需加载），[[pi-agent-framework-knowledge]] `:71` 独立复述，`pi.dev/docs/latest` 官方导航亦列 `Skills` 栏目 |
+| 残余复核 | 同表「工具数量 4」「自定义工具 API 无」与后续专文口径不一致 | 就地标注该两行已被库内勘误（官方 SDK 列 8 个内置工具名，[[pi-agent-constraints-reference]] 之更正块），保留原表以便追溯，引用时以两篇 Pi 专文为准 |
+
+回链：[[Claude-Ops-KB-Home]] · [[pi-agent-constraints-reference]] · [[pi-agent-framework-knowledge]]

@@ -437,6 +437,13 @@ class SkillLoader:
 > 3. **结尾断言降级**：七项里只有四项能找到公开官方依据，其中两项口径本身还需订正（见上）；「Sonnet 从 MEMORY.md 索引选 top-5 记忆」「2 天 stale 警告」「alreadySurfaced + recentTools 过滤」三项在 `code.claude.com/docs/en/memory` 与 `code.claude.com/docs/en/skills` 两份官方文档中均无对应描述，目前只有本库自证的页面（如 [[Claude-Code记忆机制源码拆解]]）支撑，按本库规则应标 `unverifiable`——要么补上可公开核验的一手证据，要么改写为「本库源码观察所得，未经官方文档确认」。（原表述为「**七个机制，每一个都已在 Claude Code 中运行。**」）
 > 来源：https://code.claude.com/docs/en/memory ；https://code.claude.com/docs/en/skills 当前 Skill 数量还小，这些机制主要用在记忆系统和 CLAUDE.md 上——当 Skill 数量增长时，同样的模式可以直接平移。
 
+> [!success] 残余复核（2026-09-13）：表内三项「⚠️ 待证」**已用可公开核验的独立源码分析结案**，不再只依赖本库自证页——[lhl/agentic-memory — ANALYSIS-claude-code-memory.md](https://raw.githubusercontent.com/lhl/agentic-memory/a26d9df2e1f93cfc0a80900ccd98d25b681bef27/ANALYSIS-claude-code-memory.md)（本次经代理直取 HTTP 200，逐条比对）：
+> - **小模型选择（Sonnet 选 top-5）→ 确认**：该文记「Sonnet selector picks up to 5 relevant memories per query | Mechanism | Source code (`findRelevantMemories.ts`, `max_tokens: 256`) | 0.95 | Limit is in the prompt, not hard-coded in parsing」；检索管线四步为 `scanMemoryFiles`（读全部 .md 前 30 行 frontmatter，上限 200 个文件）→ `formatMemoryManifest` → `sideQuery` 到 Sonnet → 输出 JSON `selected_memories`（max 5）。**注意上限写在选择 prompt 里，不是解析代码里的常量**（同 [[Claude-Code记忆机制源码拆解]] 的精确化）。
+> - **Stale 管理（2 天警告）→ 阈值确认，包裹形态未确认**：该文记 `memoryAge(mtimeMs)` 返回 "today / yesterday / N days ago"，`memoryFreshnessText()` 对**超过 1 天**的记忆注入 "This memory is N days old. Memories are point-in-time observations… Verify against current code before asserting as fact."——与「今天/昨天不警告、第 2 天起警告」**一致**（age 为整天数，>1 天即 ≥2 天）。但该文只写「注入到 user context」，**未见 `<system-reminder>` 这一具体包裹形态**；该标签仍属原文表述，引用时宜写成「以提醒文本随记忆注入」。
+> - **去重过滤（`alreadySurfaced` + `recentTools`）→ 机制确认，标识符部分确认**：该文管线第 4-6 步逐字为「Filter: exclude memories already surfaced in prior turns (`alreadySurfaced` set)」「Filter: exclude reference docs for currently-active tools (tool-aware filtering)」「Include warnings/gotchas about active tools (active use = when those matter)」——`alreadySurfaced` 标识符对上；`recentTools` 这个**变量名**只在原文出现，该文用「tool-aware filtering / recently-used tools」描述同一机制（选择器输入里含 "recently-used tools"）。
+> **结论更新**：第七节表内三项由 `unverifiable` 升为「**有独立源码分析印证**」（唯 `<system-reminder>` 包裹形态与 `recentTools` 变量名两点仍属原文单一来源）。此处仍非官方文档口径——官方 memory 文档未公开这些机制，引用时请标明证据等级为「两路独立源码分析」。
+> 来源：https://raw.githubusercontent.com/lhl/agentic-memory/a26d9df2e1f93cfc0a80900ccd98d25b681bef27/ANALYSIS-claude-code-memory.md
+
 ---
 
 ## 八、迁移路径：从 10 到 5000
@@ -514,6 +521,7 @@ Phase 4（增长到 5000+ 个 skill）
 | 补疏漏 | 通篇未提技能成本度量与显隐治理手段 | 新增第九节：`/skill-doctor`、`skillOverrides`、`disable-model-invocation`；含版本与插件技能例外两条约束 |
 | 加厚 | 第二节把检索式发现当作纯收益解法 | 新增第十节：召回有损、描述截断、触发质量不可自证，与近失负样本 + 多次运行取触发率的验收口径 |
 | 加厚 | 5.5 节 `SkillLoader` 深度上限无出处 | 补注官方 `@import` 四跳上限，说明自建解析器（`depth > 5`、`max_depth=5`）与上游语义的落差 |
+| 残余复核 | 第七节三项「⚠️ 待证」（Sonnet 选 top-5 / 2 天 stale 警告 / `alreadySurfaced`+`recentTools` 过滤） | **已结（升为有独立源码分析印证）**：lhl/agentic-memory 独立源码分析（本次直取 200）逐条对上——`findRelevantMemories.ts` + max 5；`memoryAge` today/yesterday/N days ago 与 `memoryFreshnessText()` 对 >1 天记忆注入验证提示（= 2 天起警告）；`alreadySurfaced` set 与 tool-aware filtering（含 active tools 的 warnings/gotchas）。残留两点属原文单一来源：`<system-reminder>` 包裹形态、`recentTools` 变量名 |
 
 来源登记：[[sources/learning-notes]]（B7 复核新增一节）
 回链：[[CORRECTIONS]] | [[AGENTS]]

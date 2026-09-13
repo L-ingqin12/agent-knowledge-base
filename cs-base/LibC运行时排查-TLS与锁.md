@@ -130,6 +130,11 @@ fastpath: 用户态 CAS(0→1) 成功即得锁, 零系统调用
 | dlopen 失败 static TLS | 见 §二 TLS 模型 | `LD_DEBUG=tls` 观察分配 |
 | dlclose 后偶现崩溃 | §一四条清单逐一排除 | `cat /proc/PID/maps` 对照崩溃 PC 归属 |
 
+> [!success] 残余复核（2026-09-13）：表内「**待确认**内核版本门槛」已收口，拆成两边说清楚：
+> - **eBPF 路线（bcc 系）的门槛是官方明写的**：bcc 的 `INSTALL.md`（2026-09-13 取回）原文「In general, to use these features, a Linux kernel version **4.1 or newer** is required」，且内核头文件包的装法在 4.1–4.6 与 4.7+ 分档。所以"版本门槛"这一问只在 eBPF 侧有意义，答案是 **4.1+**（更高特性另按内核配置/版本逐项看）。
+> - **perf trace 侧的门槛不是内核版本，而是三件可预检的事**：① `perf` 二进制是否装了（随发行版 perf/linux-tools 包分发，**不随内核**）；② 内核配置项；③ 权限与容器面（`kernel.perf_event_paranoid`、`kernel.unprivileged_bpf_disabled`、seccomp/cap）。本机实测正样本（WSL2 发行版，内核 6.18.33.2，glibc 2.36）：`/proc/config.gz` 中 `CONFIG_BPF_SYSCALL=y`、`CONFIG_BPF_EVENTS=y`、`CONFIG_KPROBE_EVENTS=y`、`CONFIG_UPROBE_EVENTS=y`、`CONFIG_FTRACE=y`、`CONFIG_DEBUG_FS=y`，两个 sysctl 也在，**但该发行版压根没装 `perf`**、`/sys/kernel/debug/tracing` 未挂载——"内核够新却用不上"的活例。故上线前预检写成三条命令（`perf -v`、`sysctl kernel.perf_event_paranoid kernel.unprivileged_bpf_disabled`、`ls /sys/kernel/tracing`）。
+> - strace 侧无门槛之说（本机 strace 6.1 可用），代价仍是逐 syscall 陷入。
+
 ### 工具箱一行速查
 ```
 ldd -r app            # 缺失符号即时暴露(递归)
@@ -147,6 +152,11 @@ eu-stack -p PID                # 在线抓栈(elfutils，不依赖 gdb)
 
 > ① musl ld.so 对 LD_DEBUG 子集的支持范围（2026-09-13 收口：`LD_DEBUG` 属 glibc ld.so 专有调试开关，musl ldso 无对应实现，详见 §四 边界说明；遇实测反例再翻案）；② glibc 2.35+ malloc tcache/arena 统计字段变化对旧脚本的兼容；③ RTLD_NODELETE 与 dlmopen 新 namespace 组合的隔离效果实测；④ 各发行版默认是否已启 io_uring 辅助的 malloc 路径（无此物，防讹传——仅列待查证伪）。
 
+> [!success] 残余复核（2026-09-13）：②③④ 三项本轮就地定论（②还顺带修正了版本归属）。
+> - **② 字段变化的归属是 glibc 2.33，不是 2.35**：upstream NEWS 2.33 段原文「The mallinfo2 function is added to report statistics as per mallinfo, but with wider types.」+「The mallinfo function is marked deprecated. Callers should call mallinfo2 instead.」；本机 glibc 2.36 的 `<malloc.h>` 亦印证（`struct mallinfo` 全 `int` 字段且函数带 `__MALLOC_DEPRECATED`＝`__attribute_deprecated__`；`struct mallinfo2` 全 `size_t`）。故旧脚本的兼容问题的准确表述是「按 `mallinfo` 的 int 布局解析 + 大分配下 int 截断」，迁 `mallinfo2` 即可；2.35 段本身**没有** malloc 统计字段变更（该段 malloc 条目均为 bugfix），`tcache` 在 NEWS 全程只有 bugfix、无字段变更。判据（复跑）：`grep -n -i mallinfo /usr/share/doc/libc6/NEWS.gz` 与 `grep -n "mallinfo" /usr/include/malloc.h`。
+> - **③ 已实测收口**（glibc 2.36 / WSL2 内核 6.18，`dlmopen(LM_ID_NEWLM)` 实测）：不同 namespace 的库全局状态**完全隔离**（ns1 计数 2、ns2 计数 1）；全部对象 `dlclose` 后对象真被卸载（`/proc/self/maps` 中该库行数 0），且原 nsid 立即不可复用（报 `invalid target namespace in dlmopen()`），即新 namespace 随最后一个对象卸载而销毁；单进程新 namespace 上限实测 **15**（连同初始 namespace 共 16）；一旦在 namespace 内以 `RTLD_NODELETE` 载入，`dlclose` 后映射仍在（maps 5 行）、同 nsid 重载能拿回原状态（计数延续为 1）——**NODELETE 会把该 namespace 槽位一起钉住**，这是"隔离 + 防卸载"组合的真实代价（glibc 2.36.1 另有 bug [29600]「Do not completely clear reused namespace in dlmopen」，说明槽位回收确在实现里）。判据（复跑）：`dlmopen(LM_ID_NEWLM)+dlinfo(RTLD_DI_LMID)+dlclose` 后查 `/proc/self/maps`。
+> - **④ 已定论（负面）**：glibc 至 2.36.1 的 NEWS 全文**无 `io_uring` 字样**，本机 `/lib/x86_64-linux-gnu/libc.so.6` 中 `strings … | grep -c io_uring` = **0**——「io_uring 辅助的 malloc 路径」在 glibc 上不存在，讹传可结案。判据（复跑）：同两条命令（NEWS 属发行版自带的 upstream 变更日志，随包升级须复跑一次）。
+
 ## Related
 
 [[CS-KB-Home]] · [[LibC与动态链接]] · [[LLVM编译器基础设施]] · [[LLVM使用调优与SO优化]] · [[操作系统八股]] · [[opencode-pi-base-development-analysis]]
@@ -160,5 +170,9 @@ eu-stack -p PID                # 在线抓栈(elfutils，不依赖 gdb)
 | 补疏漏 | §二 TSD 段只有结论，无复现素材 | 补两段可粘贴代码：key 耗尽最小复现、4 轮析构迭代的可观测验证；依据同上两处源码常量 |
 | 加厚 | §三 rwlock 只给「易写者饥饿」结论，无可执行旋钮 | 补默认 kind 口径、`PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP`（`PREFER_WRITER_NP` 被 glibc 忽略）、特性宏与最小片段、P99 验收判据、换 mutex+双缓冲的条件；依据 man 3 pthread_rwlockattr_setkind_np |
 | 加厚 | §四 `LD_DEBUG=tls` 未标实现边界 | 补边界说明（glibc 专有，musl ldso 不实现）并据此收口 §五 待确认①；依据 glibc elf/rtld.c `debopts[]` |
+| 残余复核 | §四 速查表「strace 显著减速 → perf trace/eBPF 替代，待确认内核版本门槛」 | 拆两边收口：eBPF/bcc 侧门槛官方明写 **kernel 4.1+**（bcc `INSTALL.md`）；perf trace 侧不是版本而是「perf 二进制 + 内核配置项 + 权限/容器面」——本机 WSL2 正样本（内核 6.18.33.2、BPF/FTRACE 配置全 y）却**未装 perf**，故预检定为 `perf -v` + 两个 sysctl + `ls /sys/kernel/tracing` |
+| 残余复核 | §五② glibc 2.35+ malloc tcache/arena 统计字段变化 | 版本归属纠为 **2.33**（NEWS 2.33 段：mallinfo2 新增、mallinfo 弃用；本机 2.36 `<malloc.h>` 印证 int→size_t 与 `__MALLOC_DEPRECATED`）；2.35 段无统计字段变更、tcache 仅有 bugfix |
+| 残余复核 | §五③ RTLD_NODELETE 与 dlmopen 新 namespace 组合的隔离效果实测 | 本机实测（glibc 2.36）结案：跨 namespace 全局隔离成立；卸载后对象真被 unmap、nsid 不可复用；新 namespace 上限 15；`RTLD_NODELETE` 会连 namespace 槽位一起钉住（dlclose 后映射仍在、同 nsid 重载状态延续） |
+| 残余复核 | §五④ 各发行版是否已启 io_uring 辅助的 malloc 路径 | 定论为**不存在**：glibc NEWS 至 2.36.1 无 `io_uring` 字样，本机 `libc.so.6` 中 `strings \| grep -c io_uring` = 0 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

@@ -115,6 +115,12 @@ status: stable
 4. **M1–M4 未启动**：crash/tombstone 符号化链路（addr2line/artget 设计已在方案 §五）、多 Agent 展开、服务化会话池。
 5. **学习资料入库** ✅：经用户澄清（CPO=C++ 定制点对象/tag_invoke，非共封装光学），新增 [[参考-COM组件框架-Windows集成]]（Windows 集成实战向）与 [[参考-CPP-CPO定制点与std-execution]]（P2300 机制+stdexec 实操）；两者各含待确认清单，时效性条目已标注。
 
+> [!success] 残余复核（2026-09-13）：**§七.1「均需开放网络环境复核」已基本闭环** —— 本轮在网络可达环境下对上游仓库做了源码级核对，逐项结论如下（过程与来源见 [[SESSION-ARCHIVE-2026-08-25]] §十 复核块）。
+> - [[参考-OpenCode-技术调研报告]] — org 归属 `anomalyco/opencode`（`sst/opencode` 为 301 重定向）✅；**skill `allowed-tools` 不被解析、不被执行**：`packages/schema/src/skill.ts` 的 `SkillV2.Info` 只有 `name/description/slash/location/content`，且 4 处 skill 相关 loader 均无该字段与工具白名单逻辑 ⇒ 字段进不了运行时（该键名只是 Anthropic Agent Skills 规范的写法）✅；**MCP 分隔符 = 单下划线 `<server>_<tool>`**：`packages/opencode/src/mcp/catalog.ts` L119 `toolName = sanitize(clientName) + "_" + sanitize(name)`，`sanitize` 将非 `[A-Za-z0-9_-]` 字符替换为 `_`，`mcp__` 形态不存在 ✅。
+> - [[参考-Pi-Agent-技术调研报告]] — star 数约 **104,522**（2026-09-13）✅；**MCP 官方一等支持 = 无**：`main` 分支全仓库 1713 个 blob 中路径含 `mcp` 的为 **0** ✅；**`LiblibPi` 名称 → 已定论：不存在**（GitHub 仓库检索 `LiblibPi` total_count=**0**、`registry.npmjs.org/liblibpi` **404**、公开检索无该名；最可能是 libGDX 与 Pi 的记忆混淆——此解释为推断）✅。全库统一口径 "pi / Pi coding agent"。取回：<https://api.github.com/search/repositories?q=LiblibPi>、<https://registry.npmjs.org/liblibpi>。
+> - 口径与边界：结论取自上游 `dev`/`main` 分支与 npm registry 的 **2026-09-13 当日快照**；两份报告正文内的「待确认」标记归其自身复核范围，本条只追加结论与依据、不改报告正文。
+> 来源：<https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/mcp/catalog.ts>、<https://github.com/anomalyco/opencode/blob/dev/packages/schema/src/skill.ts>、<https://github.com/earendil-works/pi>
+
 ## Related
 
 [[SESSION-ARCHIVE-2026-08-25]] · [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调研报告]] · [[lognet-rootcause-multiagent-architecture]] · [[opencode-pi-base-development-analysis]] · [[main-subagent-realtime-interaction]] · [[agent-memory-context-knowledge-design]] · [[agent-harness-anatomy]] · [[agent-evals-observability]] · [[Anthropic多智能体研究系统拆解]] · [[参考-COM组件框架-Windows集成]] · [[参考-CPP-CPO定制点与std-execution]] · [[Claude-Ops-KB-Home]]
@@ -127,5 +133,6 @@ status: stable
 | 纠错 | §四 7 个 commit 哈希被当作可核事实 | 现仓库 94 个提交（最早 2026-06-29），逐条 `git cat-file` 均不存在（唯一命中 `f493130`）；保留哈希并标注「未推送本地历史」，复核锚点改用文件路径 + 文档名 |
 | 补疏漏 | §三验收数据（27/27、折叠降量、P50/P95、`w=0.9048`）无落盘证据链 | 仓库内无基准/验收输出文件，运行结果不可复核；「真实日志预期一个数量级」为纯外推，且自记缺陷 #7（合成器折叠率恒 0）说明合成数据不具代表性，需落盘原始输出并把外推标注为假设 |
 | 加厚 | 标题编号重复：第二个「## 五、未解决问题与风险登记」排在「## 六」之后 | 按复核建议重编号为「## 七、未解决问题与风险登记」，使编号单调递增（五·五 / 六 / 七）；正文内容未改动 |
+| 排除 | §七.1「调研报告遗留待确认…均需开放网络环境复核」 | 网络可达下补源码级核对：OpenCode `allowed-tools` 不被解析/执行（skill schema 仅 5 字段 + 4 处 loader 无该字段）、MCP 分隔符 = `sanitize(server)+"_"+sanitize(tool)`（`mcp/catalog.ts` L119）；Pi MCP 官方支持 = 无（全仓 0 个 mcp 路径）、star 约 104,522。Pi「LiblibPi」名称经 GitHub 仓库检索（0）+ npm（404）确证不存在，全库统一 pi / Pi coding agent 口径 |
 
 相关：[[CORRECTIONS]] · [[AGENTS]]

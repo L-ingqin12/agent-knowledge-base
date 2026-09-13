@@ -102,6 +102,26 @@ isolation.level=read_committed: 消费者只读已提交
 
 > ① KRaft 模式替代 ZooKeeper 后的元数据故障恢复实测；② tiered storage 各发行版成熟度；③ Kafka Streams 与 Flink 在 Exactly-once 语义上的最新口径。
 
+> [!warning] 残余复核（2026-09-13）：本行三条**只有 ③ 还算未决**。
+> - ① 与 ② 已在本文下层就地定案（各带来源），属**已完成处置**，不重复开条。
+> - ② 定案后收窄出的真开放项是**托管发行版**：Confluent Cloud/Platform 与各云厂商的 tiered storage 默认开启策略、冷层计费口径、本地保留(retention)下限——判据：逐一抓厂商文档的 tiered storage 章节，记录「默认开关 / 计费单位 / 本地保留下限」三列。
+> - ③ **仍开放**：这是「两侧官方文档口径比对」，本机无 Kafka/Flink 发行包可离线核对（`command -v kafka-topics.sh` 未命中）。判据：分别抓 Kafka Streams 官方文档的 `processing.guarantee`（`exactly_once_v2` 的引入版本与默认值）与 Flink 官方文档的 Kafka connector `EXACTLY_ONCE`/`EXACTLY_ONCE_V2` 语义段，逐条比对「是否要求外部系统参与两阶段提交」「checkpoint 间隔与事务超时如何耦合」；两侧必须取**同版本区间**比对，跨版本对比不构成「最新口径」。
+
+> [!success] 残余复核（2026-09-13 联网轮）：③ 已结。按**同版本区间**（Kafka 4.0 文档 / Flink 2.0 文档）各取官方页比对：
+> - **Kafka Streams 4.0**：`processing.guarantee` 合法值只有 `at_least_once`（**默认**）与 `exactly_once_v2`；`exactly_once`（EOS alpha）与 `exactly_once_beta` 均已被该页明确标为 **deprecated**。开启 EOS 会连带改默认：`commit.interval.ms` → 100ms、消费者 `isolation.level=read_committed`、生产者 `enable.idempotence=true`；`exactly_once_v2` 要求 broker ≥ 2.5（deprecated 的 `exactly_once` 只要求 ≥ 0.11.0）。
+> - **Flink 2.0 Kafka connector**：`DeliveryGuarantee.EXACTLY_ONCE` **不是默认**（默认 `DeliveryGuarantee.NONE`），且必须显式 `setTransactionalIdPrefix`；语义为「在 checkpoint 时把 Kafka 事务提交给 Kafka」，并要求 `transaction.timeout.ms` > 最大 checkpoint 时长 + 最大重启时长，否则可能丢数据；代价是记录可见性被推迟到 checkpoint 写入。该页的 `KafkaSource` 侧不再出现 `EXACTLY_ONCE_V2` 这一写法（`EXACTLY_ONCE` 即事务语义）。
+> - **口径差异（本条的结论）**：两侧实现都是「Kafka 事务 + checkpoint/提交时机」，官方文档**均未要求外部系统参与两阶段提交**；差别在**默认值与配置面**——Streams 默认 `at_least_once` 且 EOS 同时覆盖消费侧，Flink sink 默认 `NONE` 而 EOS 只在 sink 侧，且 Flink 把「事务超时 vs checkpoint 时长」写成显式约束。
+> 依据：https://kafka.apache.org/40/streams/developer-guide/config-streams/ ；https://nightlies.apache.org/flink/flink-docs-release-2.0/docs/connectors/datastream/kafka/ （取回于 2026-09-13）
+
+> [!success] 残余复核（2026-09-13 联网轮）：② 收窄后的「托管发行版」**只结了一半**——三列中 **AWS MSK 已填齐**，**Confluent Cloud 未取到官方页**（不以 Platform 页替代）。
+> - **AWS MSK（官方页三列齐）**：
+>   - **默认开关 = opt-in，且按 topic 粒度**：「You enable tiered storage on this topic by when you set `remote.storage.enable` to true.」；集群侧表述为「You can create an Amazon MSK cluster configured with tiered storage…」。两条不可逆约束要记住：**可按 topic 关闭，但不能整集群关闭**；且**某 topic 一旦关闭就不能再为其重新开启**。
+>   - **保留下限 = 主存侧无下限，远端（低开销层）有 3 天下限**：「The minimum retention period in low-cost storage is **3 days**. There is no minimum retention period for primary storage.」且 `local.retention.ms/bytes` **不得等于或超过** `retention.ms/bytes`（其默认 `-2`），而 `retention.ms` 对启用了 tiered storage 的 topic **是必填**、最小 3 天（其自身默认 7 天）。
+>   - **计费口径 = 只到「按用量付费」这层，官方未公布单位价**：「You can store any amount of data and **pay only for what you use**.」故本列只能记「按用量计费、未公布每 GB 单价」，不能编出数字。
+>   - 另记边界（同页）：tiered storage 仅适用于 provisioned 模式集群、不支持 compacted topic 等。
+> - **Confluent Cloud：未取到（本列留空待补）**。`docs.confluent.io/cloud/current/clusters/tiered-storage.html` 及多个同类路径**均 302 回文档首页**，Wayback 对该 URL 的两次快照**也都是 302**、从未出现实体页；官方文档索引 `docs.confluent.io/llms.txt`（更新至 2026-09）中**唯一**的 tiered-storage 条目指向 **Platform**（`docs.confluent.io/platform/current/clusters/tiered-storage.md`），该页讲的是 `confluent.tier.enable`「sets the default for created topics… It is not required to enable Tiered Storage」——**属 Platform，不能当作 Confluent Cloud 的默认策略依据**。
+> 依据：https://docs.aws.amazon.com/msk/latest/developerguide/msk-tiered-storage.html ；https://docs.aws.amazon.com/msk/latest/developerguide/msk-tiered-storage-retention-rules.html ；https://docs.confluent.io/platform/current/clusters/tiered-storage.html ；https://docs.confluent.io/llms.txt （取回于 2026-09-13）
+
 ### ① 已核（2026-09-13）：KRaft 已是唯一模式，问题换成「元数据怎么恢复」
 
 > [!warning] 更正（2026-09-13）：① 的前提取景已过期（原表述即上一行原文）——KRaft 自 3.3 生产可用，**Kafka 4.0（2025-03-18 GA）完成 KIP-500 并移除 ZooKeeper 模式**（4.0 release notes 含 Remove ZK migration code / Remove KafkaServer 等条目），ZK 已不是可选项。
@@ -135,5 +155,10 @@ isolation.level=read_committed: 消费者只读已提交
 | 纠错 | §三 CooperativeStickyAssignor 停在「待确认各客户端版本支持差异」 | 改写为两代协议三段（KIP-429 仍属 classic／KIP-848 于 4.0 GA／opt-in 需 `group.protocol=consumer`，默认仍是 classic + Range 优先）；依据 KIP-848 wiki 与 4.0 `ConsumerConfig.java` |
 | 纠错 | §六 待确认② tiered storage「各发行版成熟度」 | Apache 侧定为 3.9 起 production-ready（KIP-405），待核验项收窄为托管发行版的默认开启策略与计费口径 |
 | 补疏漏 | 全文无 HW / LEO / leader epoch，ISR 与「消费者只读已提交」缺物理落点 | 新增「二·补」一节（LEO/HW/epoch 定义与分工表 + 截断与 fencing 链条）；依据 KIP-320 |
+| 残余复核 | §六 待确认③「Kafka Streams 与 Flink 在 Exactly-once 语义上的最新口径」 | 判定**仍开放**（①② 已就地定案，不重复开条）：属厂商文档口径比对，本机无 Kafka/Flink 发行包（`kafka-topics.sh` 未命中）可离线核对；判据写进 §六 callout（Streams `processing.guarantee` 与 Flink connector `EXACTLY_ONCE(_V2)` 段，须同版本区间比对） |
+| 残余复核 | §六 待确认② 收窄后剩下的「各托管发行版 tiered storage 成熟度」 | 仍开放：Apache 侧已定（3.9 起 production-ready），托管侧需逐厂商抓「默认开启策略 / 冷层计费口径 / 本地 retention 下限」三列，本机无从离线取得 |
+
+| 残余复核（联网轮） | §六 待确认③「Kafka Streams 与 Flink 在 Exactly-once 语义上的最新口径」 | **已结**：按同版本区间取官方文档比对——Streams 4.0 `processing.guarantee` 默认 `at_least_once`、`exactly_once_v2` 为唯一非弃用 EOS 值（`exactly_once`/`exactly_once_beta` 已 deprecated）；Flink 2.0 KafkaSink 默认 `NONE`、`EXACTLY_ONCE` 需 `setTransactionalIdPrefix` 且要求 `transaction.timeout.ms` > 最大 checkpoint + 最大重启时长。两侧均走 Kafka 事务、均不要求外部系统参与 2PC，差异在默认值与配置面。依据：https://kafka.apache.org/40/streams/developer-guide/config-streams/ ；https://nightlies.apache.org/flink/flink-docs-release-2.0/docs/connectors/datastream/kafka/ （取回于 2026-09-13） |
+| 残余复核（联网轮） | §六 待确认② 收窄后的「各托管发行版 tiered storage 成熟度」（默认开关/计费单位/本地保留下限三列） | **已结一半**：AWS MSK 三列齐——**opt-in 且按 topic 开**（`remote.storage.enable=true`；可 per-topic 关但不可整集群关，关后不可重开）；**远端低开销层最小保留 3 天，主存无下限**，`local.retention.ms/bytes` 须 < `retention.ms/bytes`（默认 -2），启用 tiered storage 的 topic `retention.ms` 必填且 ≥3 天；**计费仅到「按用量付费」、未公布单位价**。**Confluent Cloud 未取到**：官方 Cloud 路径 302 回首页（Wayback 快照亦为 302），官方索引仅有 Platform 页（`confluent.tier.enable`），不可替代 Cloud 默认策略。依据：https://docs.aws.amazon.com/msk/latest/developerguide/msk-tiered-storage.html ；https://docs.aws.amazon.com/msk/latest/developerguide/msk-tiered-storage-retention-rules.html |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

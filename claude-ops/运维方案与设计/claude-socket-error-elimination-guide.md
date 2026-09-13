@@ -120,6 +120,13 @@ sysctl -w net.ipv4.tcp_keepalive_probes=3
 > 同一 60s 口径还出现在 §2.3 / §4.2 / §六 的内核 sysctl 块（`tcp_keepalive_time=60`）与参考实现 `claude-resilience-proxy.py:190-191` 的 `TCP_KEEPIDLE=60`；若维持 ~40s 的前提，这些值同样都应低于 40s。现行部署 `claude-resilience-proxy.js:119` 也是 `sock.setKeepAlive(true, 60000)`，需同步修改。
 > §3.2 内嵌实现的注释「每 45s 发一次心跳，低于 NAT 的 60s 超时」与 §1.1 的 ~40s 是同一处冲突（45s > 40s），一并按 40s 口径订正。
 
+> [!warning] 残余复核（2026-09-13）：上面「现行部署 `claude-resilience-proxy.js:119` 也是 `sock.setKeepAlive(true, 60000)`，需同步修改」**改错了对象**——只把 119 行的 `60000` 调小**不会产生任何保活效果**。
+> - 119 行是 `server.on('connection', sock => sock.setKeepAlive(true, 60000))`，绑定的是 **`http.Server` 的入站连接事件**，只覆盖 **CC→代理** 的 `127.0.0.1` 回环 socket（该段没有 NAT）；**真正跨移动网络 NAT 的 `代理→api.deepseek.com` 出站 socket 不在其中**。
+> - 依据（受控实验，本机 Node v22.21.0）：同一进程内给代理 server 挂 `on('connection')` 计数，**3 次入站连接触发 3 次事件**、**3 次出站 upstream 连接触发 0 次**；总连接数 = 入站数，出站不参与。源码见 `claude-resilience-proxy.js:25-31`（`doRequest()` 的 `https.request`）与 `:119`（核验于 2026-09-13）。
+>   该结论只依赖 `http.Server` 的 `'connection'` 事件语义（**只对入站 TCP 连接触发**，自 Node 早期至今未变），与部署机上的 Node 版本无关，故不必按 §五 那个「本机 v18.16.1 vs 部署版本」的差异再打折。
+> - 正确的修改点：在 `doRequest()` 内对**上游 socket** 设置，例如在 `https.request(opts, res => …)` 回调里取 `req.socket.setKeepAlive(true, 20000)`，或给 `https.request` 传一个开了 keepAlive 的 `agent`。
+> - **该项现状 = 仍开放**：库内 `claude-resilience-proxy.js:119` 现值仍为 `setKeepAlive(true, 60000)`，且上游请求路径**没有任何 keepalive 调用**。判据：改完代码 → `deploy.sh` → 在真机上确认出站 socket 生效（如 `ss -tno` 看 timer）后再记为已解决。
+
 **但这还不够** —— 内核 keepalive 只对 socket 层面生效。Node.js 如果用新连接（keepAlive=false），每个请求都是独立 socket，keepalive 帮不到"正在用的连接"。
 
 ### 2.2 确保 HTTP Connection KeepAlive
@@ -530,6 +537,9 @@ echo "[3/3] Claude exited. Proxy still running (PID $PROXY_PID)."
 > - 「代理心跳保持活跃」「代理检测死连接」同 §3.2 更正：现行 `.js` 没有应用层心跳。
 > 依据（内部）：`claude-resilience-proxy.py:399-403`、`claude-resilience-proxy.js:20-21`、`claude-network-guardian.sh:3-4`（核验于 2026-09-13）。
 
+> [!warning] 残余复核（2026-09-13）：本表 7 行**全部判为「设计假设，未验证」并已由上面的更正块就地处置**，无需再逐行追。上面第 1 条 `「Keepalive 每 60s 刷新 NAT」` 在这一轮又推进一步：**不只是 60s > 40s 的问题，`.js:119` 的 keepalive 根本不在跨 NAT 的那条 socket 上**（它绑的是 `http.Server` 入站事件，只管 CC→代理 回环段），详见 §2.1 的残余复核。故该行结论应记为「**保活并未生效**」，而不是「间隔需要调小」。
+> 依据：本机受控实验（Node v22.21.0，入站 3 次→`on('connection')` 3 次，出站 3 次→0 次）+ `claude-resilience-proxy.js:25-31/119`（核验于 2026-09-13）。
+
 ### 4.4 开销分析
 
 ```
@@ -665,5 +675,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \
 | 纠错 | §3.2 把 `select.select` 判活当作「心跳保活」，并把 `.py` 参考实现当作现行部署 | 就地标注：写集合只反映本地发送缓冲可写性，不发送数据、不刷新 NAT 计时；现行 `.js` 无应用层心跳；补归属与重试预算差异 |
 | 纠错 | §4.4「连接建立: 节省 ~1.1s (连接池复用，跳过 TLS 握手)」 | 就地标注：`.py` 的 `ConnectionPool.get_connection()` 无调用点（死代码），现行 `.js` 无连接池，该收益当前应记为 0；§3.1 / §4.1 / §七 的「连接池」表述同此 |
 | 纠错 | §4.3 效果矩阵与 §七 概率表（5%/1%/0%/0%、1+3+8=12s）被当作定量结论 | 改标「设计假设，未验证」；12s 订正为 `.py` 实际 4s（1+3，8s 不执行）、现行 `.js` 1 次/1s；标注 L2/L3 的 0% 与 §4.3 失败行自相矛盾、守护脚本已归档 |
+| 残余复核 | §2.1「`.js:119` 需同步修改」与 §4.3「Keepalive 每 60s 刷新 NAT」两处都把 keepalive 认在跨 NAT 的 socket 上 | **定论：改错对象。** `server.on('connection')` 绑的是 `http.Server` 入站事件，只覆盖 CC→代理 回环段，不覆盖代理→api.deepseek.com 出站 socket（跨 NAT 的那条）。依据：本机受控实验（Node v22.21.0，入站 3 次→事件 3 次、出站 3 次→事件 0 次）+ `claude-resilience-proxy.js:25-31/119`（核验 2026-09-13）。**代码侧仍开放**：119 行现值仍 60000、上游路径无 keepalive 调用；修改点应为 `doRequest()` 内的 `req.socket.setKeepAlive`，改后需真机 `ss -tno` 复测 |
+| 残余复核 | §4.3 效果矩阵 7 行（L516-524）作为待办被重新登记 | **非待办**：整表已由上一更正块判为「设计假设，未验证」并逐条处置，本轮不再逐行追；仅第 1 条（Keepalive 60s 行）因上述新证据追加结论 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

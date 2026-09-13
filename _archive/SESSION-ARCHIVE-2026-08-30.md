@@ -99,6 +99,12 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 >
 > 来源：https://deepseek-harness.github.io/deepseek-harness/ ；https://api-docs.deepseek.com/
 
+> [!success] 残余复核（2026-09-13）：§五 清单逐条本机核对（**只读**——未改配置、未装包、未起停任何服务）。
+> - 「升级到 rc.2 后 profile tui（旧路线）未验证，已保留未删」→ **已变动，本条可结**：`%USERPROFILE%\.dsh\profiles\` 现为 `desktop`/`dsh-tui`/`headless`/`web` + **`tui.retired-20260912`** ⇒ 旧路线是**主动退役**（2026-09-12 改名归档），不是"留着待验证"。现行路线见 [[DSH-TUI插件使用手册]]。
+> - 「长期费用治理（budget 告警）尚未装」→ **仍成立**：`npm ls -g --depth=0`（2026-09-13）仅 `@deepseek-ai/dsh@0.1.5-rc.1` 与 `@deepseek-harness-tui/dsh-tui@0.10.1`，无 cost/budget 类插件 ⇒ 保持未装，无需改动。
+> - 「dsh-tui 交互式 TUI 未在真实 TTY 人工验收」→ **仍开放**（需人机交互，本次复核不具备条件）。判据：在项目子目录实跑 `dsh-tui`，确认无 [[DSH-TUI内部机制与键盘卡死陷阱]] 所记的输入卡死现象。
+> - 顺带核到的版本漂移：本机 `dsh-tui@0.10.1`、`@deepseek-ai/dsh@0.1.5-rc.1`，均高于本归档记录的 `0.2.19` / `0.1.1-rc.2`（§一.1 的 dist-tags 回标方向一致）。
+
 ## Related
 
 - [[DSH-TUI插件使用手册]] — TUI 两种安装路线
@@ -115,5 +121,7 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 | 加厚 | 模型侧结论（默认模型 / 档位 / 失效模型）无时效标注 | §一.4 回标：标为 2026-08-30 一次性实测快照，补 `/api/v1/models` 与最小请求比对 reasoning token 的复现方法 |
 | 补疏漏 | compaction-basic 只记配置数字，无验收判据与生效路径 | §一.5 回标：补触发证据、0.75/0.8 对比回归、阈值过低失败信号，以及 settings.yaml 热加载 vs cordis.patch.yml 重启生效 |
 | 加厚 | 官方文档站只写「可作为后续配置查阅源」 | §五 回标：实测 HTTP 200 升级为已确认入口，补 Quick Start 具体路径 |
+| 排除 | §五「profile tui（旧路线）未验证，已保留未删」 | 本机 `%USERPROFILE%\.dsh\profiles\` 实测为 `tui.retired-20260912/`（另有 desktop/dsh-tui/headless/web）⇒ 旧路线已主动退役而非待验证；本条可结 |
+| 补疏漏 | §五 budget 插件与 TTY 人工验收两项无判据 | budget 项：`npm ls -g --depth=0` 仅 dsh 与 dsh-tui，确认未装（仍成立）；TTY 项仍开放并补判据（实跑 `dsh-tui` 查键盘卡死）。附核版本漂移：dsh-tui 0.10.1 / dsh 0.1.5-rc.1 |
 
 复核入口：[[CORRECTIONS]]（本批审计与复核结论）

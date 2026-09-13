@@ -128,6 +128,12 @@ CHANGELOG 2.1.243 逐字："Added a Loops breakdown to `/usage`: per-loop run co
 - 代码量：约 630 行 Python（3 个文件：prepare.py / train.py / program.md）〔**2026-09-13 更正**：本次直接抓取三个文件逐行计数——**train.py = 630 行、prepare.py = 389 行（两个 .py 合计 1,019 行）**，program.md = 114 行且是 Markdown 而非 Python。原「约 630 行（3 个文件）」实际只等于 train.py 单文件，**低估约四成**；正确写法：「约 1,000 行 Python（train.py 630 + prepare.py 389）+ program.md 114 行 Markdown」。〕
 - 核心循环：读 program.md → 形成假设 → 改 train.py → 跑 5 分钟 → 看 validation → 改进就 commit/没改进就 revert
 - 效果：一小时约 12 个实验，一晚约 100 个；16 块 GPU 集群一晚 910 个实验/$309〔**2026-09-13 更正**：前两个数字可与仓库自述直接对上（README / program.md："approx 12 experiments/hour and approx 100 experiments while you sleep"），属合理保留；**后半句「16 块 GPU 集群」与该仓库口径不一致**——README 逐字写有 "A single NVIDIA GPU (tested on H100)"、"One GPU, one file, one metric."、"This code currently requires that you have a single NVIDIA GPU."，仓库 description 亦为「AI agents running research on single-GPU nanochat training automatically」；「910 个实验/$309」在文档中没有任何出处，疑似出自 Karpathy 推文，而 x.com 在本环境不可抓取、无法核实。处置：保留 12/小时与 100/晚，后半句须标注「数据出自 Karpathy 推文（附链接），口径为『多张单卡各跑一个 agent』而非分布式训练」，否则删除。〕
+
+> [!success] 残余复核（2026-09-13 补录）：「910 个实验」的**出处已定位，且与上一条更正的猜测方向相反——既不出自仓库，也不出自 Karpathy 推文**，而是第三方 SkyPilot 团队的实测报告（Alex Kim / Romil Bhardwaj，2026-03-18，本次经代理直取 HTTP 200）。原文逐字：「We pointed Claude Code at autoresearch and gave it access to **16 GPUs** on a Kubernetes cluster. Over 8 hours it submitted **~910 experiments**, found that scaling model width mattered more than any single hyperparameter…」；硬件为 13×H100 + 3×H200；吞吐 ~90 实验/小时（单卡 ~10/小时，9×）；val_bpb 1.003 → 0.974（2.87%）。
+> 因此**它与 README 的「单卡」口径并不冲突**：autoresearch 每个实验仍跑在单卡上，SkyPilot 只是把 16 个单卡实验并行起来（原文首段即「Karpathy's autoresearch runs one experiment at a time… We gave it access to our GPU infra and let it run experiments in parallel」）。上一条更正里「疑似推文」与「口径为『多张单卡各跑一个 agent』而非分布式训练」两句，前一句应删、后一句方向对但依据错（依据是 SkyPilot，不是推文）。
+> **真正需要订正的是金额**：SkyPilot 原文 Cost 段逐字为「Claude Code's API cost for the session would be about **$9**. … 13 H100s for 8 hours is ~**$200** and 3 H200s for 8 hours adds ~**$60** (at ~$2.3/h), totaling **under $300** in total costs.」——**一手口径是「不到 $300」，不是 $309**；$309 是二手文章把「$300 GPU + $9 API」相加后的数。建议原句改写为：「一小时约 12 个实验、一晚约 100 个（仓库自述）；另有第三方实测把 16 张单卡并行后达 ~910 个实验 / 8 小时、总成本约 $300（SkyPilot，2026-03-18）」。
+> 来源：https://blog.skypilot.co/scaling-autoresearch/
+
 - 当前 stars：87,000+〔**2026-09-13 更正**：GitHub API 本次返回 `stargazers_count = 95,690`（forks 13,426），原「87,000+」已过期约 9%；且「当前」二字对快照类数字不安全，应写成带日期的快照，如「≈ 95.7k stars（2026-09-13 快照）」。〕
 - 对应五件套的方式：
   - `/loop` → `while True` + 五分钟计时
@@ -176,6 +182,12 @@ CHANGELOG 2.1.243 逐字："Added a Loops breakdown to `/usage`: per-loop run co
 - Claude Code 官方文档（排程与目标）: https://code.claude.com/docs/en/scheduled-tasks.md （"Run prompts on a schedule"，含会话级边界与 "Let Claude choose the interval"）、https://code.claude.com/docs/en/goal.md （"Keep Claude working toward a goal"）〔2026-09-13 新增〕
 - 第三方实测（/loop 与 cron 的分工）: https://www.frr.dev/fr/posts/loop-cron-claude-code/ （2026-03-09，记录「Claude Code 2.1.71 introduit /loop」与会话内调度器的定位）〔2026-09-13 新增〕
 - O'Reilly Radar 联名版: https://www.oreilly.com/radar/loop-engineering/ 〔**2026-09-13 标注**：本次请求返回 403 Access Denied（Akamai 边缘拒绝，疑似反爬，**不能据此判定失效**），本环境无法核实其内容，故「联名版」这一说法**目前无法证实**；保留链接待人工用浏览器复核。〕
+
+> [!success] 残余复核（2026-09-13 补录）：**已定论——页面存在，但「联名版」的说法不成立。**
+> 直连与带正常浏览器 UA 的请求在本机仍为 **403**（Akamai 边缘拒绝，与上文标注一致，不是链接失效）；改用 **Wayback Machine 存档**取回该页（本次直取 HTTP 200，快照含完整正文）。页面元信息逐字为：标题「Loop Engineering – O'Reilly」，署名 **By Addy Osmani, June 22, 2026 • 14 minute read**，栏目 Radar > Topics > AI & ML。
+> 判定「联名版」有误的依据是页面首段逐字：「**The following article originally appeared on Addy Osmani's blog and is being reposted here with the author's permission.**」——即**经作者许可的转载版**（O'Reilly 只是分发渠道），不是联名/合著。**建议改写为**：「O'Reilly Radar 转载版（署名 Addy Osmani，2026-06-22，经作者许可转载；原链 Akamai 反爬 403，可用 Wayback 存档访问）」。
+> 附带收益：该页可核实的第三方原话有两条，本文摘要段的引述与之逐字一致——Peter Steinberger「You shouldn't be prompting coding agents anymore. You should be designing loops that prompt your agents.」；Boris Cherny「I don't prompt Claude anymore. I have loops running that prompt Claude and figuring out what to do. My job is to write loops.」
+> 来源：https://web.archive.org/web/2026/https://www.oreilly.com/radar/loop-engineering/
 - TechTalks "loopmaxxing": https://bdtechtalks.com/2026/06/22/ai-loop-engineering/
 - 橙皮书（中文）: https://github.com/alchaincyf/loop-engineering-orange-book
 - 鹤啸九天技术分析: https://wqw547243068.github.io/loop
@@ -194,5 +206,7 @@ CHANGELOG 2.1.243 逐字："Added a Loops breakdown to `/usage`: per-loop run co
 | 补疏漏 | 「Claude Code 的 /loop 本体」只有两条用法与一个版本，无运行边界与可观测性 | 新增「运行边界」表（会话级、resume 不恢复、7 天过期、Esc 清 pending wakeup、2.1.172 远程会话限制、与 cron 的分工）与「可观测性」段（2.1.243 的 `/usage` Loops 面板：每 loop 运行次数 / 总 token / 每轮 token / 最近运行），并给出 runaway 验收判据 |
 | 补疏漏 | 「三个工程坑」只给现象与金句，无检测与反制 | 每个坑补「如何检测 + 如何反制」：坑一挂 maker/checker 分离（`/goal` 由另一模型判定）与 `/usage` 面板；坑二给可自问的理解债检测与「读过的代码比例」约束；坑三引 Addy 的 token 成本警告与子 Agent 成本放大机制 |
 | 加厚 | 参考资料主引用为 substack 短链，O'Reilly「联名版」无法核实 | 主引用改为 addyosmani.com 两篇一手原文，O'Reilly 条目保留并标注 403/未核验；新增官方 CHANGELOG、两条 Release API、两个官方文档页、第三方实测链接 |
+| 残余复核 | 「910 个实验 / $309」出处未知（原判为「疑似 Karpathy 推文、不可核验」） | **已结**：出处为第三方 SkyPilot 实测报告（blog.skypilot.co/scaling-autoresearch，2026-03-18，本次直取 200）——16 GPUs（13×H100 + 3×H200）、~8 小时、~910 experiments、吞吐 9×、val_bpb 1.003→0.974；与 README 单卡口径**不冲突**（每实验仍单卡，只是并行 16 路）。金额订正：一手为「under $300」（GPU ~$260 + API ~$9），非 $309 |
+| 残余复核 | O'Reilly「联名版」说法无法证实（原链 403） | **已结**：Wayback 存档取回原页（HTTP 200），署名 Addy Osmani / 2026-06-22；页面首段逐字「originally appeared on Addy Osmani's blog and is being reposted here with the author's permission」→ **经许可的转载版，非联名**；顺带核实 Steinberger / Cherny 两句引语逐字一致 |
 
 回链：[[CORRECTIONS]] | [[AGENTS]]

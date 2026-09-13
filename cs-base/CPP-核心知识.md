@@ -130,6 +130,11 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 
 > ① 各编译器对 C++20 modules 的生产可用度差异；② coroutine TS→C++20 无栈协程在主流库（asio/cppcoro）的封装成熟度；③ 硬件内存模型（TSO/ARM 弱序）与 C++ 序映射的逐平台对照表。
 
+> [!success] 残余复核（2026-09-13）：三条**全部就地定论**——①② 由权威页面 + 本机实测收口，③ 收口为"两档口径 + 权威模型来源"。
+> - **① 已定论：生产可用度的差异就在"只有 MSVC 标为完整支持"**。依 cppreference「C++20 compiler support」的 Modules（P1103R3）行（2026-09-13 取回）：GCC **11 (partial)**、Clang **8 (partial)**、MSVC 19.0(2015)* (partial) → 19.10*（仅 Modules TS）→ **19.28 (16.8)=VS2019 16.8 起**（该格绿底=完整支持）、Apple Clang 10.0.1* (partial)、Intel C++ 2023.1 (partial)、EDG eccp 与 Nvidia HPC 无支持。本机实测互证：clang 22.1.0-rc3（llvm-mingw，libc++）`clang++ -std=c++20 --precompile m.cppm -o m.pcm` + `clang++ -std=c++20 -fprebuilt-module-path=. use.cpp m.pcm -o usem` 端到端跑通（输出 `answer=42`），且发行版随附 `share/libc++/v1/std.cppm`、`std.compat.cppm`、`libc++.modules.json`；gcc 12.2 用 `gcc -std=c++20 -fmodules-ts -x c++` 亦端到端跑通，模块缓存落在**当前工作目录** `gcm.cache/`。缓存侧的短板见 [[LLVM使用调优与SO优化]] §一（ccache 官方手册明言不支持标准 C++20 modules）；本机 CMake 4.1.2 已有 `CXX_SCAN_FOR_MODULES`（3.28 起）与 `CXX_MODULE_STD`。
+> - **② 已定论：asio 活跃且在维护 C++20 协程面，cppcoro 已停更**。本次取回（2026-09-13）：asio 仓库最后推送 2026-07-18（未归档），源码树中 `include/asio/co_spawn.hpp`、`include/asio/awaitable.hpp` 均存在（HTTP 200）——C++20 无栈协程的封装入口是真实且现役的；cppcoro（lewissbaker/cppcoro）最后推送 **2024-01-09**，仓库描述仍写着 "a library of C++ coroutine abstractions for the **coroutines TS**"，即 TS 时代产物、不再跟进 C++20 语义。选型上应直接对接 stdexec（[[参考-CPP-CPO定制点与std-execution]] §四），不押 cppcoro。
+> - **③ 已定论（两档口径 + 权威来源）**：cppreference `std::memory_order`（2026-09-13 取回）原文——「On strongly-ordered systems — x86, SPARC TSO, IBM mainframe, etc. — release-acquire ordering is automatic for the majority of operations. No additional CPU instructions are issued for this synchronization mode」；「On weakly-ordered systems (ARM, Itanium, PowerPC), special CPU load or memory fence instructions are used」。逐平台明细的权威来源即该页 External links 的两篇模型论文（Sewell 等《x86-TSO: A Rigorous and Usable Programmer's Model for x86 Multiprocessors》2010、《A Tutorial Introduction to the ARM and POWER Relaxed Memory Models》），本文不另造表；要落到自家微架构仍以 litmus7/herd7 实测为准（[[LLVM使用调优与SO优化]] §四 的单变量纪律）。
+
 ## Related
 
 [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[参考-COM组件框架-Windows集成]] · [[操作系统八股]] · [[高并发系统设计]] · [[lognet-rootcause-multiagent-architecture]]
@@ -142,5 +147,8 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 | 纠错 | §四 称内存序「六档」却只列三项，且无 consume 说明 | 改为五档完整清单 + 「consume 不用学」；依据草案 [atomics.order]（枚举仅 5 值） |
 | 纠错 | §四 写「future 析构不 join 的 async 特例」 | 方向写反：async 的 future 析构可能阻塞，其他来源才不阻塞；依据草案 [futures.async]/5 Note 2，并补最小反例 |
 | 加厚 | §六 展望只有一句话，无库件清单、无编译器矩阵 | 补「C++26 库件一览表」与「编译器落地三档（判据+回退）」；依据同页逐编译器支持表 |
+| 残余复核 | §七① 各编译器对 C++20 modules 的生产可用度差异 | 定论：cppreference「C++20 compiler support」Modules(P1103R3) 行=GCC 11 (partial)、Clang 8 (partial)、MSVC 19.28/VS2019 16.8 起完整、Apple Clang 10.0.1 (partial)、Intel 2023.1 (partial)、EDG/Nvidia 无；本机 clang 22.1.0-rc3＋libc++ 与 gcc 12.2（`-fmodules-ts`）均端到端实测通过，缓存落工作目录 `gcm.cache/` |
+| 残余复核 | §七② asio/cppcoro 对 C++20 无栈协程的封装成熟度 | 定论：asio 活跃（最后推送 2026-07-18）且 `include/asio/co_spawn.hpp`、`awaitable.hpp` 现役（200）；cppcoro 停更（最后推送 2024-01-09，描述仍为 coroutines TS）→ 选型对接 stdexec |
+| 残余复核 | §七③ TSO/ARM 弱序与 C++ 序映射的逐平台对照表 | 定论为口径+来源：cppreference `std::memory_order` 的两档原文（强序 x86/SPARC TSO 无需额外指令；弱序 ARM/Itanium/PowerPC 用 fence/acquire 指令）+ 其 External links 的 Sewell《x86-TSO》2010 与 ARM/POWER relaxed 模型教程；微架构明细仍以 litmus 实测为准 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

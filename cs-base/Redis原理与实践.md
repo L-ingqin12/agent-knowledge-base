@@ -124,6 +124,22 @@ end
 
 > ① 7.2 Function 替代 EVAL 的生产迁移度（8.x 下仍成立，另需核对 Redis 8 内置的 JSON/概率结构是否改变函数侧用法）；② Multi-part AOF(7.0) 在大重写风暴下的表现实测；③ Cluster proxy 类网关对跨槽 mget 的性能损耗口径。
 
+> [!warning] 残余复核（2026-09-13）：三条**均仍开放**，且都需要 Redis 实例或厂商压测数据——本机没有 `redis-server` / `redis-cli`（`command -v` 均未命中），离线不可定。
+> - ① 拆两问：**迁移度**是生态统计（要公开调研或官方博客口径）；**函数侧用法是否变化**要读 Functions 文档并核对 8.0 内置结构在脚本里的可见性。判据：抓 Redis 官方 programmability/Functions 文档（`FUNCTION LOAD`、`redis.call` 的可用命令面），确认内置 JSON/概率结构能否在函数内通过 `redis.call` 调用（如 `JSON.GET`），再找一份公开的 Function vs EVAL 使用占比数据。本页 §首的 8.0 口径块已记「8 种结构内置」这一事实，但它**不回答**函数侧可见性。
+> - ② 属真机实验：同一数据集下制造大重写风暴（持续大写入 + 并发 `BGREWRITEAOF`），记录 manifest 原子切换是否出现可见窗口、`aof_rewrite_in_progress` 与尾延迟曲线。判据就是这份时序图，**不能**由本文 §七 的备份 SOP 反推（SOP 只回答「怎么备份才有效」，回答不了「重写风暴下表现如何」）。
+> - ③ 属厂商口径：判据=抓各 proxy 方案的官方文档中对跨槽 `mget` 的处理方式（拆成 N 次单键 / 直接拒绝 / 路由重定向），有基准页的取其损耗数字并注明测试版本与拓扑；无数据则记「未公布」，不要用单机 Redis 的数字代替网关链路。
+
+> [!success] 残余复核（2026-09-13 联网轮）：**③ 已结**（官方给出了按配置分档的处理口径，且**未公布**任何损耗数字）；**① 拆两问——「官方是否把 Function 定为 EVAL 的替代」已结，「生产迁移度」与「内置结构能否在函数内调用」仍开放**；**② 仍开放**（真机实验，判据不变）。
+> - **③ 已结**。Redis 官方 *Multi-key operations* 页把「跨槽 MGET」按**部署形态分档**（这是本条真正该给的口径，而不是一个通用损耗百分比）：
+>   - **MGET / EXISTS**：单实例（未开集群）→ cross-slot；**Redis Open Source 开集群 → `single-slot`**（即跨槽直接不成立）；**Redis Software（RS）开集群且启用 OSS cluster API → `single-slot`**；**RS 开集群且关闭 OSS cluster API（专有集群）→ `cross-slot (all shards)`**——即**只有 RS 专有集群这一档由网关/代理把跨槽 MGET 兜住**。
+>   - 同页把 **pipeline** 也按同一分档列出（RS 专有集群 = cross-slot all shards，其余 = single-slot），并单独标注 `JSON.MGET` 在跨槽时**不报 CROSSSLOT 而是返回当前分片上的部分结果**、`TS.CREATERULE` 跨槽时报 `ERR TSDB: the key does not exist`——这两条是「静默错结果」而非显式报错，选型时尤其要盯。
+>   - **损耗口径：官方未公布**。该页只有行为分档，没有「拆成 N 次单键」的实现描述，也没有任何基准数字（版本/拓扑都无从谈起）。故本条的结论应写作：**跨槽 MGET 是否可用取决于网关所属部署档位；可用档位（RS 专有集群）无官方性能数据**——不要用单机 Redis 的 MGET 数字代替网关链路。
+> - **① 的「Function 是否官方替代 EVAL」已结**：官方 Functions 文档明确 **"This feature, which became available in Redis 7, supersedes the use of EVAL in prior versions of Redis."**，即官方立场是替代关系而非并存选项；文档并把 functions 描述为「以核心 Redis 命令暴露更丰富 API，**similar to modules**」。
+> - **① 的「8.x 函数侧用法」仍开放（只取到通用表述，未取到逐命令级佐证）**：`lua-api` 页的 API 表明确 **`redis.call(command [,arg...])` 在 functions 中 `Available: yes`**，且描述为「calls a **given** Redis command and returns its reply」——是**通用命令调用、无命令白名单**，`redis.pcall()` 同样在 functions 可用。但**本轮未取得任何官方语句**说明 Redis 8 内置的 JSON / 概率结构（Bloom、cuckoo、count-min sketch、top-k、t-digest）**在函数内可否经 `redis.call` 调用**；由「通用调用 + 内置命令」推出的结论属**推断，不作为结论写入**。Redis 8 GA 博文只确认这 8 种结构（含 vector set beta）已内置（"some previously available as separate Redis modules"），仍不回答函数侧可见性。
+> - **① 的「生产迁移度」仍开放**：Function vs EVAL 的实际使用占比属生态统计，本轮**未取得**官方或第三方调研数据；不得以「官方推荐」代替「实际采用度」。
+> - **② 仍开放**：判据不变——同一数据集下制造大重写风暴（持续大写入 + 并发 `BGREWRITEAOF`），记录 manifest 原子切换是否出现可见窗口、`aof_rewrite_in_progress` 与尾延迟曲线；§七 的备份 SOP 只回答「怎么备份才有效」，不能反推该问题。
+> 依据：https://redis.io/docs/latest/develop/using-commands/multi-key-operations/ ；https://redis.io/docs/latest/develop/programmability/functions-intro/ ；https://redis.io/docs/latest/develop/programmability/lua-api/ ；https://redis.io/blog/redis-8-ga.md （取回于 2026-09-13）
+
 ## 补完记录（2026-09-13）
 
 | 类型 | 原问题 | 处置与依据 |
@@ -131,6 +147,11 @@ end
 | 纠错 | §三 混合持久化写成"重写后 RDB 头+AOF 尾、默认推荐"，与本文自称的 7.x 口径冲突 | 改为 7.0+ 多部分 AOF（base 文件 + 增量文件，`appenddirname` + manifest），保留原表述于更正块；依据 [官方持久化文档](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/) |
 | 纠错 | 全文以 7.x 为最新口径（source 行、§八 待确认） | 补 8.0 GA 版本口径块（更名 Redis Open Source、8 种新数据结构、性能改进、Redis Stack 6.2/7.2/7.4 补丁于 2025-09-15 停止），source 行改为 7.x/8.x 双口径；依据 [Redis 8.0 GA 博文](https://redis.io/blog/redis-8-ga.md) |
 | 补疏漏 | §三/§七 未写 AOF-only 部署的备份前置条件 | §七 增备份 SOP（停自动重写 → 确认 `aof_rewrite_in_progress=0` → 复制 `appenddirname` → 恢复配置），点明"重写中直接拷文件=无效备份"；依据官方持久化文档 |
+| 残余复核 | §八 待确认①「Function 替代 EVAL 的生产迁移度 + 8.x 下函数侧用法是否变化」 | 判定**仍开放**（拆两问）：迁移度属生态统计；函数侧可见性要读 Functions 文档核对内置 JSON/概率结构能否经 `redis.call` 调用。本机无 `redis-server`/`redis-cli`（`command -v` 未命中），离线不可定；本页 8.0 口径块只证明「8 种结构内置」，不回答可见性 |
+| 残余复核 | §八 待确认②「Multi-part AOF 在大重写风暴下的表现实测」 | 仍开放：需真机时序实验（大写入 + 并发 `BGREWRITEAOF`，记录 manifest 切换窗口与尾延迟）；§七 的备份 SOP 只回答「怎么备份有效」，不能反推该问题 |
+| 残余复核 | §八 待确认③「Cluster proxy 对跨槽 mget 的性能损耗口径」 | 仍开放：属厂商口径，需逐个 proxy 方案官方文档核对跨槽 `mget` 处理方式与基准数字（并注明版本与拓扑）；本机无 Redis 实例，不能用单机数字代替网关链路 |
+| 残余复核（联网轮） | §八 待确认③「Cluster proxy 类网关对跨槽 mget 的性能损耗口径」 | **已结**：官方 *Multi-key operations* 页按部署形态分档给出处理口径——MGET/EXISTS 在 ROS 开集群与「RS 开集群 + 启用 OSS cluster API」下为 `single-slot`（跨槽不成立），仅在「RS 开集群 + 关闭 OSS cluster API（专有集群）」下为 `cross-slot (all shards)`；pipeline 同分档。附两处静默错结果告警（`JSON.MGET` 跨槽返回部分结果、`TS.CREATERULE` 报 TSDB key 不存在）。**性能损耗数字官方未公布**，故结论为「可用性取决于档位、该档位无官方基准」。依据：https://redis.io/docs/latest/develop/using-commands/multi-key-operations/ （取回于 2026-09-13） |
+| 残余复核（联网轮） | §八 待确认①「Function 替代 EVAL 的生产迁移度 + 8.x 下函数侧用法是否变化」 | **拆两半：官方替代关系已结，迁移度与函数侧逐命令可见性仍开放**。已结部分：官方 Functions 文档原文 "which became available in Redis 7, supersedes the use of EVAL in prior versions of Redis."；`lua-api` 页确认 `redis.call` / `redis.pcall` 在 functions 中可用且为通用命令调用（无白名单）。仍开放部分：Redis 8 内置 JSON/概率结构能否在函数内经 `redis.call` 调用**无逐命令级官方佐证**（由通用调用外推属推断）；Function vs EVAL 实际占比无官方/第三方数据。依据：https://redis.io/docs/latest/develop/programmability/functions-intro/ ；https://redis.io/docs/latest/develop/programmability/lua-api/ |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]
 

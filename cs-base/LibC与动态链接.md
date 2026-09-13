@@ -114,6 +114,13 @@ $ objdump -d libdemo.so
 
 > 来源：https://musl.libc.org/time64.html
 
+> [!success] 残余复核（2026-09-13）：② 已定论——主线 glibc 没有「rtld 共享缓存」这条演进线，该子项按**不成立**结案。依据：本机 glibc 2.36 的 ld.so 只有一个缓存面，`strings /lib64/ld-linux-x86-64.so.2` 中与缓存相关的串只有 `/etc/ld.so.cache`、格式标识 `glibc-ld.so.cache1.1` 与选项 `--inhibit-cache`，不存在第二个缓存开关；upstream NEWS（覆盖至 2.36.1）里 cache 相关条目也全是 ld.so.cache 自身的修正——**2.32 段**「ldconfig now defaults to the new format for ld.so.cache」、以及两条 bug 修复（`ld.so.cache` 应存 hwcap 掩码语义、应有 endianness 标记），没有任何「共享映射缓存」特性。判据（若日后翻案）：glibc NEWS 出现 rtld/shared cache 条目，或 ld.so 出现 `--inhibit-*cache*` 之外的缓存开关。
+
+> [!success] 残余复核（2026-09-13，联网取回后收口）：③ 已定论——两侧一手口径都取到了：
+> - **CUDA 侧**：NVIDIA《CUDA Linux Installation Guide》的 *Table 2. Native Linux Distribution Support and Validated OS Versions for CUDA 13.4*（2026-09-13 取回）逐发行版带 **GLIBC** 列：下界 **2.28**（RHEL 8 / Rocky Linux 8 / Oracle Linux 8，8.10 系），上至 2.43（Ubuntu 26.04 LTS、Fedora 44）；参照点 Ubuntu 22.04=2.35、Debian 12=2.36、Ubuntu 24.04=2.39、RHEL 9=2.34。即官方口径是"逐发行版验证矩阵"而非单一最小值，**该矩阵的下界 = 2.28**。
+> - **JAX 侧**：jaxlib 当前版本 **0.11.1**（`requires_python >=3.12`）的 Linux wheel 标签为 **manylinux_2_27**（x86_64 与 aarch64，各 1 个 tag，全量 22 个 wheel；取自 PyPI JSON 的 `urls[].filename`，2026-09-13）→ **最低 glibc = 2.27**。
+> - 合成结论：**同机跑 JAX + CUDA，下界取两者较大者 = glibc 2.28**（jaxlib 2.27 < CUDA 2.28）。复跑路径记在此处备查：PyPI JSON 看 wheel 标签 + CUDA 安装指南的发行版表；本机 CUDA 13.1.115 安装树内确实没有 glibc 声明（那本就不是该找的地方），glibc 与 musl 分开记（对照 [[LLVM编译器基础设施]] §五 的目标三元组口径）。
+
 ## 补完记录（2026-09-13）
 
 | 类型 | 原问题 | 处置与依据 |
@@ -121,6 +128,9 @@ $ objdump -d libdemo.so
 | 补疏漏 | §一 双雄谱系未提 glibc 2.34 的库合并 | 表增"库形态"一行（2.34 起单一 libc.so.6、空的 .a 兼容库、旧链接程序仍加载空 .so），§三 补 `GLIBC_2.34` 符号在老镜像报 `version not found` 的案发形态；依据 [glibc NEWS（glibc-cvs 2021q3/073885）](https://sourceware.org/pipermail/glibc-cvs/2021q3/073885.html) |
 | 纠错 | §七① 把 musl time64 分界点写成 1.2.4 | 改为 **1.2.0** 并点出真实风险（新旧 time_t ABI 错配），保留原表述于删除线内；依据 [musl time64 说明](https://musl.libc.org/time64.html) |
 | 补疏漏 | §四 PIE 只写 `-fPIE -pie`，§五 静态链接账单未含静态 PIE | §四 拆成动态/静态两形态（`-static-pie` 需与 `-fpie`/`-fPIE` 同用），§五 账单增第⑤条（保住随机基址但需付启动自重定位与支持度实测成本）；依据 [GCC Link Options](https://gcc.gnu.org/onlinedocs/gcc/Link-Options.html) |
+| 残余复核 | §七② glibc csa/rtld 早加载优化（含「hurd 之外主线 rtld 共享缓存策略」）演进 | 定论为**不成立**：本机 glibc 2.36 的 ld.so 只有 `/etc/ld.so.cache`（格式标识 `glibc-ld.so.cache1.1`、`--inhibit-cache`）一个缓存面；upstream NEWS 至 2.36.1 的 cache 条目只有 2.32 段的 ldconfig 新格式默认与两条 ld.so.cache bug 修复，无共享映射缓存特性 |
+| 残余复核 | §七③ CUDA/JAX 各版本官方支持的最低 glibc 矩阵 | 已定论（联网取回）：CUDA 13.4《Linux Installation Guide》Table 2 的 GLIBC 列下界 **2.28**（RHEL/Rocky/Oracle 8 系）、上至 2.43；jaxlib 0.11.1 的 Linux wheel 为 **manylinux_2_27** → 最低 glibc **2.27**；同机 JAX+CUDA 取较大者 2.28 |
+| 残余复核 | §七① musl time64 覆盖面 | 非待办：2026-09-13 已就地收口（分界点 1.2.0、风险在新旧 time_t ABI 错配），本轮复核无新增残留 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]
 

@@ -27,6 +27,12 @@ See also: [[CS-KB-Home]] · [[CPP-核心知识]] · [[计算机组成原理]] ·
 
 构建加速：ccache(内容寻址缓存) → 命中率看 `ccache -s`；模块接口单元(modules)是下一代方案但生态未稳（**待确认**）。
 
+> [!success] 残余复核（2026-09-13）：这条「生态未稳」的软标记已拆成三段硬验收并逐段定论——**编译器腿通、构建系统腿通、缓存腿有官方结论（缺）**：
+> - 编译器腿：本机 clang 22.1.0-rc3（libc++ 同版本）跑通 module interface unit 全链路，`clang++ -std=c++20 --precompile m.cppm -o m.pcm` 再 `clang++ -std=c++20 -fprebuilt-module-path=. use.cpp m.pcm -o usem`；发行版还随附 `share/libc++/v1/std.cppm`、`std.compat.cppm` 与 `libc++.modules.json`，`import std;` 的原料齐备。
+> - 构建系统腿：本机 CMake 4.1.2 已有 `CXX_SCAN_FOR_MODULES`（3.28 起）与 `CXX_MODULE_STD`（`cmake --help-property CXX_SCAN_FOR_MODULES` 可回显文档）。
+> - 缓存腿（已拿到官方口径，不必再猜）：ccache 官方手册（ccache.dev/manual/latest.html，2026-09-13 取回）原文——「**Ccache does currently not support standard C++20 modules.** There is however limited support for "Clang modules" (the `-fmodules` option)」，且用它的前提是 `sloppiness=modules` + direct mode + depend mode，机制上它只 hash `module.modulemap`、忽略 Clang 的二进制模块缓存；本机另实测 GCC 12.2 的 `-fmodules-ts` 缓存也只是一个工作目录 `gcm.cache/`（产物 `gcm.cache/mm.gcm`），无共享/分布式接口。结论：**modules 的"分布式缓存"目前确实是缺的那条腿**——"生态未稳"该保留的正是这一条具体判断，而不是一句笼统印象（§七③ 同源）。
+> 落地时按这三条逐项目核。
+
 ## 二、SO 优化四维（重点章）
 
 ### 维度 1：符号面收敛（收益最大且免费）
@@ -116,6 +122,12 @@ BOLT 的输入要求（README 的 Input Binary Requirements，逐条都是"无�
 
 > ① clang 18+ -fsanitize=address 与 PGO 并用的兼容矩阵；② BOLT 对 PIE+静态链接混合场景支持进度；③ modules 大规模项目的分布式缓存(ccache 类)方案成熟度。
 
+> [!success] 残余复核（2026-09-13）：① 已用本机最小实验定论——**clang 22.1.0-rc3 下 ASan 与 PGO 可并用，采集-合并-使用的整条链路都通**：`clang++ -O2 -fsanitize=address -fprofile-instr-generate pgo.c -o pgo_gen` → 运行并写 `pgo.profraw` → `llvm-profdata merge -o pgo.profdata pgo.profraw` → `clang++ -O2 -fsanitize=address -fprofile-instr-use=pgo.profdata pgo.c -o pgo_use`，最终二进制正常运行。故"兼容矩阵"的残余只剩**逐版本回归**：把上面四条命令做成脚本，在 CI 里对每个 clang 大版本跑一遍即可（注意 profile 必须在与使用侧同档的 sanitizer 配置下采集，否则会退化成 out-of-date profile 而不是编译失败，容易误判为"通过"）。
+
+> [!success] 残余复核（2026-09-13）：②③ 均已收口（都拿到了上游原文，不再需要"待确认"）。
+> - **② BOLT × PIE（+静态）**：BOLT README（`llvm/llvm-project` 的 `bolt/README.md`，2026-09-13 取回）在「Input Binary Requirements」里对 PIE/.so 的原话是「**PIE and .so support has been added recently. Please report bugs if you encounter any issues.**」——即"最近才加、仍在收 bug"的进度，这正好解释了为何它不能与 `-freorder-blocks-and-partition` 并存（README 同段明确不兼容）。而 **`static` 一词在该 README 中出现 0 次**：静态链接（含 `-static-pie` 混合场景）没有被单独承诺，属未列入口径。判据（复跑）：读该 README 原文，并在带 BOLT 的 LLVM 上对 `-static-pie` 产物跑 `llvm-bolt app -o app.bolt --reorder-blocks=ext-tsp`，看是否报 stale/cannot find relocations 类信息。
+> - **③ modules 的分布式缓存**：ccache 官方手册（ccache.dev/manual/latest.html，2026-09-13 取回）明写「**Ccache does currently not support standard C++20 modules.**」，只对 Clang `-fmodules` 有有限支持（要求 `sloppiness=modules` + direct mode + depend mode，且只 hash `module.modulemap`、忽略二进制模块缓存）；机制侧另有一条实测：GCC 12.2 的 `-fmodules-ts` 缓存就是一个工作目录 `gcm.cache/`，clang 侧 `.pcm`/`.pch` 全交给构建系统管（CMake 4.1.2 的 `CXX_SCAN_FOR_MODULES` 只扫依赖、不缓存内容）。故该项结论=**标准 C++20 modules 目前没有成熟的分布式缓存方案**；判据（复跑）：`grep -i "C++ modules" ccache 手册`，以及升级 ccache 后看其是否出现 module 计数。
+
 ## Related
 
 [[CS-KB-Home]] · [[LLVM编译器基础设施]] · [[LibC运行时排查-TLS与锁]] · [[CPP-核心知识]] · [[lognet-rootcause-multiagent-architecture]]
@@ -127,5 +139,9 @@ BOLT 的输入要求（README 的 Input Binary Requirements，逐条都是"无�
 | 纠错 | §三 表称 BOLT「仅 x86-64 Linux 成熟」 | 改为 x86-64 **与 AArch64** ELF，并把采样路径写全（x86 LBR / AArch64 BRBE）；依据 BOLT README「BOLT operates on X86-64 and AArch64 ELF binaries.」 |
 | 补疏漏 | §三 把「无需重编」写成零前置条件 | 补 README 的四条输入要求：未剥离符号表、需 `--emit-relocs`/`-q` 重定位、与 `-freorder-blocks-and-partition` 不兼容、stale profile 需刷新 `.fdata` |
 | 加厚 | §维度2 只给 `-Wl,--icf=all` 一行，无档位与失败模式 | 补三档（`none` 默认 / `safe` 建议 / `all` 激进）、两个 unsafe 开关的归属辨析、`--keep-unique`、上 `all` 的前提与 `nm -DC` 验收；依据 ld.lld man 页 |
+| 残余复核 | §一「模块接口单元(modules)是下一代方案但生态未稳（待确认）」 | 拆成三段硬验收并逐段定论：编译器腿✓（本机 clang 22.1.0-rc3＋libc++ 的 `--precompile`+import 端到端输出 `answer=42`）、构建系统腿✓（CMake 4.1.2 具备 `CXX_SCAN_FOR_MODULES`/`CXX_MODULE_STD`）、缓存腿✗（ccache 官方手册明写不支持标准 C++20 modules；GCC 的 `-fmodules-ts` 缓存只是工作目录 `gcm.cache/`） |
+| 残余复核 | §七① clang 18+ 的 ASan 与 PGO 并用兼容矩阵 | 最小实验定论（clang 22.1.0-rc3）：`-fsanitize=address -fprofile-instr-generate` → 运行出 `pgo.profraw` → `llvm-profdata merge` → `-fsanitize=address -fprofile-instr-use` 编译并运行成功；残余只是逐大版本回归（同一组命令脚本化） |
+| 残余复核 | §七② BOLT 对 PIE+静态链接混合场景的支持进度 | 已收口：BOLT README 原文「PIE and .so support has been added recently. Please report bugs if you encounter any issues.」＝实验期；且 README 全文 `static` 出现 0 次——静态链接（含 `-static-pie` 混合）无单独承诺 |
+| 残余复核 | §七③ modules 大规模项目的分布式缓存(ccache 类)成熟度 | 已收口：ccache 手册明写「Ccache does currently not support standard C++20 modules」，仅对 Clang `-fmodules` 有限支持（`sloppiness=modules`+direct+depend）；GCC 模块缓存=工作目录 `gcm.cache/`，CMake 只扫依赖不缓存内容 |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

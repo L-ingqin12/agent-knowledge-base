@@ -3,7 +3,7 @@ title: Agent Harness 解剖学与构建决策树
 aliases: [Harness解剖学, Agent Harness知识, 编排外壳构建指南]
 tags: [ai/ops, ai/agent]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: 综合视图文档——外部依据：Anthropic《Building Effective Agents》、Simon Willison 编码代理原理综述、harness engineering 论述；内部依据：本库 OpenCode/Pi/CC 拆解文档（正文逐条挂锚）
 fetched_at: 2026-08-26
@@ -108,6 +108,27 @@ See also: [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调�
 
 > ① Cursor/Aider 等 harness 在七件套上的差异未逐项核验（仅入清单未入对照表）；② "harness engineering" 术语的最早提出者考证（当前仅追溯到 2025 年社区论述）；③ DSH ralph 模式的公开对标物。
 
+> [!success] 残余复核（2026-09-13）：②③ **已定论**（含 ③ 的公开对标物），仅 ① 仍开放。
+> - **③ 内部定义（已定论）**：`ralph` 是 DSH 内置的**模型工具** `@deepseek-ai/dsh-tool-ralph`——对**一个不可变目标**跑固定前台循环，每 Round 起一个**全新**子 agent 在共享工作区作业，跨 Round 只传一份有界结构化报告；父级对话与先前子会话**绝不**作为种子（工作区即长期记忆）。模型提交 `{ objective, maxRounds? }`，调用阻塞至整个运行结算；终态 `complete` / `blocked` / `budget-limited`，报告状态为 `continue` / `complete` / `blocked`；默认且上限 `maxRounds = 256`、`maxHandoffChars = maxResultChars = 16384`。官方提示词明确要求「仅当用户明确要求 Ralph 式全新 agent 迭代时使用」，普通长期工作走 goal 工具、有界委派走 subagent/workflow。
+> - **③ 公开对标物（已定论）**：即 **Geoffrey Huntley 的「Ralph Wiggum」技术**，作者原文《Ralph Wiggum as a "software engineer"》首发 **2025-07-14**（页面 dateModified 2026-02-19）。原文自述「Ralph is a technique. In its purest form, Ralph is a Bash loop」——最小形态就是 `while :; do cat PROMPT.md | claude-code ...`，即**对同一目标反复起全新 agent**。与 DSH 版的映射：Huntley 的纯 Bash 循环 ↔ DSH 把它产品化为固定前台循环（每 Round 全新子 agent + 有界报告交接 + `maxRounds` 上限 + 结构化终态）。**差异点**：Huntley 版不设 Round 上限、不做报告校验、状态全靠工作区与文件；DSH 版加了轮次上限、报告 schema 校验与 `complete/blocked/budget-limited` 终态——即「把社区技巧工程化」。该包 README 自身「进一步探索」章节仍**零外部引用**（只有 DSH 内部文档链接），故这层对标是外部考证得出的，不是上游自述。
+>   依据（取回 2026-09-13）：<https://ghuntley.com/ralph/>
+> - **② 术语最早提出者（已定论）**：**Mitchell Hashimoto**（HashiCorp 联合创始人，Terraform / Ghostty 作者）在 **2026-02-05** 的博文《My AI Adoption Journey》第 5 步「Engineer the Harness」中自述提出该词，逐字为：*"I don't know if there is a broad industry-accepted term for this yet, but I've grown to calling this 'harness engineering.' It is the idea that anytime you find an agent makes a mistake, you take the time to engineer a solution such that the agent never makes that mistake again."*——注意他**自己声明这是个人命名**（"I don't know if there is a broad industry-accepted term for this yet"），故「最早提出者」应表述为「**该词由 Hashimoto 于 2026-02-05 命名**」，而非「某人发明了该概念」；他也给出两条落地形态：改 AGENTS.md（隐式提示）+ 写程序化工具。
+>   依据（取回 2026-09-13）：<https://mitchellh.com/writing/my-ai-adoption-journey>（原站为 JS 渲染，正文经 <https://web.archive.org/web/2026id_/https://mitchellh.com/writing/my-ai-adoption-journey> 取回）
+>   ⚠️ 本节 §一 原写「当前仅追溯到 2025 年社区论述」——该表述应更正为「2026-02-05 由 Hashimoto 命名」；另有二手来源称更早的「harness」概念根在 2025-11 的 Anthropic 博文，本次**未取回原文，不采信**。
+> - **① 仍开放**：Cursor/Aider 的七件套差异需逐项抓两家的权限/扩展/子代理官方文档。注意本库对这两家**无实机核验**（§三 表的四家是 CC/OpenCode/Pi/DSH，均有源码或文档实证），不可把四家的口径外推到它们身上。判据：逐项产出「七件套 × {Cursor, Aider}」对照表并各挂官方文档锚点，或补实机核验。
+> - 依据（③ 内部定义）：`%USERPROFILE%\.dsh\profiles\node_modules\@deepseek-ai\dsh-tool-ralph\README.zh.md`（含「使用本包 / 配置 / 进一步探索」三节）
+
 ## Related
 
 [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调研报告]] · [[agent-evals-observability]] · [[Anthropic多智能体研究系统拆解]] · [[agent-memory-context-knowledge-design]] · [[main-subagent-realtime-interaction]] · [[lognet-rootcause-multiagent-architecture]] · [[Claude-Ops-KB-Home]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 加厚 | §六 ③「DSH ralph 模式的公开对标物」只有问题、无定义 | 加复核块补出**内部定义**（本机 `@deepseek-ai/dsh-tool-ralph` README）：不可变目标 + 每 Round 全新子 agent + 单份有界报告跨 Round、父会话不作种子、`maxRounds=256`/`maxHandoffChars=16384`、终态 complete/blocked/budget-limited |
+| 定论 | §六 ③「DSH ralph 模式的公开对标物」 | 加复核块：对标物为 **Geoffrey Huntley 的「Ralph Wiggum」技术**（《Ralph Wiggum as a "software engineer"》2025-07-14，「Ralph is a Bash loop」）；给出与 DSH 版的映射及三处工程化差异（轮次上限/报告校验/结构化终态）。依据取回 2026-09-13：ghuntley.com/ralph/ |
+| 定论 | §六 ②「harness engineering」术语最早提出者 | 加复核块：**Mitchell Hashimoto 于 2026-02-05**《My AI Adoption Journey》Step 5「Engineer the Harness」命名，逐字引其自述（他自称个人命名、非行业既定术语）；并更正 §一「仅追溯到 2025 年社区论述」。依据取回 2026-09-13：mitchellh.com/writing/my-ai-adoption-journey（经 web.archive.org 取回正文） |
+| 留开放 | §六 ① Cursor/Aider 在七件套上的差异 | 需逐项抓两家官方文档产出对照表；本库对这两家无实机核验（§三 四家为 CC/OpenCode/Pi/DSH），不可外推 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

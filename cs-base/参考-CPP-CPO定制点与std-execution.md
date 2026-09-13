@@ -176,6 +176,8 @@ struct retry_sender {
 
 > ① ~~`std::tag_invoke` 是否随 execution 进入 IS 及版本号~~（2026-09-13 收口：tag_invoke 已从设计中移除，"随 execution 落地"不成立）；② 各编译器对 P2300 的精确支持矩阵（查 cppreference「C++26」逐编译器表的 partial 标记）；③ ~~LEWG 语言级定制点方向的提案编号~~（2026-09-13 收口：方向已成定局=成员函数 + 域，P2855/P2999/P3109）；④ reg-free 场景外（见 COM 文档）无关项不列。
 
+> [!success] 残余复核（2026-09-13）：② 已定论——**截至目前，标准 `<execution>` 没有任何主流编译器提供**。依据：cppreference「C++26」页的自带逐编译器支持表（2026-09-13 取回，正是 §六 所说"本环境抓取该页失败"的那一页）中，*Execution control library*（P2300R10 + P3388R3/P3396R1/P3433R1/P3481R5/P3570R2/P3682R0/P3887R1，FTM 宏 `__cpp_lib_senders = 202406L / 202506L`）一行在 GCC／Clang／MSVC／Apple Clang 四列**全部是红格（无实现）**；而同页相邻行已填出版本号（如 `std::inplace_vector` 标 GCC 16），可见这不是"表没更新"，而是"确实还没有实现"。本机实测互证：clang 22.1.0-rc3 的 libc++ `<execution>` 仍是 C++17 执行策略头（`sequenced_policy`/`is_execution_policy`，全文 `sender`/`schedule` 命中 **0**），gcc 12.2 的 libstdc++ `<execution>` 同理（命中 0），本机未装 MSVC。故生产上仍处"用 stdexec 等参考实现"阶段（§四），§六 的支持面结论以此为准。判据（复跑）：抓该页对应行看红/绿格 + `grep -c "sender\|schedule" <编译器 include>/execution`。①③ 为非待办（原处已收口），④ 是范围说明。
+
 ## 反向链接
 
 - [[lognet-rootcause-multiagent-architecture]] — Sidecar 流水线的结构化并发候选
@@ -192,5 +194,6 @@ struct retry_sender {
 | 纠错 | §五 写 `get_forward_progress_guarantee`（…/weakly-sequential） | 第三值正名 `weakly_parallel`，并补三值语义差；依据 [exec.get.fwd.progress] |
 | 补疏漏 | 全文 19 处 tag_invoke、0 处 domain/transform_sender/transform_env | 新增 §三「定制机制更替」小节：域的选择、`transform_sender` 与成员 `connect` 分工、何时写域、四行迁移对照表；依据 [exec.snd]/P2999 |
 | 加厚 | §六 三行全以「待确认」收口 | 四处收敛：删 LEWG 猜测改为既成事实、编译器支持改引 cppreference 逐编译器表、stdexec 生态补 P2300R10 起改成员 connect、给 `-std=c++26` 编译 `retry_sender` 的可执行验收 |
+| 残余复核 | 待确认项汇总② 各编译器对 P2300 的精确支持矩阵 | 已定论：cppreference「C++26」逐编译器表（2026-09-13 取回）中 Execution control library（P2300R10 系，宏 `__cpp_lib_senders`）在 GCC/Clang/MSVC/Apple Clang 四列全红（无实现），相邻行已填版本号可证非表陈旧；本机 clang 22.1.0-rc3＋libc++ 与 gcc 12.2＋libstdc++ 的 `<execution>` 均仍是 C++17 执行策略头（`sender`/`schedule` 命中 0） |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

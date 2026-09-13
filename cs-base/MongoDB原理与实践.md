@@ -114,6 +114,20 @@ executionTimeMillis + stage 里出现 SORT(内存排序) / COLLSCAN = 立刻加�
 
 > ① Query Engine(SIBE) 与列存分析能力的 GA 进度；② 分片 meta 一致性在 balancer 中断下的恢复细节；③ zstd 各 level 对 WT 写放大的实测矩阵。
 
+> [!warning] 残余复核（2026-09-13）：三条**都还是真未决**，但 ① 里混着一个可先定的术语问题。
+> - ① 的**术语部分已定**：`SIBE` 这个写法在公开来源里没有对应的 MongoDB 引擎名。库内 2026-09-13 的 C2 复核记录（`_out/kb-completion-2026-09-13/C2-verified.json`）判定它应是 **SBE（Slot-Based Execution Engine）** 的笔误，并给出官方手册专页 `mongodb.com/docs/manual/reference/sbe/`。本轮为离线复核，**未能重验该页面**，故此处只作术语订正、不把它当结论。
+> - ① 的**GA 进度部分仍开放**：判据——抓 MongoDB 7.0/8.0 官方 release notes 与上述 SBE 手册页，确认 SBE 自哪个版本起成为默认执行引擎，以及分析/列存路线的产品状态（是否仍只在 Atlas 侧）。
+> - ② **仍开放**：需读官方分片运维文档与 `config.version`/`config.chunks` 语义，核对 balancer 中断后 `moveChunk` 的恢复与孤儿文档回收流程。本机无 mongod（`command -v mongod` 未命中），既不能复现也不能对读源码。
+> - ③ **仍开放**：属真机实验——固定数据集下对 snappy 与 zstd(level 1–19) 分别测 WiredTiger 写放大与压缩率；本机无实例，装 MongoDB 属新增依赖，按本轮范围不做。
+
+> [!success] 残余复核（2026-09-13 联网轮）：**① 的术语与版本两问已结（列存产品状态仍未决）；② 的 config.version 语义已结（中断恢复流程仍未决）；③ 仍开放**（真机实验，判据不变）。
+> - **① 术语部分已结（联网重验）**：官方手册确有该专页 <https://www.mongodb.com/docs/manual/reference/sbe/>，页标题为 **"Slot-Based Query Execution Engine"**，且页面标注 **New in version 5.1**。故第一轮「`SIBE` 是 `SBE` 笔误」的离线判定**成立**，并可补两个事实：引擎由 MongoDB **自动选择**（「MongoDB automatically selects the engine to execute the query」，eligible 查询才走 SBE，且「support for the slot-based execution engine is **version specific and actively changing**」）；**8.0 之前无法手工指定引擎**，「Starting in MongoDB 8.0, you can use query settings to specify an engine for queries」（`setQuerySettings`）。另：**时间序列的 block processing 自 8.0 起**可能被用于执行。注意引入版本是 **5.1 而非 7.0**。
+> - **① 的「列存分析能力 GA 进度」仍开放**：SBE 专页通篇讲的是**行式 slot 执行引擎**，未出现列存/columnar 表述，也未回答分析能力是否仅限 Atlas——该半边本轮**未取得官方佐证**。判据收紧为：抓 MongoDB 官方 release notes 与 Atlas 文档中列式/分析路线（Atlas SQL / columnar index 一类）的**产品状态标注**，只以官方「GA / preview / Atlas-only」字样为准。
+> - **② 的 `config.version` 语义已结**：官方 *config Database* 页说明——config 库为**内部库**（「The config database is internal. Applications and administrators should **not** modify or depend on its content during normal operation」）；`config.version` 集合存放当前元数据版本号，**只有一个文档**，形如 `{ "_id": 1, "minCompatibleVersion": 5, "currentVersion": 6, "clusterId": ... }`。即「靠 `config.version` 自助判断恢复状态」本身不是官方支持的运维手段——这一条应作为结论写进选型/排障口径。
+> - **② 的「balancer 中断下的 meta 恢复流程」仍开放**：本轮取到的只是**孤儿文档清理**侧的可恢复语义（官方 *Sharding Balancer Administration* 页：chunk 迁移的删除阶段在 failover 下被强化，**「Orphaned documents are cleaned up even if a replica set's primary crashes or restarts during this phase」**；有 *Asynchronous Range Migration Cleanup*，balancer 可不等待当前迁移的删除阶段就开始下一块迁移；`orphanCleanupDelaySecs`、`rangeDeleterBatchDelayMS` 默认 20ms；8.2 起 `terminateSecondaryReadsOnOrphanCleanup` 控制清理期长读被终止的行为）。但「balancer 中途停止/中断后，`config.chunks` 与 `config.version` 如何收敛」这一**面向用户的分步流程**，官方未给出——判据收紧为：抓官方 balancer 停止/启动运维页与 chunk 迁移状态字段（`_waitForDelete`、`shardingStatistics.*`）文档，若能取到分步流程则结，否则按上文结论写成「官方仅提供内部库语义，不给自助恢复流程」。
+> - **③ 仍开放**：判据不变——本机无 MongoDB 实例，该条是固定数据集下 snappy vs zstd(1–19) 的 WiredTiger 写放大/压缩率真机矩阵，本轮联网手段对其无效。
+> 依据：https://www.mongodb.com/docs/manual/reference/sbe/ ；https://www.mongodb.com/docs/manual/reference/config-database/ ；https://www.mongodb.com/docs/manual/core/sharding-balancer-administration/ （取回于 2026-09-13）
+
 ## Related
 
 [[CS-KB-Home]] · [[数据库原理与调优]] · [[Redis原理与实践]] · [[向量数据库与检索]] · [[高并发系统设计]]
@@ -127,5 +141,10 @@ executionTimeMillis + stage 里出现 SORT(内存排序) / COLLSCAN = 立刻加�
 | 补疏漏 | §五 把 retryable writes 一句带过成「幂等重试」 | 拆出四条边界（驱动默认开启可关 / 只重试一次 / 依赖副本集且 standalone 不支持 / 仍有重复应用窗口）；依据官方 retryable-writes 文档 |
 | 补疏漏 | §六 多文档事务只有结论、没有可验收边界 | 补边界表（FCV 门槛、默认 60s 事务寿命、单条 oplog 仍 ≤16MB、`maxTransactionLockRequestTimeoutMillis`）；依据官方事务生产考量 |
 | 加厚 | §二 Journal 只写「压缩 WAL + 默认 60s checkpoint」 | 补恢复三步、journal 约 100MB 滚动、checkpoint 默认上限 2GB、磁盘预留不足会崩溃；依据官方 journaling 文档 |
+| 残余复核 | §八 待确认①「Query Engine(SIBE) 与列存分析能力的 GA 进度」 | 拆两半：**术语部分已定**（`SIBE` 无对应引擎名，库内 C2 复核记录判定为 `SBE`/Slot-Based Execution Engine 的笔误并给出手册专页；本轮离线未重验该页）；**GA 进度仍开放**，判据=抓 7.0/8.0 release notes 与 SBE 手册页确认默认引擎生效版本 |
+| 残余复核 | §八 待确认②「分片 meta 一致性在 balancer 中断下的恢复细节」 | 仍开放：需官方分片运维文档 + `config.version`/`config.chunks` 语义对读；本机无 mongod（`command -v mongod` 未命中），不可复现 |
+| 残余复核 | §八 待确认③「zstd 各 level 对 WT 写放大的实测矩阵」 | 仍开放：属真机实验（固定数据集下 snappy vs zstd 1–19 测写放大与压缩率），本机无实例，装库超出本轮范围 |
+| 残余复核（联网轮） | §八 待确认①「Query Engine(SIBE) 与列存分析能力的 GA 进度」 | **拆两半：术语与版本已结，列存产品状态仍开放**。已结部分：官方页为 "Slot-Based Query Execution Engine"（SBE），标注 **New in version 5.1**（非 7.0），引擎由 MongoDB 自动选择、8.0 起可用 `setQuerySettings` 手工指定，时间序列 block processing 自 8.0 起。仍开放部分：该页无列存/分析表述，未取得「是否仅 Atlas」的官方产品状态标注。依据：https://www.mongodb.com/docs/manual/reference/sbe/ |
+| 残余复核（联网轮） | §八 待确认②「分片 meta 一致性在 balancer 中断下的恢复细节」 | **拆两半：`config.version` 语义已结，中断后收敛流程仍开放**。已结部分：官方 config 库页明确该库为内部库、不应被依赖，`config.version` 为单文档（`minCompatibleVersion` / `currentVersion` / `clusterId`）。仍开放部分：孤儿清理侧可恢复语义已有官方描述（failover 下仍会清理孤儿文档、异步 range migration cleanup、`orphanCleanupDelaySecs`、`rangeDeleterBatchDelayMS` 默认 20ms、8.2 起 `terminateSecondaryReadsOnOrphanCleanup`），但 `config.chunks`/`config.version` 在 balancer 中断后的**分步收敛流程**官方未给。依据：https://www.mongodb.com/docs/manual/reference/config-database/ ；https://www.mongodb.com/docs/manual/core/sharding-balancer-administration/ |
 
 回链：[[CORRECTIONS]] · [[AGENTS]]

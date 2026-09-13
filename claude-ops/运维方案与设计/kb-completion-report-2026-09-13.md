@@ -16,6 +16,8 @@ See also: [[AGENTS]] | [[HOME]] | [[CORRECTIONS]] | [[URL-REGISTRY]] | [[URL-Loo
 > 做法：先立校验基线 → 20 簇 fan-out 审计（联网核实）→ 独立复核证伪 → 20 簇并行回写（共享文件加锁）→ 校验器 + 外链巡检验收。
 > 结论：**三类问题共处理 522 处**（纠错 164 / 补疏漏 186 / 加厚过简 172），另有 161 处经核验确认原本正确、96 处如实标为「无法核实」。
 
+> [!success] 残余复核（2026-09-13）：本行三个数**可由落盘产物重算复现**，不是自述。对 `_out/kb-completion-2026-09-13/*-verified.json`（20 份）逐条统计 `status` 字段：`outdated` 164 / `omission` 186 / `too-brief` 172 / `confirmed` 161 / `unverifiable` 96，合计 **779**；164+186+172 = **522**，去重后涉及 **163** 篇文档；`rejected` 66、`downgraded` 58 亦逐份对上。依据：`D:\Document\local\knowledge\_out\kb-completion-2026-09-13\*-verified.json`（重算于 2026-09-13）。
+
 ## 一、任务边界与基线
 
 | 项 | 值 |
@@ -60,6 +62,8 @@ See also: [[AGENTS]] | [[HOME]] | [[CORRECTIONS]] | [[URL-REGISTRY]] | [[URL-Loo
 
 > [!note] 复核的作用是实打实的
 > 124 条（66 驳回 + 58 降级）被拦在回写之前。若只跑审计不跑复核，这些会直接污染知识库。
+
+> [!success] 残余复核（2026-09-13）：本表 `无法核实 unverifiable = 96` 与 `确认无误 confirmed = 161` 已按上条口径重算对上（见文首残余复核）；96 条另在 `_out/kb-completion-2026-09-13/_rows96.json` 有全量落盘，逐条含 `claim` / `rc`（原因分类）/ `cf`（复核说明）。原因分类分布：`unverified-claim` 62、`inference-not-observation` 17、`count-or-numeric` 6、`url-or-entity-gone` 6、`none` 3、`upstream-moved` 2；其中 8 条带 `file://` 本机证据（配置类，已在本机读过文件）。
 
 ## 四、最有价值的若干发现（附证据来源）
 
@@ -113,6 +117,8 @@ See also: [[AGENTS]] | [[HOME]] | [[CORRECTIONS]] | [[URL-REGISTRY]] | [[URL-Loo
 | 外链巡检 | `python scripts/check-links.py --workers 24` | 提取 1248 条 / 探测 1142 条 / 非 200 共 63 条 |
 | 残留锁文件 | 查 `_out/kb-completion-2026-09-13/*.lock` | 无 |
 
+> [!success] 残余复核（2026-09-13）：本节可**离线复跑复现**。①校验器重跑：`python scripts/validate-kb.py` → 仍 **0 ERROR**、退出码 0（现存 **377** 个 `.md` / 校验 280 篇，较报告时的 376/279 各 +1，属后续新增文档的正常漂移）；②外链巡检验尸：`_out/kb-completion-2026-09-13/linkcheck.txt` 表头即 **提取 1248 / 探测 1142 / 词法过滤 47 / 非 200 共 63**，与报告逐字一致；非 200 分层亦对上（403×27 + 401×10 + 429×1 = 38 属反爬/鉴权，404×17 含 API 基址）。依据：本机重跑 + 缓存报告（核验于 2026-09-13）。
+
 > [!tip] 63 条非 200 要分层读，不能当成 63 条死链
 > `403`×27 + `401`×10 + `429`×1 = **38 条是反爬/需鉴权**（页面活着，只是拒绝探测）；
 > `404`×17 中又有一部分是 **API 基址**（`api.osv.dev/v1/vulns/`、`api.deps.dev/.../packages/`、`api.anthropic.com` 无资源路径本就 404）。
@@ -124,6 +130,13 @@ See also: [[AGENTS]] | [[HOME]] | [[CORRECTIONS]] | [[URL-REGISTRY]] | [[URL-Loo
 2. **`AGENTS.md` 模型铁律失效**：建议把 `ox-alpha` 改为「继承会话默认模型，禁传 provider/model 覆盖」，并录入 [[CORRECTIONS]]。
 3. **并发会话的 3 篇新文档**：`status: stable` 但仍是 untracked（未 git add），且 `cache-relay.mjs.pre-probe-20260913` 备份文件、`.obsidian/workspace.json` 也在工作区——由作者确认后提交或清理。
 4. **`sources/` 条目数口径**：现为分期快照（C2 287 → C5 338 → C3 363 → C7 385 → C6 417），并发写入下会持续漂移，建议改为「以脚本重新清点为准」并由 `scripts/url-registry-mine.py` 定期刷新。
+
+> [!success] 残余复核（2026-09-13）：本节 4 条**逐条定论**。
+> **①96 条 `unverifiable`** —— 性质已澄清，**部分仍开放**。全量清单落盘在 `_out/kb-completion-2026-09-13/_rows96.json`（96 条，含 `claim`/`rc`/`cf`）与 `_unver_96.md`；原因分类 `unverified-claim` 62 / `inference-not-observation` 17 / `count-or-numeric` 6 / `url-or-entity-gone` 6 / `none` 3 / `upstream-moved` 2，其中 8 条带 `file://` 本机证据（配置类，**已在本机读过文件**，非未查）。真正「需本机实测或厂商确认」的是前者中的多数（如路由器固件行为、厂商未定义的语义），本库无法定论，判据即该 JSON 的 `cf` 字段里已写明的复跑命令或待确认项。
+> **②`AGENTS.md` 模型铁律** —— **已解决**。`AGENTS.md` 文首 [!danger] 块已加 2026-09-13 订正（点名 `ox-alpha` 已于 2026-09-12 下架、该条不可执行），并把规则改为只约束「**不得覆盖**」、不再点名模型；§十一第 9 条同步改写为「一律继承会话默认模型」。注意 [[CORRECTIONS]] 侧**未新增专条**，只在该订正里做了同族交叉引用（C-010「把配置字段当作稳定值」）——若作者认为值得独立成条，属另行决定。
+> **③并发会话的 3 篇新文档 / 备份文件 / `workspace.json`** —— **已解决**。`git status --porcelain --untracked-files=all` 现仅 1 行：` M .obsidian/workspace.json`（编辑器 UI 状态，属本机常态），**untracked 文件为 0**；3 篇新文档与 `scripts/claude-ops-deployments/cache-relay/cache-relay.mjs.pre-probe-20260913` 均已在 `673314c` 提交入库。依据：`git ls-files` 与 `git log -- <备份文件>`（核验于 2026-09-13）。
+> **④`sources/` 口径** —— **已解决，并订正建议里的工具错配**。`sources/README.md` 已改为「以重新清点为准」的明确表述；独立重算六页列表项 `- 来源::` 得 37 / 29 / 263 / 37 / 31 / 20 = **417**，与 README 现值一致。但「由 `scripts/url-registry-mine.py` 定期刷新」**不成立**：该脚本的自我定位是「只产出**草稿**，不自动改写 `sources/`」，做的是从全库挖掘 URL 生成候选条目，**不做条目清点**。清点只需 `grep -c '^- 来源::' sources/*.md`。
+> 依据：`_out/kb-completion-2026-09-13/_rows96.json`、`AGENTS.md`、`git ls-files`/`git log`、`sources/README.md`、`scripts/url-registry-mine.py` 文档串（核验于 2026-09-13）。
 
 ## 八、证据归档位置
 
@@ -153,3 +166,5 @@ See also: [[AGENTS]] | [[HOME]] | [[CORRECTIONS]] | [[URL-REGISTRY]] | [[URL-Loo
 | 日期 | 变更 |
 |---|---|
 | 2026-09-13 | 建报告：记录 20 簇 fan-out 审计、779 条复核结论、三类改动 522 处、验收结果与未决项 |
+| 2026-09-13 | 残余复核（§七 4 条逐条定论）：①96 条 `unverifiable` 澄清归档位置与原因分类分布（62/17/6/6/3/2），需真机或厂商确认者仍开放；②`AGENTS.md` 模型铁律已改（只约束「不得覆盖」、不再点名模型），[[CORRECTIONS]] 侧仅同族交叉引用 C-010；③并发会话 3 篇文档与 `.pre-probe-20260913` 备份均已在 `673314c` 提交，untracked 为 0；④`sources/` 已改为「以重新清点为准」，独立重算 = 417 与 README 一致，并订正「用 `url-registry-mine.py` 刷新」的工具错配 |
+| 2026-09-13 | 残余复核（可复现性）：文首 522/161/96 与 §三 计数由 20 份 `*-verified.json` 重算复现（779 = 164+186+172+161+96，去重 163 篇）；§六 验收离线复跑——`validate-kb.py` 仍 0 ERROR（现存 377 篇 / 校验 280），`linkcheck.txt` 缓存数 1248/1142/63 逐字对上 |
