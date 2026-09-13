@@ -3,11 +3,14 @@ title: "Agent 系统韧性架构深度剖析：容错 · 成本 · 认证 · 观
 aliases: [Agent韧性架构, Claude Code韧性, 错误处理与成本控制]
 tags: [ai/links, reference, ai/agent]
 created: 2026-06-13
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 source: "微信公众号"
 source_urls:
   - "https://mp.weixin.qq.com/s/3RUJT5zKWpj9Aeqe3ubSHg"
+  # 以下两条为「内容对应的公开上游分析」（非本文原文出处），2026-09-13 补录
+  - "https://raw.githubusercontent.com/nathanyjleeprojects/learn-from-claudecode/refs/heads/main/claude_code_07_retry_resilience.md"
+  - "https://zhanghandong.github.io/harness-engineering-from-cc-to-ai-coding/part2/ch06b.html"
 date: "2026-06-13 08:15:00"
 fetched_at: "2026-08-19"
 ---
@@ -15,6 +18,11 @@ fetched_at: "2026-08-19"
 # Agent 系统韧性架构深度剖析：容错 · 成本 · 认证 · 观测
 
 See also: [[AI-Links-KB-Home]] | [[Articles-Index]] | [[Claude-Code记忆机制源码拆解]] | [[Loop-Engineering-深度拆解-从产品功能集到方法论包装]] | [[2026-08-16-AI链接综述与归档]]
+
+> [!info] 上游锚点（2026-09-13 补）
+> 微信原链接实测被 302 到 `wappoc_appmsgcaptcha` 并返回「环境异常，完成验证后即可继续访问」，无法直接回溯正文；原 frontmatter 只有这一条 `source_urls`。以下两条是**内容对应的公开上游分析**（可与本文结论逐条对应），**不等于本文原文出处**：
+> - [learn-from-claudecode —「07. Retry & Resilience」](https://raw.githubusercontent.com/nathanyjleeprojects/learn-from-claudecode/refs/heads/main/claude_code_07_retry_resilience.md)：文件头注明 source 为 `github.com/nirholas/claude-code`，正文为 `withRetry.ts (824 lines)` 分析；其结论与本文逐条对应。
+> - [张汉东《驾驭工程 — 从 Claude Code 源码到 AI 编码最佳实践》第 6b 章《API 通信层 — 重试、流式与降级工程》](https://zhanghandong.github.io/harness-engineering-from-cc-to-ai-coding/part2/ch06b.html)：页面存在且标题一致。
 
 > 容错 · 成本 · 认证 · 观测
 
@@ -61,12 +69,31 @@ Claude Code 将错误处理分为三个层级，每一层都有独立的职责�
 | 🚫 **快速失败 · 不重试** | 401/403 认证错误、400 参数错误、用户取消、后台 529 | 避免雪崩 |
 | 🔁 **指数退避 + 抖动** | 429 速率限制、529 服务器过载（仅前台） | 25% 随机抖动防止雷鸣群效应 |
 | ⬇️ **降级重试 · 换策略** | 流式失败 → 同步请求、Prompt 过长 → 精确压缩、Opus 连续 529 → 回退 Sonnet、max_tokens 溢出 → 自动调整 | 优雅降级 |
+| ♾️ **持久重试 + 心跳**（原文未列，2026-09-13 补） | 无人值守任务（CI/CD、长跑 Agent） | 时间上限 **6 小时** + **30 秒** heartbeat 的「不放弃」重试 |
+
+两条原文未列的配套规则（2026-09-13 补）：
+
+- **`x-should-retry` 头：尊重但不盲信** —— Persistent mode、remote mode、subscriber 类型会覆盖该头的建议。
+- **Budget guard：重试不是免费的** —— 长 context 的反复重传会直接导致成本爆炸，需与成本控制联动（见 §二）。
+
+> [!warning] 更正与补遗（2026-09-13）：原表题为「重试策略的三大分类」，而上游分析明确列出**第四类**「Persistent retry + heartbeat: 무인 작업에서는 시간 기반 cap(6시간)과 heartbeat(30초)으로 제어된 "포기하지 않는" retry」，并另给出 `x-should-retry` 与 budget guard 两条规则。补上这三项后，本节才覆盖 CI/CD 与长跑 Agent 场景。
+> - 来源：[learn-from-claudecode —「07. Retry & Resilience」](https://raw.githubusercontent.com/nathanyjleeprojects/learn-from-claudecode/refs/heads/main/claude_code_07_retry_resilience.md)
+
+> [!warning] 降级重试的边界条件（2026-09-13 补）：原表「Opus 连续 529 → 回退 Sonnet」缺四条可判定的边界——
+> 1. **仅 529 触发**：`Model fallback chain … 단, 529 overload에서만 트리거 -- 모든 에러에 fallback하면 불필요하게 품질이 낮아진다`；前台连续 3 次 529 → 触发 Opus → Sonnet；
+> 2. **回退前清理状态**：需清空 `StreamingToolExecutor` 并剥离 thinking signatures；
+> 3. **停止条件一**：max_output_tokens 恢复最多 3 次（`query.ts:164` 定义 `MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`）；
+> 4. **停止条件二**：reactive compact 每次 loop 迭代只做一次（`hasAttemptedReactiveCompact` 标志）。
+> - 来源：[learn-from-claudecode 同上](https://raw.githubusercontent.com/nathanyjleeprojects/learn-from-claudecode/refs/heads/main/claude_code_07_retry_resilience.md) · [6551Team — error-recovery-en](https://raw.githubusercontent.com/6551Team/claude-code-design-guide/refs/heads/main/architecture/17-%E9%94%99%E8%AF%AF%E6%81%A2%E5%A4%8D/error-recovery-en.md)
 
 ### 前台 vs 后台：差异化处理
 
 最精妙的设计之一：**529 错误在前台查询（用户等待）会重试，在后台任务（摘要、标题、建议）直接放弃**。原因是后台任务的盲目重试会在网关层产生 3-10 倍的放大效应，加剧雪崩。
 
 > 💡 **设计启示**：同样的错误码在不同上下文意味着不同的事情。CCR 模式下 401 是暂态网络抖动；Fast Mode 短限流下保持原模型以利用 Prompt Cache；Opus 不可用时降级 Sonnet。每一条规则的背后都是对"这个错误在这个上下文中意味着什么"的深入理解。
+
+> [!info] 补：Fast Mode 降级的可判定阈值（2026-09-13）——原文只说「短限流」，上游分析给出了具体阈值：等待 **≤20 秒**时维持 fast mode 以保住 prompt cache；**>20 秒**切到 standard，并设 **≥10 分钟 cooldown** 防止 flip-flopping（cache-aware 设计的直接推论）。
+> - 来源：[learn-from-claudecode —「07. Retry & Resilience」](https://raw.githubusercontent.com/nathanyjleeprojects/learn-from-claudecode/refs/heads/main/claude_code_07_retry_resilience.md)
 
 ### AsyncGenerator：把重试变成可观察过程
 
@@ -94,9 +121,14 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Syst
 
 > 💡 **最大杠杆**：保持系统提示和工具定义稳定可以让缓存命中率最大化——这比减少调用次数更能降低成本。这也是为什么 Claude Code 用动态边界标记将系统提示分成可缓存和不可缓存两部分。
 
+> [!warning] 更正（2026-09-13）：上表 **Opus 列（$15 / $75 / $18.75 / $1.50）已过期**（原表述保留在上表）。可核来源给出的现行价为 **Opus 4.6 = $5 / $25**，第三方生态知识库另列 Opus 4.5 / 4.6 / 4.7 同为 $5/$25、1M context、128k max output；缓存换算规则为 **5m write = 1.25× 输入 → $6.25**、**cache read = 0.1× 输入 → $0.50**。**Sonnet 列（$3 / $15 / $3.75 / $0.30）与现行规则一致，仍然正确**；正文「cache read 的价格通常只有 input 的十分之一」一句也正确，但原表缺「缓存写 = 1.25× 输入」这条换算规则。**「Opus Fast Mode $30 / $150」在可核来源中查不到对应项**（适用版本不明），保留原文但不作价目引用。
+> - 来源：[WaveSpeedAI — Claude Opus 4.6](https://wavespeed.ai/llm/anthropic/claude-opus-4.6)（FAQ 原文「$5.00 per million input tokens and $25.00 per million output tokens」）· [claude-creative-stack 生态知识库](https://raw.githubusercontent.com/barmoshe/claude-creative-stack/refs/heads/main/knowledge/01-claude-ecosystem.md)
+
 ### 收益递减检测：超越简单上限
 
 > 🎯 **高级技巧**：Token 预算不是"花够了就停"，而是"不再产生价值就停"。当模型连续 3 次续跑、每次新增不到 500 token，系统判定其陷入低价值重复工作，即使未达预算上限也提前终止。
+
+> [!warning] 未能核验（2026-09-13）：上述「连续 3 次续跑 / 每次新增不到 500 token」两组数字本库**未能核验**——官方 costs 文档页（code.claude.com/docs/en/costs）可打开但正文未取到；6551Team 的 error-recovery 文档已完整取回，其中只有 `MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`（指**输出 token 恢复次数**，与本文描述的「收益递减检测」不是同一机制），未见 500 token 阈值。引用时应标注「据源码分析，未独立验证」。
 
 ### 渐进式速率限制预警
 
@@ -104,6 +136,8 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Syst
 1. **70% 利用率**：开始预警（低于 70% 不警告，避免每周重置误报）
 2. **85% 利用率**：附带升级建议
 3. **100% 触达**：明确告知重置时间，提供 Overage 选项
+
+> [!warning] 未能核验（2026-09-13）：70% / 85% / 100% 这组三级阈值在可访问的两份来源（官方 costs 页取不到正文；6551Team error-recovery 全文）中**均未出现**，本库未能证真；引用时请标注来源与核验日。
 
 > 💡 **用户体验本质**：渐进式预警让用户在接近限制时主动调整行为，而不是在突然被中断时手足无措。成本可见性是 Agent 可信度的基石——用户不会信任一个他们无法监控消耗的 Agent。
 
@@ -164,6 +198,10 @@ OAuth PKCE 流程 (浏览器授权)
 | `logEvent` | 产品团队 | 结构化遥测 · 采样收集 · 双路由（Datadog 去 PII / 1P BigQuery 保留 PII） |
 | `logOTelEvent` | 性能工程师 | OpenTelemetry Span · TTFT、输出 token、工具调用分布 · Perfetto 追踪 |
 
+> [!info] 用户可控开关与出处更正（2026-09-13 补）：原表只有「系统怎么记」，没有「用户能不能关」。可核页面逐字给出四条用户侧事实——① 诊断日志存本地，**只有显式触发上报时才传输**（如运行 `/doctor` 或提交 feedback），后台不发送诊断数据；② PII 标记值使用 `_PROTO_` 前缀的 payload key，在事件到达通用后端（如 Datadog）前已被剥离，只有一方事件记录导出器可见（路由到受权限保护的 BigQuery 列）；③ `/privacy-settings` 可查看与调整；④ 环境变量 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` 可关闭非必要流量。
+> **出处更正**：这些内容来自**社区源码文档站**（mintlify.wiki/saurav-shakya/Claude_Code-_Source_Code，对应 GitHub 仓库 `saurav-shakya/Claude_Code-_Source_Code`），**不是 Anthropic 官方页**；`code.claude.com/docs/en/costs` 页面本身可打开（标题 Manage costs effectively），但正文本轮未取到。
+> - 来源：[Claude Code 源码文档站 — analytics/telemetry](https://mintlify.wiki/saurav-shakya/Claude_Code-_Source_Code/reference/analytics-telemetry) · [官方 costs 页](https://code.claude.com/docs/en/costs)
+
 ### 队列-Sink 模式：解决初始化时序
 
 > 🔄 **启动安全的标准模式**：应用启动初期，日志 / 分析 Sink 尚未挂载。所有事件先推入队列，Sink 就绪后一次性排空。无损 · 非阻塞 · 一次性排空 · 幂等——这套属性让基础设施层不会阻塞业务启动。
@@ -207,3 +245,18 @@ logEvent('tengu_api_query', {
 > 我们已经走过 Agent 的循环、流式、上下文、工具、记忆、调度、安全、UI、韧性——一个完整的 Agent 系统在工程层面的所有支柱。但还有最后一块拼图：这些组件如何被打包、分发、升级，又如何在用户机器上安静地完成自我更新？
 >
 > **下一篇：发布与分发** —— Agent 的生命周期工程包括：原生二进制构建、自动更新机制、多平台分发策略、版本回滚、灰度发布与 Beta 通道——让一个每天迭代的 Agent 在数百万终端上保持鲜活。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | frontmatter 只有微信一条 `source_urls`，无任何可回溯的上游锚点 | 增补两条「内容对应的公开上游分析」（明确**非**原文出处）并在正文加锚点块；依据 learn-from-claudecode「07. Retry & Resilience」与张汉东《驾驭工程》ch06b |
+| 纠错 | 五维定价表 Opus 列（$15/$75/$18.75/$1.50）已过期，且缺「缓存写 = 1.25× 输入」规则 | 保留原表并加更正块：现行 Opus 4.6 = $5/$25，缓存写 $6.25、缓存读 $0.50；Sonnet 列确认仍然正确；依据 WaveSpeedAI 与 claude-creative-stack |
+| 纠错 | 「Opus Fast Mode $30 / $150」在可核来源中查不到 | 标注适用版本不明，保留原文但不作价目引用 |
+| 补疏漏 | 「Fast Mode 短限流」没有可判定阈值 | 补 ≤20 秒维持 fast mode（保 cache）、>20 秒切 standard 并设 ≥10 分钟 cooldown；依据上游分析的 Key Takeaways |
+| 补疏漏 | 重试策略只写三类，漏第四类与两条配套规则 | 补「持久重试 + 心跳」（6 小时 cap / 30 秒 heartbeat）、`x-should-retry` 尊重但不盲信、budget guard；依据上游分析 |
+| 补疏漏 | 「Opus 连续 529 → 回退 Sonnet」缺边界条件 | 补 529-only 触发（前台连续 3 次）、回退前清理 `StreamingToolExecutor` 与 thinking signature、两条停止条件（输出恢复上限 3 次 / reactive compact 每轮一次）；依据 learn-from-claudecode 与 6551Team error-recovery |
+| 补疏漏 | 分层日志表没有「用户可控开关」，且审计曾把社区文档站误当官方页 | 加四条用户侧事实（诊断日志存本地且仅显式上报、`_PROTO_` 前缀剥离 PII、`/privacy-settings`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`），并更正出处为社区源码文档站 |
+| 补疏漏 | 「连续 3 次续跑 / 每次 <500 token」与「70% / 85% / 100% 三级预警」无出处 | 两处均标注**本库未能核验**（可访问来源中不存在），引用需标来源与核验日 |
+
+- 回链：[[CORRECTIONS]]｜[[AGENTS]]

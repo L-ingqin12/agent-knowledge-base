@@ -3,7 +3,7 @@ title: Hermes 并行任务调度与通信机制
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-06-16
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -49,6 +49,8 @@ kanban:
   dispatch_interval_seconds: 60   # 每 60 秒调度一轮
   failure_limit: 2                # 同一任务连续失败 2 次自动 block
 ```
+
+> [!warning] 更正（2026-09-13）：以上键值为**作者环境实测/手抄**，本报告与库内均未附配置原文、出处路径或原始输出（全库仅本报告出现这些键名），且 Hermes 版本号仍未记录（见文首「未记录」）——复现前须以本机配置与 `hermes --version` 为准，不可当作通用默认值。（原表述为「### 当前配置」下的 yaml 片段，未标出处）
 
 ---
 
@@ -185,6 +187,8 @@ Worker 完成时写入:
 - 后写入的同 key 值覆盖前值
 - `_authors` 记录每个 key 的写入者
 
+> [!warning] 更正（2026-09-13）：`build_worker_context()`、`CTX_MAX_COMMENTS`、`BLACKBOARD_PREFIX`、`latest_blackboard()`、`_authors` 等函数名/常量名来自作者环境的源码阅读，本报告**未记录 Hermes 版本号与源码路径**，库内无从复核——应视为「作者环境观察」而非实现事实。补齐版本号 + 源码路径 + 一段脱敏的 worker 首次输入与 blackboard 同 key 覆盖的实际结果后，方可作为实现依据。
+
 ---
 
 ## 四、并行拓扑模式
@@ -249,6 +253,17 @@ Parent (kanban orchestrator)
 | Kanban 单线程 dispatcher | 同一时刻只一个 dispatcher 扫板 (多 gateway 时仅一个开启 dispatch_in_gateway) |
 | delegate_task 同步阻塞 | 父必须等待所有子完成才继续 |
 
+> [!note] 补：边界被违反时的可观测现象与运维动作（2026-09-13）
+>
+> | 边界 | 可观测现象 | 运维动作 |
+> |---|---|---|
+> | 父 turn 中断 → 子任务取消 | 批次无 summary 回执，父侧停在未完成态 | 以父会话/批次为线索排查并清理残留，不依赖子代理自身收尾 |
+> | 深于 `max_spawn_depth` 的 spawn | 子代理工具清单中不含 `delegate_task`（leaf），派生请求被拒 | 需要更深层时显式调高 `max_spawn_depth`，或把编排上移到 Kanban link 链 |
+> | `max_iterations: 50` 触顶 | 子代理停止迭代、回交部分结果（具体收尾行为随版本而异） | 复核 summary 的「未完成」段，拆小任务重派 |
+> | Kanban claim TTL 15min 到期 | 任务回到可领取态；heartbeat 续期失败会导致重复领取 | `hermes kanban list` 核对状态与认领者，comment 记录后再重派 |
+>
+> 说明：上表现象/动作由本报告已述机制推得，**库内无实测样本**；补齐需附一次真实的失败注入记录（版本号 + 日志原文）。
+
 ---
 
 ## 六、当前运行状态
@@ -267,6 +282,19 @@ GitHub:
   repo: L-ingqin12/claude-code-knowledge
 ```
 
+> [!warning] 更正（2026-09-13）：上面这棵树是分析日 2026-06-16 的快照，**没有采集时刻、采集命令与原始输出**；下表给出可复现同一张表的核对方式（当前状态以实跑输出为准，原树保留不改）。
+>
+> | 状态项 | 采集命令 | 期望输出判据 |
+> |---|---|---|
+> | model-router v3 | `systemctl list-units --type=service \| grep -i hermes` 定位单元后 `systemctl status <unit>` | `active (running)`；启动行含 `--upstream` ARK 地址 |
+> | 路由健康 | `curl -s http://127.0.0.1:18888/health` | 健康检查 JSON + 版本号 |
+> | 分层/降级统计 | `curl -s http://127.0.0.1:18888/stats` | 分层调用统计 + 降级次数 + 错误数（见 [[hermes-session-optimization-report]] §2.5） |
+> | hermes-gateway (default) | `systemctl status <gateway-unit>` | `active (running)`，日志含 feishu `connected` |
+> | hermes-gateway-ranzi | `systemctl status <gateway-ranzi-unit>` | `active (running)` |
+> | kanban dispatcher | `hermes kanban list` | 有活跃任务则逐行列出行；空板输出空清单（每 60s 轮询一轮） |
+> | profiles | `hermes kanban list` / gateway 日志 | `default (idle) + ranzi (idle)` |
+> | 缓存监控（可选） | `bash /home/pi/hermes-cache-monitor.sh once` | 读到 permafrost + router 状态、无报错（见 [[hermes-cache-analysis]] §4.1） |
+
 ---
 
 ## 七、选型决策速查
@@ -282,3 +310,16 @@ GitHub:
 | 短期推理/代码生成 | delegate_task |
 | 定时周期性任务 | Kanban + cron |
 | 批量处理(>3 并行) | Kanban Swarm |
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §一/§五 的并发上限与 dispatcher 键值（`max_concurrent_children` / `max_spawn_depth` / `max_iterations` / `dispatch_interval_seconds` / `failure_limit` / claim TTL）无出处 | 标注为「作者环境实测/手抄，未附配置原文与源码路径，Hermes 版本号未记录」，复现前以本机配置与版本为准，不作通用默认值 |
+| 加厚 | §3.3 / §3.5 以函数名与常量名（`build_worker_context()` / `BLACKBOARD_PREFIX` 等）呈现为实现事实 | 标注为作者环境源码阅读所得、库内无从复核，并列出补齐条件（版本号 + 源码路径 + 脱敏样本与覆盖结果） |
+| 补疏漏 | §一/§五 的能力边界未说明被违反时的可观测现象与清理动作 | 补「边界 → 可观测现象 → 运维动作」表（父 turn 中断残留、超 `max_spawn_depth`、50 轮触顶、claim TTL 到期），并注明库内无实测样本 |
+| 加厚 | §六 运行状态表无采集时刻、命令与原始输出 | 保留原快照，另补「状态项 → 采集命令 → 期望输出判据」核对表（systemctl / `:18888/health` / `/stats` / `hermes kanban list` / 缓存监控） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

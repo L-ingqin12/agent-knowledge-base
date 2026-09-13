@@ -3,7 +3,7 @@ title: C++核心知识
 aliases: [现代C++, CPP基础, cpp-core]
 tags: [cs/cpp, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: 教科书级标准事实整理（ISO C++11/17/20/23 口径）；机制类论断以 cppreference/cpdishes 社区共识为准，存疑处标待确认
 fetched_at: 2026-08-26
@@ -50,10 +50,15 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 ## 四、并发与内存模型（对接 [[高并发系统设计]]）
 
 - `std::thread/jthread`（jthread 自动 join+stop_token 协作取消）
-- **内存序**六档：relaxed / acquire-release 配对 / seq_cst 默认；acquire 读、release 写构成同步于 happens-before
+- **内存序**五档：relaxed / acquire / release / acq_rel / seq_cst（默认）；acquire 读、release 写构成同步于 happens-before。`memory_order_consume` 不用学：现行草案的枚举里已没有它（枚举值 1 空出），历史上它与 acquire 等价、且已被建议弃用。
 - 锁族：`mutex/recursive/shared(shared_mutex 读写锁)/scoped_lock 多锁防死锁`
 - 条件变量三件套：`unique_lock<mutex>` + `cv.wait(lk, pred)` **谓词版必带**（防虚假唤醒）
-- async/future/promise；`launch::deferred vs async` 执行策略差异；future 析构不 join 的 async 特例（**经典陷阱**）
+- async/future/promise；`launch::deferred vs async` 执行策略差异；**future 析构语义要按来源分两类**：`std::async` 返回的 future 若未移出局部作用域，析构可能阻塞到共享状态就绪（是"隐式等待"，不是"析构不 join"）；只有来自 `packaged_task`/`promise` 等其他来源的 future，析构才从不阻塞
+  - 反例：`auto h = std::async(...); work1(); h.get();` —— 默认策略可能落到 `launch::deferred`，此时两段工作在同一线程串行执行，没有并发
+
+> [!warning] 更正（2026-09-13）：原表述为「**内存序**六档：relaxed / acquire-release 配对 / seq_cst 默认」，既称六档却只列了三项，且全文未提 consume。依 C++ 现行草案 [atomics.order]（https://eel.is/c++draft/atomics.order），`enum class memory_order` 只有 relaxed / acquire / release / acq_rel / seq_cst 五个枚举值。
+
+> [!warning] 更正（2026-09-13）：原表述为「future 析构不 join 的 async 特例（**经典陷阱**）」，方向写反。依草案 [futures.async]/5 Note 2（https://eel.is/c++draft/futures.async）：async 取得的 future 被移出局部作用域时，其析构**可以阻塞**等待共享状态就绪；不阻塞的是其他来源的 future。
 
 ## 五、工程实践速查
 
@@ -68,7 +73,7 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 ## 六、新特性纵深（C++11 → 26：每代解决什么，怎么用对）
 
 ### 演进主线一句话
-11 立语言现代化（移动/lambda/智能指针）→ 14 补漏 → 17 工程化（结构化绑定/optional）→ 20 范式跃迁（concepts/ranges/coroutines/modules）→ 23 易用性收官（expected/print/deducing this）→ 26 反射在路上。
+11 立语言现代化（移动/lambda/智能指针）→ 14 补漏 → 17 工程化（结构化绑定/optional）→ 20 范式跃迁（concepts/ranges/coroutines/modules）→ 23 易用性收官（expected/print/deducing this）→ 26 反射已收录（P2996 已进 C++26 工作草案，头文件 `<meta>`）。
 
 ### 必须用对的十件事（附反例）
 | 特性 | 正确用法 | 反面案例 |
@@ -92,7 +97,34 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 - stacktrace：异常带栈（配合 [[LLVM编译器基础设施]] 符号化）
 
 ### C++26 展望（跟踪不押注）
-反射(P2996 进展中)/契约(contracts)/std::execution 入 IS——生产采用等编译器落地矩阵（**待确认**），新代码按 [[参考-CPP-CPO定制点与std-execution]] 的迁移建议留薄壳。
+反射已收录（P2996 进 C++26 工作草案，头文件 `<meta>`）/契约（`<contracts>`）/std::execution 入 IS（已进工作草案；作为 IS 正式发布仍未定）——生产采用按下表分档，新代码按 [[参考-CPP-CPO定制点与std-execution]] 的迁移建议留薄壳。
+
+> [!warning] 更正（2026-09-13）：原表述为「反射(P2996 进展中)」「26 反射在路上」。反射已是 C++26 的既定内容，不再是"在路上/进展中"——要跟踪的不再是"是否进标准"，而是"各编译器实现进度"。依 cppreference「C++26」页的库头文件清单（https://en.cppreference.com/w/cpp/26）：`<meta>`、`<execution>`、`<contracts>`、`<hive>`、`<inplace_vector>`、`<linalg>`、`<rcu>`、`<simd>`、`<text_encoding>`、`<stdbit.h>`、`<stdckdint.h>` 均已列入。
+
+**C++26 可落地库件一览**（解决什么问题 / 语言还是库 / 今天能否用）
+
+| 头文件 | 解决什么问题 | 类型 | 今天能否用 |
+|---|---|---|---|
+| `<meta>` | 编译期反射（P2996）：类型与成员信息可枚举 | 库 + 语言机制 | 主流编译器未齐；原型可走 bloomberg/clang-p2996 分支 |
+| `<contracts>` | 前置/后置条件与契约断言（P2900） | 库 + 语言机制 | 未见生产实现；回退 `assert`/gsl `Expects` |
+| `<execution>` | sender/receiver 异步与并行（P2300） | 纯库 | 上游 stdexec 可先吃；迁移见 [[参考-CPP-CPO定制点与std-execution]] |
+| `<hive>` | 元素地址稳定的无序容器（增删不失效） | 纯库 | 回退 `std::list`/`deque` + 索引池 |
+| `<inplace_vector>` | 定容 vector（内联存储、无堆分配） | 纯库 | 回退 `std::array`+手工 size，或 `boost::static_vector` |
+| `<simd>` | 数据并行类型（`std::simd`） | 纯库 | 回退编译器 vector 扩展 / `std::experimental::simd` |
+| `<linalg>` | 稠密线性代数（BLAS 后端） | 纯库 | 回退 Eigen / 直接调 BLAS |
+| `<rcu>` | 读多写少的 RCU 同步原语 | 纯库 | 回退 `shared_mutex` / `atomic<shared_ptr>` |
+| `<text_encoding>` | 查询平台文本编码（替代 `codecvt` 手艺） | 纯库 | 回退 iconv / ICU 探测 |
+| `<stdbit.h>` / `<stdckdint.h>` | C23 位操作与带溢出检查的整数运算 | 纯库 | 回退 `__builtin_*`（如 `__builtin_add_overflow`） |
+
+**编译器落地三档（判据 + 回退）**：逐编译器版本号与 partial 标记以 cppreference「C++26」页自带的支持表为准（本环境抓取该页失败，故不在此抄录版本号，落地前现场核对）。
+
+| 档 | 判据（可验收） | 回退方案 |
+|---|---|---|
+| 可生产 | 目标编译器在该页标为完整支持，且本项目用到的库件能用 `-std=c++26` 编译并跑通回归 | 直接采用 |
+| 需厂家实现验证 | 该页标 partial，或只在 nightly/分支里可用 | `std::print` 缺→`{fmt}`；`std::execution` 缺→`stdexec`；`<inplace_vector>` 缺→`boost::static_vector`；反射缺→bloomberg/clang-p2996 分支做原型 |
+| 暂不可用 | 无任何实现可跑通最小用例 | 维持 C++20/23 基线，接口留薄壳，逐条按上表回退 |
+
+> 来源：cppreference「C++26」（C++26 库头文件清单 + 逐编译器支持表）https://en.cppreference.com/w/cpp/26 ；内存序与 future 语义分别取草案 [atomics.order]、[futures.async]。
 
 ## 七、待确认项
 
@@ -101,3 +133,14 @@ See also: [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[数
 ## Related
 
 [[CS-KB-Home]] · [[参考-CPP-CPO定制点与std-execution]] · [[参考-COM组件框架-Windows集成]] · [[操作系统八股]] · [[高并发系统设计]] · [[lognet-rootcause-multiagent-architecture]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §六 把反射写成「在路上 / P2996 进展中」 | 改为「已收录（P2996 工作草案，`<meta>`）」，不确定性移到编译器实现进度；依据 cppreference「C++26」页头文件清单 |
+| 纠错 | §四 称内存序「六档」却只列三项，且无 consume 说明 | 改为五档完整清单 + 「consume 不用学」；依据草案 [atomics.order]（枚举仅 5 值） |
+| 纠错 | §四 写「future 析构不 join 的 async 特例」 | 方向写反：async 的 future 析构可能阻塞，其他来源才不阻塞；依据草案 [futures.async]/5 Note 2，并补最小反例 |
+| 加厚 | §六 展望只有一句话，无库件清单、无编译器矩阵 | 补「C++26 库件一览表」与「编译器落地三档（判据+回退）」；依据同页逐编译器支持表 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

@@ -184,3 +184,36 @@ kDRQCIR0HXQWQQgCtBOjDb6X4tIOcFpaTABB6nmpIeSEbsD4EQAt8eKhAAzY+gZTxzI8sHNB6hgphSCg
 OoTQoYUnViGHuhViljiYG/lv6EyIcAE6q9hs4ObIckmANmGJhHAEGHVgWEoHAcQxHuEAfgFCB6BAAA==
 ```
 %%
+
+## 核验发现与待修（2026-09-13）
+
+> 本节由 C9 回写批次写入；上方 `%%` 内的绘图数据（`compressed-json`）**未改动**，以下为 LZString 解压后逐条实读的结论，供下次在 Obsidian 中编辑时逐项修复。
+
+| # | 发现 | 判据（实测） |
+|---|---|---|
+| 1 | 解码器侧缺两处连线 | `dmhsa`（Masked Self-Attention）`boundElements` 只有 `[tdmhsa]`，**无任何入边**；`dca`（Cross-Attention）唯一入边 `B91WNJVQ` 来自 `dan1`（Q 侧），**没有箭头把编码器输出送进 `dca` 作 K/V**；`a_enc_dec` 终点 (594.0,123.4) 落在 `decB`(x=600..880) 左缘外 6px。`dca` 上「Q=Decoder, K,V=Encoder」文字无误，只缺箭头 |
+| 2 | 嵌入与位置编码缺相加记号 | `embText`/`peText` 各出一条箭头（`7RwKwgrA` / `SQUNhUA2`）汇入 `emhsa` 的同一锚点（`fixedPoint=[0,0.5001]`），17 条文本中无 `⊕`；论文口径为同维（`d_model`）逐元素相加后再进编码器栈 |
+| 3 | 层数口径不一、无 N 值 | 编码器框只写 `Encoder`、解码器框写 `Decoder x N (causal)`；全图文本无 N 值。论文 base 模型：编码器与解码器各为 **N=6** 层相同子层堆叠 |
+| 4 | 5 个 Add & Norm 缺残差跳连 | `ean1`/`ean2`/`dan1`/`dan2`/`dan3` 各只有 1 条入边且都来自子层；14 条箭头中无一条绕过子层。论文口径：每个子层 residual 后接 LayerNorm，即 `Add & Norm(x) = LayerNorm(x + Sublayer(x))` |
+| 5 | 3 处缺回引（[[AGENTS]] 判废项） | `a_ff_an2`→`ean2`、`a_msa_an1`→`dmhsa`、`a_lm_out`→`outPred`：目标矩形 `boundElements` 未包含对应箭头 id（当前计数 3，补完后期望 0） |
+| 6 | 绑定字段口径（规范侧同步修正） | 本图 28 个 binding 全为 Excalidraw 现行 FixedPointBinding（`elementId` + `fixedPoint` + `mode`），其中 `mode="inside"` 仅 `a_ca_an2.endBinding` 与 `7RwKwgrA.startBinding`；[[AGENTS]] 第十一节的 `focus`/`gap` 描述属旧版字段 |
+
+**复现方法**：取 `%%` 内的 `compressed-json` 段 → 拼接时去掉全部空白 → `LZString.decompressFromBase64()` → 统计 `elements` 并核对箭头两端 binding 与回引。本图期望输出：**45 元素 = 14 矩形 + 17 文本 + 14 箭头，0 处悬空绑定、3 处缺回引**。
+
+> 来源（2026-09-13 取回 HTTP 200）：
+> - The Annotated Transformer（Harvard NLP）：`The encoder is composed of a stack of N=6 identical layers.`、`LayerNorm(x + Sublayer(x))`、`x = x + Variable(self.pe[:, :x.size(1)], ...)` → https://nlp.seas.harvard.edu/2018/04/03/attention.html
+> - Excalidraw 元素类型定义：`BindMode = "inside" | "orbit" | "skip"`、`FixedPointBinding{elementId, fixedPoint, mode}` → https://cdn.jsdelivr.net/gh/excalidraw/excalidraw@master/packages/element/src/types.ts
+> - obsidian-excalidraw-plugin 2.25.3（本图 `source` 字段所指 tag）→ https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/tag/2.25.3
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | 解码器侧缺 2 处连线（`dmhsa` 无入边；编码器输出未接 `dca` 的 K/V） | 按上表 #1 登记为待修（绘图数据未改；修复动作见 [[ARROW-CHECKLIST]] §8 处置） |
+| 补疏漏 | 嵌入与位置编码未画相加（两箭头汇入同一点、图内无 `⊕`） | 登记待修（#2），并写明论文口径与 `d_model` 同维要求 |
+| 纠错 | 编码器/解码器层数口径不一且无 N 值 | 登记 **N=6**（base 模型）口径（#3），保留图上两种写法不改绘图 |
+| 补疏漏 | 5 个 Add & Norm 无残差跳连 | 登记 `LayerNorm(x + Sublayer(x))` 判据与待修项（#4） |
+| 纠错 | 3 处矩形缺箭头回引（`ean2`/`dmhsa`/`outPred`） | 按 [[AGENTS]] 判废项登记待修，期望补完后缺失数 = 0（#5） |
+| 加厚 | 本页无任何可复现的核验步骤与外部来源 | 补「复现方法 + 期望输出」与三条外部来源（#6、来源块） |
+
+> 相关：[[ARROW-CHECKLIST]]（§7 字段级台账、§9 全量登记）｜[[CORRECTIONS]]｜[[AGENTS]]

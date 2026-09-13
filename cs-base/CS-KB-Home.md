@@ -3,7 +3,7 @@ title: CS-KB-Home
 aliases: [计算机基础库, CS知识库, cs-base-MOC]
 tags: [moc, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 ---
 
@@ -48,6 +48,8 @@ status: review
 | [[向量数据库与检索]] | HNSW/IVF/PQ 机制级/过滤难题/RRF 混合检索/容量速算 |
 | [[Kafka原理与实践]] | 日志即队列的物理论证/ISR 与 acks 可靠性边界/消费组再平衡治理/exactly-once 链 |
 | [[Raft与分布式协同]] | 任期时钟选举/日志复制提交铁律/安全性五约束/脑裂与成员变更边界/各存储分册共识落点回连 |
+
+> [!warning] 缺口（2026-09-13）：`cs-base/SQLite原理与实践.md` **并不存在**——本簇复核逐一清点 cs-base 目录 28 个 .md、全库按文件名（`*SQLite*`/`*sqlite*`）检索为空、git 历史亦无删除记录，故属**未建篇**而非被裁剪的旧文。SQLite 现有覆盖落在 [[数据库原理与调优]] §七（WAL / journal_mode / wal_autocheckpoint / synchronous=NORMAL / checkpoint / FTS5）。是**新建独立篇**还是**明确并入总纲**，需人工确认后再动。
 
 ### 系统
 | 文档 | 一句话 |
@@ -96,3 +98,11 @@ CS-KB-Home (本页)
 - **转 LLM 工程** → [[深度学习算法基础]] → [[向量数据库与检索]] → [[RAG检索增强生成实战]]
 
 See also: [[AGENTS]] · [[Claude-Ops-KB-Home]] · [[SESSION-ARCHIVE-2026-08-26]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | 数据库分册的文档地图里既无 SQLite 独立篇、也无处说明它不存在（AGENTS 标签体系与 [[数据库原理与调优]] 的 source 都暗示该篇存在） | 在「数据库分册」表下加缺口标注：说明 `cs-base/SQLite原理与实践.md` 不存在、SQLite 现有覆盖在 [[数据库原理与调优]] §七，新建或并入需人工确认；依据本簇复核（目录逐一清点 + 全库文件名检索为空 + git 历史无删除记录） |
+
+回链：[[CORRECTIONS]]

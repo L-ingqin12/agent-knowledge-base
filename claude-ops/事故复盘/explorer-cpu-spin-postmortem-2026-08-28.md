@@ -3,7 +3,7 @@ title: Explorer 100% CPU 空转事故复盘
 aliases: [explorer cpu spin, 文件夹打开慢, ShellIconOverlayIdentifiers 空转, 壳扩展优化]
 tags: [incident, windows/explorer]
 created: 2026-08-28
-updated: 2026-08-31
+updated: 2026-09-13
 status: stable
 ---
 
@@ -19,6 +19,11 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 
 - 用户反馈「文件夹打开加载过慢」，C:（NVMe SSD）与 D:（5400rpm HDD）均受影响
 - 实测 explorer.exe 进程 **10690s CPU 时间 / 约 1.2 天**，即恒定 100% 单核空转
+
+> [!warning] 更正（2026-09-13）：两个数字不能同时成立（原表述为「10690s CPU 时间 / 约 1.2 天」，即恒定 100% 单核空转）
+> 算术自证：`10690 s ÷ 3600 = 2.97 h`；1.2 天 = 103680 s。若真按「恒定 100% 单核」跑了 1.2 天，CPU 时间应在 `1.0×10^5 s` 量级——`106900 s = 1.237 天`，与 1.2 天吻合。故极可能是**漏写一位数字**（10690 → 106900），而不是「1.2 天」写错。
+> 采集口径应同时记录两个互不冲突的量：`(Get-Process explorer).CPU`（累计 CPU 秒）与 `(Get-Process explorer).StartTime`（进程运行时长），正文写成「explorer 累计 CPU 时间 N s（≈M 天单核满载）＋运行时长 T」。
+
 - 重启 explorer 后症状消失，但 **30-45 秒后空转复现**（桌面图标/云盘根初始化触发）
 
 ## 二、完整时间线（2026-08-28，日志时间）
@@ -45,6 +50,10 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 > [!bug] 直接根因
 > **ShellIconOverlayIdentifiers（覆盖图标处理器）的宿主进程死亡后，explorer 内残留的轮询线程持续空转**：坚果云/QQ/IDM 等 overlay handler 的 DLL 被加载进 explorer 后，其宿主进程已退出或未运行，轮询"云盘状态"的循环永不退出 → 恒定 100% 单核。
 
+> [!warning] 更正（2026-09-13）：上条应记为**未验证假设**，不是已确认的 bug（原表述以 `[!bug] 直接根因` 写死该机制）
+> 全文没有任何线程级证据：没有 ETW/WPA 采样、没有 explorer 的线程栈或 WaitReason、没有指名哪个 DLL 的哪个线程在烧 CPU。现有证据只有 §四 的模块清单、30-45s 延迟曲线与「重启即消失」，即**相关性**，不足以定机制。
+> 取证路径（取不到就只保留相关性结论）：`wpr -start cpu` → 复现后 `wpr -stop spin.etl` → WPA 看 explorer 的 CPU 归属模块；或 Process Explorer → explorer 属性 → Threads 按 CPU 排序，读线程栈与 WaitReason。
+
 叠加因素（多层壳扩展同时加载）：
 
 | 层 | 内容 | 来源 |
@@ -56,6 +65,11 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 | SyncRootManager | Nutstore 3 条（HKLM+HKCU 隐藏加载点） | 坚果云 |
 | 运行时注入 | IDMan.exe 注入 IDMShellExt64/IDMNetMon64；QQProtect(QPCore) 注入 QBShellIcon1341ee | IDM/QQ 浏览器 |
 
+> [!note] 补疏漏（2026-09-13）：真正生效的只有字母序前 15 个
+> 微软官方博客（Youhana，Learn 存档）原文：*Windows allows a maximum of 15 icon overlays in the system … the shell respects the first 15 icon overlays in the system (sorted in alphabetical order)*；同文给出 TortoiseSVN 用 `1TortoiseNormal` / `2TortoiseModified` 数字前缀把自家图标挤进前列的同类做法。
+> 因此「47 项 overlay 全部清空」**不是唯一解**：真正生效的只是按字母序排进前 15 的那一批。可复用判据是**实际生效清单**（字母序前 15），而不是**键总数**。复现：`Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers'` 后按名字排序取前 15。
+> 来源：https://learn.microsoft.com/en-us/archive/blogs/youhana/why-am-i-not-seeing-the-icon-overlays-in-shell-extensions-tfs-power-tools
+
 > [!note] 空转的 30-45 秒延迟特征
 > 重启 explorer 后前 15 秒 CPU≈0%（桌面刚起），**t+45s 左右达到峰值 124% 核心**，随后衰减。这是云盘壳扩展的延迟初始化模式——桌面图标/云盘根枚举完成时才加载 handler 并开始轮询，是区分"壳扩展空转"与"开机瞬时负载"的特征信号。
 
@@ -66,6 +80,11 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 3. **模块列表取证**：explorer 进程的 DLL 清单 → 识别全部第三方 shell 扩展 → 分层禁用（HKLM→HKCU→注入型）
 4. **二分排除**：先停宿主进程（IDMan）验证注入 DLL 是否加载；对 NOT_STOPPABLE 的 QPCore 用改名 DLL 阻断注入
 5. **D: 盘并行调查**：fan-out 子代理只读分析（defrag 0%、SMART Healthy）→ 排除机械盘碎片因素，锁定纯壳扩展问题（见 [[fan-out-subagent-pattern]]）
+
+> [!warning] 补疏漏（2026-09-13）：2% 缺归一化口径，「文件夹打开恢复正常」缺判据
+> - **归一化口径**：原文只给 `0.20s/10s = 2%`，未写是否除以逻辑核数。算式应写成 `Δ(Get-Process explorer).TotalProcessorTime ÷ 采样秒数 ÷ 逻辑核数`；文档必须写明 2% 是「占单核」还是「占全部逻辑核」，否则与「100% 单核恒定」不可比。
+> - **「恢复正常」的判据**：打开含 1000 个小文件的目录，首屏 <1s，且地址栏与状态栏无「正在处理」停留。
+> - **可核性**：`check_now.ps1` / `monitor.ps1` 目前只在 `D:\SoftWare\ExplorerOptimize\`（库内不可核），应把采样原始输出随文档归档。
 
 ## 五、修复过程（分层）
 
@@ -82,7 +101,7 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 
 | 指标 | 修复前 | 修复后 |
 |------|--------|--------|
-| CPU 采样 | 100% 单核恒定（10690s/1.2天） | **0.20s/10s = 2%** |
+| CPU 采样 | 100% 单核恒定（10690s/1.2天，数值口径见 §一 更正） | **0.20s/10s = 2%** |
 | 残留模块 | 云盘/QQ/IDM/WPS 全家桶 | 仅 Stardock 5 个 DLL（Fences/DesktopDock，用户保留） |
 | monitor 曲线 | t+45s 峰值后不回落 | t+150s 后降至 10% 以下，稳态 2% |
 | D: 盘 | defrag 0%、SMART Healthy | 无需操作（瓶颈非磁盘） |
@@ -102,6 +121,10 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 - **PS 注册表 provider 的 `*` 通配符**：`HKLM:\...\Classes\*\shellex` 触发全库枚举挂死 → 用 reg.exe 或硬编码路径
 - **MSYS bash 坑**：内联 PowerShell 的 `$_` 被吞（改用 .ps1 文件）；reg.exe 的 `/f` 被 MSYS 转成 `F:/`（`MSYS_NO_PATHCONV=1`）
 
+> [!note] 补疏漏（2026-09-13）：1052 的官方名称与出处（结论不变）
+> 微软系统错误码页逐字：`ERROR_INVALID_SERVICE_CONTROL`，**1052 (0x41C)**，*The requested control is not valid for this service.*。括号里的 `NOT_STOPPABLE` 是本文自己的注解，不是官方错误名。解释方向无需修正：QPCore 未注册 STOP 控制、SCM 拒绝停止请求，故「运行中无法停止，只能改 StartType + 重启」成立。
+> 来源：https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1000-1299-
+
 ## 八、复发风险与排查顺序
 
 > [!warning] 已知复发源（按概率排序）
@@ -112,12 +135,20 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 
 **复发排查顺序**：`check_now.ps1` 看 explorer 模块列表 → 按上表对症处理（清 overlay 键值 / 改名 DLL / DISABLED_ 清空）。
 
+> [!warning] 补疏漏（2026-09-13）：§八 只给方向，无命令、无读回、无副作用评估
+> - **禁用 + 读回**：`sc config QPCore start= disabled` → `sc qc QPCore`（`START_TYPE` 应为 `DISABLED`）→ 重启后 `sc query QPCore`（`STATE` 应为 `STOPPED`）。
+> - **复发检测判据**：explorer 模块列表不再出现 `QBShellIcon1341ee` / `IDMShellExt64` / `IDMNetMon64`，且 `check_now.ps1` **连续 3 天 <2%**。
+> - **副作用（需人工回归）**：禁用 QPCore 后 QQ 浏览器 / QQ 的哪些功能受影响需逐个回归；改名后的 `QBShellIcon1341ee.dll.bak` 是否被升级重新写成 `.dll`，用文件时间戳 + 模块列表两项检测。
+
 ## 九、回滚与恢复
 
 - **全部原始值已备份**：`D:\SoftWare\ExplorerOptimize\backup-20260828\`（60+ 个 .reg 导出 + `overlay_values_before.txt` + 双日志）
 - 回滚方式：双击对应 .reg 导入，或按 `overlay_values_before.txt` 恢复 47 条 overlay 值
 - 已改名 DLL：`QBShellIcon1341ee.dll.bak`（改回 .dll 即恢复注入）
 - 脚本与命令文件均在 `D:\SoftWare\ExplorerOptimize\`（可重跑 gen_phase5 + phase5_admin 复现清空流程）
+
+> [!warning] 补疏漏（2026-09-13）：只声明备份存在，未做过恢复演练，且备份路径在库外
+> 回滚判据应落在「**读回的值与备份文件一致**」，而不是「备份文件存在」。最小演练：挑 1 个已清空的 overlay 键 → `reg import` 对应 .reg → `Get-ItemProperty` 断言 `(Default)` 等于 `overlay_values_before.txt` 中的原值 → 再复位清空。`backup-20260828\` 位于库外本机，库内无法核验，演练结论需回写本文。
 
 ## 十、相关文件
 
@@ -127,3 +158,19 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[fan-out-subagent-pattern]] �
 | `D:\SoftWare\ExplorerOptimize\backup-20260828\` | .reg 备份 ×60+、overlay_values_before.txt、log_admin.txt、log_user.txt、DONE 标记 |
 | `%USERPROFILE%\AppData\Local\Tencent\QQBrowser\User Data\QBShellIcon\` | QBShellIcon1341ee.dll → .bak |
 | 本会话 | [[SESSION-ARCHIVE-2026-08-28]]（对话归档） |
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §一/§六 同写「10690s CPU 时间 / 约 1.2 天」并断言恒定 100% 单核 | 保留原表述并加更正：10690 s = 2.97 h，1.2 天对应 106900 s，判为漏写一位数字；补 `(Get-Process explorer).CPU` + `StartTime` 双量采集口径 |
+| 补疏漏 | 全篇无「覆盖图标 15 个上限 + 字母序截断」规则，却把「清空 47 项」当必要且充分 | 补微软 Learn 存档博客规则（前 15 个按字母序生效、TortoiseSVN 数字前缀做法）；判据改为「实际生效清单」而非键总数 |
+| 纠错 | §三 以 `[!bug] 直接根因` 写死「残留轮询线程空转」 | 保留原文，标注为未验证假设（无线程级证据），补 `wpr`/WPA 与 Process Explorer Threads 取证路径 |
+| 加厚 | §四 只给 `0.20s/10s = 2%`，「文件夹打开恢复正常」无判据 | 补归一化算式（÷ 采样秒数 ÷ 逻辑核数）与界面判据（1000 小文件目录首屏 <1s、无「正在处理」） |
+| 补疏漏 | §五/§七 未写 1052 的官方名称（结论本身正确） | 补 `ERROR_INVALID_SERVICE_CONTROL` (1052/0x41C) 与微软错误码页出处，结论不改 |
+| 加厚 | §八 复发处置只有一句方向 | 补 `sc config/qc/query` 读回、连续 3 天 <2% 复发判据、QPCore 副作用人工回归项 |
+| 加厚 | §九 只声明备份存在、未演练 | 补读回式演练（reg import → Get-ItemProperty 断言 → 复位），注明备份在库外不可核 |
+
+依据与索引：[[CORRECTIONS]]

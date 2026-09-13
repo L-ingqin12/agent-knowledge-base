@@ -3,7 +3,7 @@ title: 参考-OpenCode 技术调研报告
 aliases: [OpenCode调研报告, opencode-research]
 tags: [reference, ai/agent, ai/tools]
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: 基于 web_search 多源交叉验证（官方文档/GitHub/npm/PyPI）
 fetched_at: 2026-08-25
@@ -17,6 +17,7 @@ fetched_at: 2026-08-25
 
 - **OpenCode 由 SST 团队创建，2026 年 7 月前后品牌迁移至 Anomaly**，主仓库现为 `anomalyco/opencode`，文档站 opencode.ai/docs，源码内文档目录为 `packages/web/src/content/docs/*.mdx`（dev 分支）。[来源](https://oday-bakkour.com/blog/ai-coding-news-july-26-2026)、[来源](https://github.com/numtide/llm-agents.nix/pull/1800)、[来源](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/sdk.mdx)
 - ⚠️ **org 归属存在矛盾信号**：OpenRouterLabs/spawn#1948 称 anomalyco 安装 URL "已迁回 sst/opencode"，与上述多数证据（numtide 自动化 PR、各 release 追踪站均指向 anomalyco/opencode 且持续更新到 2026-08）相悖——**最终归属待确认**。[来源](https://github.com/OpenRouterLabs/spawn/issues/1948)、[来源](https://releasealert.dev/feeds/github/anomalyco/opencode?type=atom)
+  > [!warning] 更正（2026-09-13）：归属**已确认**，无需再「待确认」（原表述为「最终归属待确认」）。机器证据：GitHub API 请求 `sst/opencode` 得到 301，重定向后的仓库 id=975734319、`full_name` = **anomalyco/opencode**（license MIT、default_branch=dev、stars 实测 207,008 @2026-09-13）——`sst/opencode` 只是旧路径重定向，**不存在两个仓库打架**。[来源](https://api.github.com/repos/sst/opencode)
 - 中文镜像/教程生态丰富：open-code.ai（官方文档镜像）、learnopencode.com、opencodecn.com 等。[来源](https://open-code.ai/en/docs/agents)、[来源](https://learnopencode.com/5-advanced/13-custom-tools)
 
 ## 1. Agent / Subagent 体系
@@ -31,6 +32,7 @@ fetched_at: 2026-08-25
 
 - 官方文档内置三件套：**build（默认主力主代理）、plan（规划型主代理，限制写入类工具）、general（通用 subagent，用于检索/多步研究后汇报）**。[来源](https://opencode.ai/docs/agents)、[来源](https://github.com/wesammustafa/opencode-primer/blob/main/docs/agents.md)
 - `explore`（只读快速探索 subagent）初检未见于官方 agents 文档，**后经 2026-08-25 实机核验确认存在（native subagent，内置四件套之一，见 §11.2）**（Claude Code 有同名概念，社区套件 oh-my-opencode 提供类似角色）。[来源](https://mintlify.wiki/code-yeongyu/oh-my-opencode/concepts/agents)
+  > [!warning] 更正（2026-09-13）：「四件套」口径已落后（原表述为「内置四件套之一」/「四件套实锤」）。官方 agents 文档 Built-in 小节现含 **8 个 `### Use` 子章节**：build、plan、general、explore、**scout**、compaction、title、summary；其中 compaction/title/summary 原文注明为「Hidden system agent … not selectable in the UI」。正确口径是「**5 个可用内置**（2 个 primary：build、plan；3 个 subagent：general、explore、scout）**+ 3 个隐藏系统 agent**（上下文压缩 / 起标题 / 摘要）」。新增的 `scout` 是检索型 subagent，直接影响哪些角色可被 `task` 委派。[来源](https://opencode.ai/docs/agents)
 
 ### 1.3 frontmatter/config 字段全集
 
@@ -95,6 +97,7 @@ fetched_at: 2026-08-25
 - 配置文件为项目根 `opencode.json` / `opencode.jsonc`（支持注释），首行推荐 `"$schema": "https://opencode.ai/config.json"` 获得补全。[来源](https://opencode.ai/docs/config)
 - 关键键：**`model`（"provider/model"）、`small_model`（起标题/摘要等廉价任务）、`instructions`(数组，追加 AGENTS.md 等规则文件，支持 glob/URL)**。[来源](https://opencode.ai/docs/rules)、[来源](https://tessl.io/registry/pantheon-ai/opencode-toolkit/files/configure/references/config-schema.md)
 - **permission**：`edit` / `bash` / `webfetch` 取 `ask|allow|deny`；bash 用通配模式对象（如 `"git *": "allow"`），**多条规则命中时按文档语义以后匹配者生效（last-match-wins）**；已知缺陷：bash deny 与 `"*": ask` 组合失效 #28682。[来源](https://github.com/anomalyco/opencode/blob/6456350564fd53a7aa93374a5e5d4c529d9a2f0f/packages/web/src/content/docs/docs/permissions.mdx?plain=1)、[来源](https://github.com/anomalyco/opencode/issues/28682)、[来源](https://github.com/anomalyco/opencode/pull/44657)
+- **`experimental.policies`（2026-09-13 补）**：官方新增独立页 `/docs/policies/`，数组元素形如 `{effect: allow|deny, action: provider.use, resource: <provider 名|通配>}`，文档明确要求用它替代旧的 `disabled_providers` / `enabled_providers`。语义：无匹配策略时**默认放行**；多条命中时 **last-match-wins**；全局配置与项目配置同时命中时**全局优先**（防止仓库重新启用你全局禁用的供应商）。原文只把 permission 与 agent 级 permission 覆盖当权限闸门，未覆盖这一层。[来源](https://opencode.ai/docs/policies/)
 - 其他键：`formatter`（自定义格式化命令/扩展名）、`keybinds`（leader 等快捷键映射）、`share`、`autoupdate`、`theme`、`provider`、`agent`/`command`/`plugin`/`mcp` 数组。**`linter` 键与 `doom` 权限键均未在官方资料中检索到——待确认（大概率不存在）**。[来源](https://tessl.io/registry/pantheon-ai/opencode-toolkit/files/configure/references/config-schema.md)、[来源](https://opencode.ai/docs/config)
 
 ## 7. Server / SDK 无头控制（重点）
@@ -103,6 +106,22 @@ fetched_at: 2026-08-25
 
 - **`opencode serve --port 8080 --hostname [IP已脱敏]` 启动无头 HTTP 服务**；`opencode attach <url>` 可把 TUI 接到远端 server（attach + ask 权限会挂起的缺陷 #16367 反证了该链路真实存在）。[来源](https://github.com/marcusquinn/aidevops/pull/6383/files)、[来源](https://opencode.ai/docs/server)、[来源](https://github.com/anomalyco/opencode/issues/16367)
 - 能力面（REST + SSE，服务端自带 OpenAPI 规范，`GET /doc`）：**创建会话（POST /session）、会话管理（GET/PATCH/DELETE /session/:id、children、revert/unrevert、share）、发消息触发运行（POST /session/:id/message）、读取消息（GET /session/:id/message）、事件流（GET /event，SSE）、中止当前轮（POST /session/:id/abort）**。[来源](https://deepwiki.com/tencent-source/opencode/2.2.3-api-server)、[来源](https://opencode.io.vn/docs/server)、[来源](https://gitlab.com/gitlab-org/orbit/gkg-evals-harness/-/blob/1c7eb656d9e5c953fee2d623518c782597df3cf1/opencode_sdk/opencode_sdk/api/default/session_abort.py)、[来源](https://github.com/theshadow27/mcp-cli/issues/503)
+  > [!warning] 更正（2026-09-13）：`GET /doc` 的响应**是 HTML 页面**，不是可直接喂 codegen 的 JSON（原表述为「服务端自带 OpenAPI 规范」，易被误读为可 `curl .../doc | jq`）。官方 Server 文档逐字为「OpenAPI 3.1 specification — Response: **HTML page with OpenAPI spec**」。[来源](https://opencode.ai/docs/server/)
+- **TUI 控制面（2026-09-13 补，原能力面清单未覆盖）**：`GET /tui/control/next`（长轮询取控制请求）、`POST /tui/control/response`、`POST /tui/submit-prompt`、`POST /tui/execute-command`，另有 `PUT /auth/:id`——可从外部驱动一个正在跑的 TUI 会话。[来源](https://opencode.ai/docs/server/)
+
+**端到端可跑通序列（2026-09-13 补，复制即用）**：
+
+```bash
+opencode serve --port 8080                 # 1. 起无头服务
+curl -s localhost:8080/doc | head -c 200   # 2. 应返回 HTML 页（非 JSON）＝服务在
+SID=$(curl -s -X POST localhost:8080/session -H 'content-type: application/json' -d '{}' | jq -r .id)  # 3. 建会话取 id
+curl -N -s localhost:8080/event &          # 4. 订阅 SSE
+curl -s -X POST "localhost:8080/session/$SID/message" -H 'content-type: application/json' -d @body.json  # 5. 发消息触发运行
+curl -s -X POST "localhost:8080/session/$SID/abort"     # 6. 中止当前轮
+```
+
+判据：③ 返回体含会话 id；④ 首帧为 `server.connected`（官方 Server 页明文「First event is `server.connected`」）；⑤ 运行期间 SSE 上出现 `message.part.updated` 增量；⑥ abort 之后不再有新 part、会话回到 idle。第 5 步 `body.json` 的字段名以 `GET /doc` 页面内的 schema 为准。
+
 - 真实消费者佐证：GitLab orbit 评测 harness 直接从 OpenAPI 生成 Python SDK 并调用 `session_abort`；Onyx 产品内置 `serve_client.py` 通过 serve 协议驱动沙箱内 OpenCode。[来源](https://gitlab.com/gitlab-org/orbit/gkg-evals-harness/-/blob/1c7eb656d9e5c953fee2d623518c782597df3cf1/opencode_sdk/opencode_sdk/api/default/session_abort.py)、[来源](https://github.com/onyx-dot-app/onyx/blob/95850b7ce52ba4cdc4748f1393f8efcc0c140940/backend/onyx/server/features/build/sandbox/opencode/serve_client.py)
 - 无头化注意：**headless 下 `ask` 权限无人应答会挂起**——编排器要么预置 allow/deny，要么监听 permission 事件程序化作答；SSE 订阅对自定义 fetch/BasicAuth 支持有缺陷 #28180。[来源](https://github.com/anomalyco/opencode/issues/16367)、[来源](https://github.com/anomalyco/opencode/issues/28180)
 
@@ -127,8 +146,10 @@ fetched_at: 2026-08-25
 ## 9. 版本与活跃度
 
 - **当前版本：v1.18.22（2026-08-24 发布；本节为调研时快照——核验当日 npm latest 已达 1.18.23，见 §11.3 版本快照更新）**；rebrand 至 Anomaly 时为 v1.18.5（2026-07-26 报道）→ **一个月内 ≥17 个 patch，发布节奏约为每 1–2 天一版，极度活跃**。[来源](https://tsecurity.de/de/3758885/ai-nachrichten/github-release-anomalycoopencode-v11822-24082026/)、[来源](https://oday-bakkour.com/blog/ai-coding-news-july-26-2026)、[来源](https://newreleases.io/project/github/anomalyco/opencode/release/v1.18.16)
+  > [!warning] 更正（2026-09-13）：版本继续前进——npm `@opencode-ai/sdk` / `@opencode-ai/plugin` latest = **1.18.30**，registry 发布时间 **2026-09-09T03:36:39Z**（不是 09-10）；1.18.23 → 1.18.30 恰为 7 个 patch（24/25/26/27/28/29/30），每 1–2 天一版的节奏不变。（原表述为「v1.18.22 … 核验当日 npm latest 已达 1.18.23」）[来源](https://registry.npmjs.org/@opencode-ai/sdk)
 - **License：MIT**（仓库含 LICENSE 文件；SignPath Foundation 收录该项目签名）。[来源](https://github.com/anomalyco/opencode/blob/v0.0.52/LICENSE)、[来源](https://signpath.org/projects/opencode/)
 - ⚠️ org 归属矛盾信号见第 0 节，**待确认**。[来源](https://github.com/OpenRouterLabs/spawn/issues/1948)
+  > [!warning] 更正（2026-09-13）：归属已确认——主仓库 `anomalyco/opencode`，`sst/opencode` 为旧路径 301 重定向（见 §0 更正）。
 
 ## 10. 对基座二次开发最有价值的扩展点 Top5
 
@@ -139,7 +160,7 @@ fetched_at: 2026-08-25
 5. **Skills 渐进披露 + MCP 外挂工具面**——领域知识用 SKILL.md 按需注入不撑爆上下文，长尾能力用 MCP 服务器热插拔并以服务器键命名空间治理，二者组合是不动基座代码的功能扩容路径。[来源](https://docs.opencode.ai/docs/skills/)、[来源](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/mcp-servers.mdx)
 
 > [!question] 主要待确认项汇总（2026-08-25 实机核验后更新）
-> ① GitHub org 最终归属（anomalyco vs sst）——**仍待确认**；② 内置 `explore` agent——✅ **已确认存在**（见 §11）；③ agent frontmatter top_p——✅ **已确认支持**（见 §11）；④ skill 的 allowed-tools 是否被执行——⚠️ 二进制中未见 opencode 层执行逻辑（仅命中内嵌 OpenAI/Anthropic SDK 的同名参数），**倾向不生效，仍待源码级确认**；⑤ MCP 工具名分隔符——`mcp__` 未出现于二进制，维持 `<server>_<tool>` 判断；timeout 配置项——✅ **已确认存在**（见 §11）；⑥ `linter`/`doom` 键——**无 linter 键**；"doom" 实为权限键 **`doom_loop`**（另有 `external_directory`），见 §11。
+> ① GitHub org 最终归属（anomalyco vs sst）——**仍待确认**（2026-09-13 更正：**已确认** = `anomalyco/opencode`，`sst/opencode` 为 301 重定向）；② 内置 `explore` agent——✅ **已确认存在**（见 §11）；③ agent frontmatter top_p——✅ **已确认支持**（见 §11）；④ skill 的 allowed-tools 是否被执行——⚠️ 二进制中未见 opencode 层执行逻辑（仅命中内嵌 OpenAI/Anthropic SDK 的同名参数），**倾向不生效，仍待源码级确认**；⑤ MCP 工具名分隔符——`mcp__` 未出现于二进制，维持 `<server>_<tool>` 判断；timeout 配置项——✅ **已确认存在**（见 §11）；⑥ `linter`/`doom` 键——**无 linter 键**；"doom" 实为权限键 **`doom_loop`**（另有 `external_directory`），见 §11。
 
 ## 11. 实机核验增补（2026-08-25）
 
@@ -158,6 +179,8 @@ fetched_at: 2026-08-25
 | 自定义工具 tool() | **zod 契约**（`args extends z.ZodRawShape`）；ToolContext 含 sessionID/messageID/agent/directory/worktree/**abort**/**ask()（工具内程序化触发审批）**/metadata() | plugin dist/tool.d.ts |
 | Event 事件名（SDK 官方类型） | message.updated / message.part.updated / message.part.removed / message.removed / **session.idle / session.error** / permission.updated / todo.updated / file.watcher.updated / installation.updated / lsp.updated / pty.updated / vcs.branch.updated 等 | sdk types.gen.d.ts |
 
+> [!warning] 更正（2026-09-13）：上表把 `maxSteps` 与 `model/temperature` 等现行字段并列，**该字段现已废弃**。官方 agents 文档现行 Options 章节写「The legacy `maxSteps` field is **deprecated**. Use `steps` instead.」（语义＝迭代上限：达到上限时 agent 会收到特殊 system prompt 要求产出工作总结与剩余任务；未设置则一直迭代到模型停止或用户中断）。正确写法：**`steps`（迭代上限）；`maxSteps` 已废弃、仅兼容保留**；并注意**未设 `steps` 的无人值守场景存在无限迭代风险**。[来源](https://opencode.ai/docs/agents)
+
 ### 11.2 二进制取证（opencode.exe 1.18.23）
 
 | 项 | 结论 |
@@ -165,8 +188,25 @@ fetched_at: 2026-08-25
 | 内置 agent | **四件套实锤**：`build`（默认主力）、`plan`（"Disallows all edit tools"，含 question/plan_exit/task 子权限）、`general`（通用研究型 subagent）、**`explore`**（native subagent，权限 `*:"deny"` + grep/glob/list/bash/webfetch/websearch/read 白名单，描述 "Fast agent specialized for exploring codebases..."）；task 工具以 `subagent_type` 参数指定 |
 | MCP 工具命名 | 二进制中无 `mcp__` 字样 → 维持 `<server>_<tool>` 判断（精确拼接逻辑在编译产物中不可直读，仍留一线待源码确认） |
 
+> [!warning] 更正（2026-09-13）：上表「四件套实锤」是 1.18.23 二进制的取证快照，口径已落后于官方文档——现行内置为 **8 个**（5 个可用 + 3 个隐藏系统 agent，新增检索型 subagent `scout`），详见 §1.2 更正。[来源](https://opencode.ai/docs/agents)
+
 ### 11.3 CLI 运行面实测
 
 `--version` → 1.18.23；命令清单：serve / attach / run / **agent create·list** / **mcp add·list·auth·logout·debug** / **debug config·skill·agent\<name\>·startup** / providers(auth) / models / stats / export / import / github / pr / session / plugin / db / acp / web / upgrade / uninstall。已知沙箱限制：子命令运行需 spawn git（本环境管道捕获受限报 EPERM），`debug skill`、`debug config` 留待开放环境复核。
 
 > 版本快照更新：npm latest 已到 **1.18.23**（核验当日），延续每 1–2 天一版节奏。
+> **2026-09-13 更正**：latest = **1.18.30**（registry time 2026-09-09T03:36:39Z）。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §0/§9/§11.3 说 org 归属「最终归属待确认」，与「sst/opencode 已迁回」的传闻并列 | 保留原句 + 就地加更正块：GitHub API 对 `sst/opencode` 返回 301，重定向后仓库 id=975734319、`full_name`=anomalyco/opencode ⇒ **旧路径重定向，不存在两个仓库打架**。§ 待确认汇总①与 §9 同步加注 |
+| 纠错 | §9 版本快照 v1.18.22 / npm latest 1.18.23，且发布日写成 09-10 | 保留原句 + 更正：latest = **1.18.30**，registry time **2026-09-09T03:36:39Z**，1.18.23→1.18.30 为 7 个 patch。依据 npm registry 直取 |
+| 纠错 | §1.2 / §11.2 把内置 agent 记作「四件套实锤」 | 保留原句 + 更正：官方 agents 文档现列 **8 个**内置（5 可用：build/plan/general/explore/**scout**；3 隐藏系统 agent：compaction/title/summary），scout 为新增检索型 subagent |
+| 纠错 | §11.1 把 `maxSteps` 当现行 AgentConfig 字段 | 保留原表 + 更正：官方文档明写 legacy `maxSteps` **deprecated**，改用 `steps`；补「未设 steps 的无人值守场景存在无限迭代风险」 |
+| 补疏漏 | §6 权限闸门只有 permission / agent 级覆盖，全文无 `policies` | 新增 `experimental.policies` 条目：`{effect, action: provider.use, resource}`、替代 `disabled_providers`/`enabled_providers`、默认放行、last-match-wins、**全局配置优先于项目配置** |
+| 补疏漏 | §7.1 能力面未覆盖 TUI 控制面与 `/auth/:id`；`GET /doc` 被写成「自带 OpenAPI 规范」易误读为可直取 JSON | 新增 TUI 控制面四条端点（`/tui/control/next`、`/tui/control/response`、`/tui/submit-prompt`、`/tui/execute-command`）+ `PUT /auth/:id`；`/doc` 更正为**返回 HTML 页面** |
+| 加厚 | §7.1/§11.3 只有端点清单，无端到端可跑通序列与判据 | 新增 6 步可复制验收序列（serve → /doc → POST /session → GET /event 首帧 `server.connected` → POST message 收 `message.part.updated` → abort）与四条判据 |
+
+依据：[opencode.ai/docs/agents](https://opencode.ai/docs/agents)、[opencode.ai/docs/policies/](https://opencode.ai/docs/policies/)、[opencode.ai/docs/server/](https://opencode.ai/docs/server/)、[api.github.com/repos/sst/opencode](https://api.github.com/repos/sst/opencode)、[registry.npmjs.org/@opencode-ai/sdk](https://registry.npmjs.org/@opencode-ai/sdk)。方法论回链：[[CORRECTIONS]] · [[AGENTS]]。

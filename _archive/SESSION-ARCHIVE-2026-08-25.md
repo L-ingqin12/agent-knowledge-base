@@ -3,7 +3,7 @@ title: SESSION-ARCHIVE-2026-08-25
 aliases: [2026-08-25 会话归档]
 tags: [meta]
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 ---
 
@@ -80,10 +80,15 @@ status: review
 
 1. **Demo 运行级验证未做**：全局 miniconda 未装 torch/faiss/networkx/sentence-transformers；语法已验证（45/45），装依赖后建议跑一遍（解释器路径见 [[AGENTS]] 行为约束第 10 条）
 2. ~~vllm bench serve 版本、ZeRO 倍数~~ ✅ 已按公开资料核实补充（PR #13993/#18566；ZeRO 论文 400B 实测口径）
+   > [!note] 2026-09-13 复核回标：PR #13993 经 GitHub API 实测为「[Feature] Add `vllm bench` CLI」（作者 randyjhc，state closed、merged=true，changed_files=8 / additions=1274），与本项核对动作逐项对得上；PR #18566 本次未复核（复核时遇 403 限流），保留编号时建议同时附 PR 标题以便人工核对。
+   > 来源：https://api.github.com/repos/vllm-project/vllm/pulls/13993
 3. ~~CVE-2020-14100 待核~~ ✅ NVD 描述确认 <1.0.66 受影响，修复版本即 1.0.66
+   > [!note] 2026-09-13 复核回标：结论成立——第三方库 #VU46722（cybersecurity-help）实测 200，记为小米路由器 R3600 `set_WAN6` 命令注入（CWE-77）、缓解措施「update to 1.0.66」，与库内 [[参考-小米路由器API认证与利用]] 同口径（影响 < 1.0.66、修复 1.0.66）。附注：该编号在 OSV API 实测 404，这类 CNA 直发编号只能回 NVD / 第三方库 / 厂商公告核对。
+   > 来源：https://www.cybersecurity-help.cz/vdb/vulns/46722/
 4. **课 29 Janus 统一多模态** ✅ 已补全独立章节（解耦视觉编码 + GenEval/MMBench 成绩）
 5. 主文件 `> 入口 MOC:` 与 `## Related` 间约 10 个空行（Obsidian 渲染无影响）
 6. 沙箱限制备忘：pwsh 无法修改既有库文件（Access Denied），一律用 read/edit 工具；新文件创建可用 pwsh
+   > [!note] 2026-09-13 复核回标：该条是**会话级环境备忘而非库属性**——复核会话的文件策略为 danger-full-access，复核员已用 pwsh 在库内 `_out/` 完成写入与删除探测，限制不成立。后续会话执行前请先用一条无害读写探测确认当前策略，勿把本条当现行约束。
 7. 仍待验证（课程专属/需实机，公开资料无法覆盖）：labeler 与 llamabooster 产品形态、中文 token 压缩比官方口径、TYPORA 全新机器端到端
 8. **推送待执行**：本地已领先 origin/main 三个提交（4edd7ef / ce7c593 / 本归档提交），沙箱内凭据管理器被拦无法认证。请在你的终端执行：
    ```powershell
@@ -91,6 +96,7 @@ status: review
    git -c http.proxy=http://127.0.0.1:10808 push origin main
    ```
    （直连可达时可省 proxy 参数）
+   > [!note] 2026-09-13 复核回标：`4edd7ef` / `ce7c593` 在当前仓库（94 个提交，2026-09-12 从公开远端克隆）实测均不存在；该遗留项已由 [[SESSION-ARCHIVE-2026-08-26]] §六闭环——v4 `a518edf..fadb1f4` 与 v5/v6 推送完成。原历史判断保留，仅追加此回标。
 
 ## 十、同日追加会话：OpenCode/Pi 基座研究与日志分析多Agent架构设计
 
@@ -120,3 +126,14 @@ status: review
 3. Doc C/D 的 Phase/M 路线图为设计稿，未启动实施
 
 > 相关：[[Network-KB-Home]] · [[Claude-Ops-KB-Home]] · [[AI-Links-KB-Home]] · [[TYPORA-KB-Home]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 加厚 | 遗留项 2 只留 PR 编号（#13993 / #18566），无标题与状态 | 复核 PR #13993 实测为「[Feature] Add `vllm bench` CLI」（randyjhc，merged=true，8 文件 +1274 行），与本项核对动作对得上；#18566 本次未复核（403 限流），保留编号时附标题 |
+| 加厚 | 遗留项 3 只写「NVD 描述确认」，无外部锚点 | 第三方库 #VU46722 与库内 [[参考-小米路由器API认证与利用]] 同口径（R3600 `set_WAN6` 命令注入，修复 1.0.66）均成立；附注该编号 OSV API 实测 404，CNA 直发编号须回 NVD / 第三方库 / 厂商公告 |
+| 纠错 | 遗留项 6「沙箱限制备忘」被后续会话当作现行约束 | 该条属会话级环境备忘：复核会话策略为 danger-full-access，已用 pwsh 在库内 `_out/` 完成写入与删除探测；执行前先用无害读写探测 |
+| 纠错 | 遗留项 8「本地已领先 origin/main 三个提交（4edd7ef / ce7c593）」 | 两个哈希在当前仓库（94 个提交，2026-09-12 克隆）实测不存在；已由 [[SESSION-ARCHIVE-2026-08-26]] §六闭环（v4 `a518edf..fadb1f4` 与 v5/v6 推送完成） |
+
+相关：[[CORRECTIONS]]

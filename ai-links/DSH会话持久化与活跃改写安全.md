@@ -3,7 +3,7 @@ title: DSH 会话持久化与活跃改写安全
 aliases: [会话写入语义, 活跃句柄改写, tornTruncateTo]
 tags: [ai/tools, ai/agent]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
@@ -17,6 +17,15 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[AGEN
 > 本文只回答这一个问题，以及它牵出的追写/守卫/并发/派生缓存。日志格式与读取端合法性归 [[DSH会话日志格式与读取端约束]]。
 
 ---
+
+> [!warning] 取证前提（2026-09-13 复核）
+> 本文所有 `dsh-session-persistence-jsonl/lib/index.js:<行号>` **只对"随 `@deepseek-ai/dsh@0.1.5-rc.2` 一同安装的那一份 0.1.5-rc.2"成立**（本机安装树实测该包版本为 0.1.5-rc.2）。
+> 复现前提：registry 上该包的公开 `latest` 仍是 **0.0.1-rc.1**（`publishConfig.access = restricted`）⇒ **rc.2 的 tarball 无法单独取到**，只能随 `@deepseek-ai/dsh@0.1.5-rc.2` 一起安装。
+> 版本自检：
+> ```powershell
+> Get-Content "$env:USERPROFILE\nodejs-x64\node-v22.21.0-win-x64\node_modules\@deepseek-ai\dsh\node_modules\@deepseek-ai\dsh-session-persistence-jsonl\package.json" | Select-String '"version"'
+> ```
+> 来源：https://registry.npmjs.org/@deepseek-ai/dsh-session-persistence-jsonl/latest
 
 ## 一、先看写路径：没有长驻 fd，也没有缓存写偏移
 
@@ -111,6 +120,17 @@ if (memoized?.status === "current" && memoized.revision === probe) return memoiz
 > `mtimeNs/ctimeNs` 由文件系统给；本机 NTFS 的实际分辨率与「同一时钟刻度内完成改写」是否可能，**我没有实测**。同字节长度的行内等长替换是风险最高的形态（`size` 必然相同）。实现者不应依赖「时间戳一定会变」，而应在改写后主动让缓存失效（§六）。
 >
 > 同理未验证：`writeEveryEvents` / `writeIntervalMs` 的本机取值与检查点落盘时机——见 §七 的清理建议。
+>
+> **2026-09-13 复核补记（本项属"已披露但未闭环"的地基缺口，不是隐瞒）**：
+> ① **可自跑的判别脚本**（连续两次等长改写，看指纹是否真的变）：
+> ```powershell
+> $f = "$env:TEMP\mtime-probe.txt"
+> 'AAAA' | Set-Content -NoNewline $f; (Get-Item $f).LastWriteTimeUtc.Ticks; (Get-Item $f).CreationTimeUtc.Ticks
+> 'BBBB' | Set-Content -NoNewline $f; (Get-Item $f).LastWriteTimeUtc.Ticks; (Get-Item $f).CreationTimeUtc.Ticks
+> ```
+> 两次输出的 Ticks 若**完全相等**，则"等长替换 ⇒ 指纹不变"在该文件系统/该写入路径上成立，§三.3 的撞车就从"概率问题"变成"必然"。
+> ② **后果等级**：撞车的表现是 §三.3 的修订备忘**静默返回改写前的事件数组**——不报错、不告警，读出去的是旧文本。对脱敏场景，这等于「改写报告成功、敏感文本仍在」（与 [[CORRECTIONS]] C-005 同形）。
+> ③ **与时间戳无关的旁路**：不要依赖"时间戳一定会变"。改写后**主动失效**一切派生状态（§七 的缓存删除 + §八 第 11–12 步），并对日志内容做一次**内容哈希比对**（读回文件重算 `sha256`，与写入前不同才算生效）——这条判据完全不经过 stat 指纹。
 
 ---
 
@@ -195,6 +215,12 @@ T2 ftruncate → write → fsync
 
 > [!note] 官方已知局限（直接读自后端 README 的限制章节）
 > ① POSIX 用的是**建议锁** `flock`，在某些网络文件系统（NFSv3）上不可靠；② Windows 的命名信号量名**属于单个登录会话**——跨登录会话（例如服务/session 0 与交互式会话）不见得互相排斥。两条都进一步说明：**不要把锁当作改写安全性的前提**。
+
+> [!warning] 第 ② 条的失败模式与检出（2026-09-13 复核补记）
+> 原文只给结论，补三件事：
+> 1. **撕裂场景**：服务态（session 0）进程与交互式登录会话各跑一个 DSH，对**同一个 session id** 各开写句柄 ⇒ 两边的命名信号量落在不同会话命名空间、互相看不见 ⇒ **两个写者都认为自己独占**，于是交替追加、日志交错。
+> 2. **可执行检出**：① 在 `\Sessions\<n>\BaseNamedObjects\` 下枚举由锁文件路径派生的那个命名信号量，确认它只在当前登录会话可见；② 更直接——在**两个登录会话**里对同一 session id 各跑一次 `open(id,'write')`，看第二个是否**没有**抛 `SessionAlreadyOwnedError`；没抛就等于互斥已经失效。
+> 3. **与 §五 的关系**：正因为这个锁跨登录会话不可靠，§五 的**修订指纹复查才是唯一的并发防线**——不要把"我拿到了写租约"当成"没有并发写者"。
 
 > [!info] 顺带一个对「改写后清理」有利的事实
 > 该后端的已知限制里明确写着「**没有任何东西会删除会话文件**——日志在 `root` 下累积直到被外部移除，seam 不提供删除 API」。也就是说「脱敏/清理」本质上就是**带外维护**，本来就没有第二种做法。
@@ -292,3 +318,15 @@ const startIndex = (usable ? row.seq : beforeBase) - baseSeq + 1;   // 只重放
 - [[DSH会话脱敏插件缺陷档案]] — 活跃改写必须避开的失败模式清单（并发覆盖、静默丢事件、缓存未清）
 - [[DSH插件与Hook开发最佳实践]] — Cordis 插件/服务/事件基础（本文涉及的服务为 `ctx.sessionPersistence`、`ctx.sessionProjectionCache`）
 - [[AI-Links-KB-Home]] — 本子库 MOC
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | §一/§二 大量行号未写"对应哪一份安装树"，而 registry 上取不到同版本 tarball | 补「取证前提」块：行号对应随 `@deepseek-ai/dsh@0.1.5-rc.2` 安装的 0.1.5-rc.2；公开 `latest` 仍是 0.0.1-rc.1（restricted），附版本自检命令。依据 npm registry |
+| 加厚 | §三.3「NTFS 时间戳分辨率与撞车概率」只在未验证项里挂着：无脚本、无后果定级、无旁路 | 补三点：可自跑的判别脚本、撞车即「静默返回旧快照」的后果等级（与 [[CORRECTIONS]] C-005 同形）、与时间戳无关的内容哈希旁路 |
+| 加厚 | §六 只给「命名信号量属于单个登录会话」的结论，无失败模式与检出手段 | 补撕裂场景、可执行检出（两个登录会话各跑一次 `open(id,'write')`），并点明"故 §五 的复查才是唯一防线" |
+
+更正与依据登记：[[CORRECTIONS]]

@@ -3,7 +3,7 @@ title: LLM推理部署与量化
 aliases: [LLM推理部署, LLM量化, vLLM部署, Ollama部署, 推理加速]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -80,14 +80,50 @@ Ollama 是本地大模型"一键管理器"，内核是 **llama.cpp**——一个
 1. **PagedAttention（显存分页管理）**：传统推理给每个请求预分配 `max_seq_len` 长度的连续 KV Cache，浪费可达 60%-80%。vLLM 借鉴操作系统虚拟内存，把 KV Cache 切成固定大小的"块"（block），按需分配、允许不连续存储，浪费压到 4% 以下，同显存可容纳更多并发序列。
 2. **Continuous Batching（连续批处理）**：静态批处理要等一批中所有请求都生成完才整批退出，慢请求拖累全批。连续批处理在每步迭代时动态增删请求——新请求到达立刻入队，生成完的立刻让出槽位，GPU 几乎不空转，吞吐比 HuggingFace transformers 高数倍到数十倍。
 
+### KV Cache 显存怎么算（补疏漏 2026-09-13）
+
+KV Cache 是本文反复强调的显存大头，但单 token 的占用可以手算：
+
+`KV 字节/token = 2（K 与 V）× n_layers × n_kv_heads × head_dim × dtype_bytes`
+
+算例（32 层、head_dim=128、FP16=2 字节）：
+
+| KV 头数配置 | 每 token | 32K 上下文·单序列 | 说明 |
+|---|---|---|---|
+| MHA（`n_kv_heads` = 32） | 2×32×32×128×2 = 524,288 B ≈ **512 KiB** | ≈ **16 GiB**（十进制 17.2 GB） | 不加干预时的显存大头 |
+| GQA（`n_kv_heads` = 8） | 128 KiB | ≈ 4 GiB | KV 降到 1/4——这就是 GQA/MLA 省 KV 的原因 |
+
+据此给 `--max-model-len` 一个可算依据：并发 N 条 32K 序列的 KV ≈ N × 16 GiB（MHA 口径，GQA 则 ÷4），先砍 `max_model_len` / 换量化或 GQA 模型，再考虑加卡。
+
+> 来源：[vLLM 官方文档 — Engine Arguments](https://docs.vllm.ai/en/latest/configuration/engine_args.html)（`--max-model-len` / `--gpu-memory-utilization` / `--swap-space` 与 KV 预算相关，2026-09-13 抓取 HTTP 200）；算例为本机复算（2026-09-13）。注：早期审计原文写「≈16.8GB」，实为 16 GiB 与 17.2 GB 两种口径之别，本表按二进制 GiB 标注。
+
 ### 单机放不下怎么办：Ray 集群 + 跨节点张量并行
 
-当模型权重 + KV Cache 超过单机显存（如 72B 模型全精度需要 4×80G 卡，而单机只有 2 卡），就把张量并行（TP）铺到多台机器上：vLLM 通过 **Ray** 编排多机 worker，`tensor_parallel_size=2` 让两台机器各持半份权重，`pipeline_parallel_size=2` 再把网络按层切两段，形成 2 机 × 1 卡（TP=2）× 2 段（PP=2）的拓扑。代价是 KV Cache 与激活要跨节点传输，因此多机方案必须配套高带宽网络（万兆起，IB 更佳），详细启动清单见 [[#Demo 3：Ray 多机多卡分布式推理启动清单]]。
+当模型权重 + KV Cache 超过单机显存（如 72B 模型全精度需要 4×80G 卡，而单机只有 2 卡），就把张量并行（TP）铺到多台机器上：vLLM 通过 **Ray** 编排多机 worker，`tensor_parallel_size=2` 让两台机器各持半份权重，`pipeline_parallel_size=2` 再把网络按层切两段，形成 2 机 × 每机 2 卡（TP=2）× 2 段（PP=2）的拓扑（vLLM 的 worker 总数 = **TP × PP = 4**，所以两台机器必须各出 2 张卡）。代价是 KV Cache 与激活要跨节点传输，因此多机方案必须配套高带宽网络（万兆起，IB 更佳），详细启动清单见 [[#Demo 3：Ray 多机多卡分布式推理启动清单]]。
+
+> [!warning] 更正（2026-09-13）：本段原写「2 机 × 1 卡（TP=2）× 2 段（PP=2）」，与 Demo 3 里「每节点 1 卡各持半份权重」同源，但都装不下 4 个 worker（原表述为「`tensor_parallel_size=2` 让两台机器各持半份权重，`pipeline_parallel_size=2` 再把网络按层切两段，形成 2 机 × 1 卡（TP=2）× 2 段（PP=2）的拓扑」）
+> vLLM 的 `world_size = TP × PP`，PP=2 的两段必须分别落在两组 TP 组上，「每节点 1 卡」只有 2 张卡，装不下 TP×PP=4 个 worker。两种自洽写法任选并写清：
+> - (a) 每节点 1 卡 → 只设 `--tensor-parallel-size 2`，**不设** PP；
+> - (b) 保留 TP=2 + PP=2 → world size = 4，两台机器每机 2 卡（本文 Demo 3 采用 b：2 台 8 卡机器共 16 卡，实际只用 4 卡）。
+> 来源：[vLLM `ParallelConfig`（docstring：world_size is TP×PP, it affects the number of workers we create）](https://raw.githubusercontent.com/vllm-project/vllm/main/vllm/config/parallel.py)、[vLLM 多节点服务示例（Ray + TP/PP）](https://docs.vllm.com.cn/en/latest/examples/online_serving/multi-node-serving.html)（均 2026-09-13 抓取，HTTP 200）
 
 ## 最小可运行 Demo
 
 > [!note] 环境约定
-> 以下 Demo 在 Linux + NVIDIA GPU（≥8G 显存可跑 7B 级模型）环境验证思路；Windows 用户可用 WSL2。Ollama 一键安装：`curl -fsSL https://ollama.com/install.sh | sh`。vLLM 安装：`pip install vllm`（要求 CUDA 12.x + Python 3.9-3.12）。
+> 以下 Demo 在 Linux + NVIDIA GPU（≥8G 显存可跑 7B 级模型 → **更正 2026-09-13**：8G 单卡只能跑 4bit 量化的 7B 且上下文很短；FP16/BF16 的 7B 需 ≥24G 卡，见下方显存预算表）环境验证思路；Windows 用户可用 WSL2。Ollama 一键安装：`curl -fsSL https://ollama.com/install.sh | sh`。vLLM 安装：`pip install vllm`（要求 CUDA 12.x + Python 3.9-3.12）。
+
+> [!warning] 补疏漏（2026-09-13）：环境约定原写「≥8G 显存可跑 7B 级模型」，缺显存边界条件（原表述为「Linux + NVIDIA GPU（≥8G 显存可跑 7B 级模型）」）
+> 7B 权重 FP16/BF16 约 13-14GB，单卡 8G 只能跑 4bit 量化版且上下文很短；而本文 Demo 2 的命令自带 `--tensor-parallel-size 2`（两卡张量并行）与 `--quantization awq`，Demo 3 需要 2×8 卡机器——按「8G 单卡」复现会直接 OOM。显存预算（仅权重，KV Cache 另计）：
+>
+> | 模型规模 | 权重占用 | 最低可跑配置 | 备注 |
+> |---|---|---|---|
+> | 7B FP16/BF16 | ≈13 GiB | 1×24G 卡 | 还要留激活与 KV Cache 预算 |
+> | 7B AWQ / GPTQ 4bit | ≈3.5-4.5 GiB | 1×8-12G 卡 | 上下文要短（≲8K），再长先 OOM |
+> | 72B FP16 | ≈134 GiB | 多卡 + TP/PP | 对应本文 Demo 3 的对象 |
+> | 72B AWQ 4bit | ≈34 GiB | 2×24G（TP=2）或 1×48G | Demo 3 用 2 机 × 每机 2 卡 |
+>
+> 复现判据：看 vLLM 启动日志里的 KV cache blocks / max concurrency 估算；压测时若 `vllm:gpu_cache_usage_perc` 长期 >95%，说明 KV 吃紧——先砍 `--max-model-len` 或换量化，再考虑加卡。
+> 依据：[vLLM Engine Arguments](https://docs.vllm.ai/en/latest/configuration/engine_args.html)（`gpu_memory_utilization` 之外还要留激活与 KV 预算，2026-09-13 抓取 HTTP 200）；权重数值为本机按 2 字节/参数复算（2026-09-13）。
 
 ### Demo 1：Ollama 命令行 + REST 两种调用
 
@@ -230,6 +266,7 @@ export RAY_ADDRESS='auto'
 # 无 InfiniBand 时必须关闭 NCCL 的 IB 探测，否则跨节点通信初始化卡死
 export NCCL_IB_DISABLE=1
 # 张量并行跨 2 节点（每节点 1 卡各持半份权重）+ 流水线并行 2 段（按层切两段）
+# 更正（2026-09-13）：worker 总数 = TP × PP = 4，故实际是每节点 2 卡、共 4 卡（本 Demo 的 16 卡里只用 4 卡）
 vllm serve /data/models/Qwen2.5-72B-Instruct-AWQ \
   --tensor-parallel-size 2 \
   --pipeline-parallel-size 2 \
@@ -265,11 +302,22 @@ SYSTEM "你是本地部署的技术助手"
 | `keep_alive` | 5m | 空闲多久后从显存卸载模型；线上服务建议 `-1` |
 | `temperature` | 0.8 | 采样温度，越低越确定 |
 | `OLLAMA_NUM_PARALLEL` | 1 | 环境变量：并行请求数（服务化必须调大） |
-| `OLLAMA_SCHED_SPREAD` | 0 | 环境变量：=1 时调度器把请求分散到多卡，实现跨卡负载均衡 |
+| `OLLAMA_SCHED_SPREAD` | 0 | 环境变量：=1 时把**同一个模型**摊到所有 GPU（官方定义 "Always schedule model across all GPUs"，强制多卡切分）；**不是**请求级轮询分发——请求并发由 `OLLAMA_NUM_PARALLEL` 控制。原注「=1 时调度器把请求分散到多卡，实现跨卡负载均衡」有误，见下方更正 |
 | `OLLAMA_FLASH_ATTENTION` | 0 | 环境变量：=1 开启 Flash Attention 省显存 |
 
 > [!tip] 多卡 GPU 负载均衡的正确姿势
-> Ollama 默认**单个模型只跑在一张卡上**，多卡要靠组合拳：① `OLLAMA_SCHED_SPREAD=1` 让调度器把并发请求轮流分发到多卡；② 多实例——用 `CUDA_VISIBLE_DEVICES` 分别起两个 ollama serve 进程各自独占一张卡，再在 nginx 层做负载均衡；③ `num_gpu=层数` 做分层卸载，把模型层铺到单卡显存装不下的机器上。真正的"一个模型铺满 N 卡"请上 vLLM 的 tensor-parallel。
+> Ollama 默认**单个模型只跑在一张卡上**，多卡要靠组合拳：① `OLLAMA_SCHED_SPREAD=1` 把**单个模型**摊到所有 GPU（强制多卡切分，适用于模型整体放不下单卡；**不是**请求级轮询——原注「让调度器把并发请求轮流分发到多卡」有误）；② 多实例——用 `CUDA_VISIBLE_DEVICES` 分别起两个 ollama serve 进程各自独占一张卡，再在 nginx 层做负载均衡；③ `num_gpu=层数` 做分层卸载，把模型层铺到单卡显存装不下的机器上。真正的"一个模型铺满 N 卡 + 张量并行高效切分"请上 vLLM 的 tensor-parallel。
+
+> [!warning] 更正（2026-09-13）：`OLLAMA_SCHED_SPREAD` 被当成请求级负载均衡（原表述为参数表「=1 时调度器把请求分散到多卡，实现跨卡负载均衡」与上条 ①「让调度器把并发请求轮流分发到多卡」）
+> 官方定义是 **"Always schedule model across all GPUs"**——把**同一个模型**摊到多张卡上，不是把并发请求轮流分发。三个变量职责要分开：
+>
+> | 变量 / 参数 | 控制什么 | 典型用法 |
+> |---|---|---|
+> | `OLLAMA_SCHED_SPREAD`（默认 0） | 是否把**单个模型**的层摊到所有 GPU（强制多卡切分） | 模型整体放不下单卡、或想让多卡共同服务同一模型时设 1 |
+> | `OLLAMA_NUM_PARALLEL`（默认 1） | 单个模型可并行处理的**请求数**（请求级并发） | 服务化时调大，配合显存与 `num_ctx` 一起算 |
+> | `num_gpu` | 卸载到 GPU 的**层数**（分层卸载） | 设大数（如 99）强制全部卸载 |
+>
+> 来源：[ollama `envconfig/config.go`（SchedSpread 帮助文本 "Always schedule model across all GPUs"；`OLLAMA_NUM_PARALLEL` 帮助文本 "Maximum number of parallel requests"）](https://raw.githubusercontent.com/ollama/ollama/main/envconfig/config.go)（2026-09-13 抓取，HTTP 200）
 
 ### vLLM 离线推理核心参数
 
@@ -279,7 +327,7 @@ from vllm import LLM, SamplingParams
 llm = LLM(
     model="Qwen/Qwen2.5-7B-Instruct",
     tensor_parallel_size=2,       # 张量并行卡数
-    gpu_memory_utilization=0.9,   # 最多占用单卡 90% 显存（留 10% 给 KV/碎片）
+    gpu_memory_utilization=0.9,   # 实例显存总预算 = 0.9 × 卡显存（含权重、激活、KV Cache 池）; 留 10% 给运行时开销与碎片（原注「留 10% 给 KV」把 KV 的来源说反了）
     max_model_len=8192,           # 上下文上限：显存不够时先砍它
     swap_space=4,                 # 每卡预留 4GB CPU 内存做 KV 换页（swap）
     quantization="awq",           # 量化后端：awq / gptq / fp8 等
@@ -288,6 +336,11 @@ params = SamplingParams(temperature=0.7, top_p=0.8, max_tokens=256)
 outputs = llm.generate(["你好，介绍一下vLLM"], params)
 print(outputs[0].outputs[0].text)
 ```
+
+> [!warning] 更正（2026-09-13）：`gpu_memory_utilization` 的注释把 KV Cache 的分配来源说反了（原表述为「最多占用单卡 90% 显存（留 10% 给 KV/碎片）」）
+> 该参数限定的是「**权重 + 激活 + KV Cache**」的**合计**预算：KV Cache 在这 90% **之内**，扣掉权重与激活后按 block 分配；剩下 10% 是预留给 CUDA graph / kernel / 碎片等运行时开销。
+> 正确读法：`KV 池 ≈ 0.9 × 卡显存 − 权重 − 激活工作区`。以 24G 卡 + 7B AWQ（≈4.5GB 权重）为例，KV 池约 16-17GB 量级，而不是「10% ≈ 2.4GB」——按错误读法会算出完全错误的并发容量。
+> 来源：[vLLM 论坛：gpu_memory_utilisation 包含哪些部分](https://discuss.vllm.ai/t/what-does-gpu-memory-utilisation-include/1651)、[vLLM 官方文档 — Engine Arguments](https://docs.vllm.ai/en/latest/configuration/engine_args/)（均 2026-09-13 抓取，HTTP 200）
 
 ### vLLM 在线生产三讲要点
 
@@ -353,14 +406,30 @@ print("答案:", msg.content)                                 # 最终输出
 ## 参考资料
 
 - [vLLM 官方文档 — Reasoning Outputs](https://docs.vllm.ai/en/latest/features/reasoning_outputs.html)：`--reasoning-parser deepseek_r1` 与返回 `reasoning_content` 字段
-- [vLLM 官方文档 — Automatic Prefix Caching](https://docs.vllm.ai/en/latest/design/automatic_prefix_caching.html)：`--enable-prefix-caching` 前缀缓存机制
-- [vLLM 官方文档 — Engine Arguments](https://docs.vllm.ai/en/latest/models/engine_args.html)：`gpu_memory_utilization`（默认 0.9）、`swap_space`（默认 4GiB）、`max_model_len` 等参数默认值
+- [vLLM 官方文档 — Automatic Prefix Caching](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html)：`--enable-prefix-caching` 前缀缓存机制（原链接 `/design/automatic_prefix_caching.html` 已被站点重定向到 `/contributing/`，2026-09-13 更正为现路径）
+- [vLLM 官方文档 — Engine Arguments](https://docs.vllm.ai/en/latest/configuration/engine_args.html)：`gpu_memory_utilization`（默认 0.9）、`swap_space`（默认 4GiB）、`max_model_len` 等参数默认值（原链接 `/models/engine_args.html` 已 404，2026-09-13 更正为 `/configuration/` 现路径）
 - [vLLM 多节点服务示例（Ray + TP/PP）](https://docs.vllm.com.cn/en/latest/examples/online_serving/multi-node-serving.html)：分布式推理的 Ray 集群形态
 - [PagedAttention 论文（SOSP 2023, arXiv:2309.06180）](https://arxiv.org/abs/2309.06180)：KV Cache 浪费 60%-80% 压至 4% 以下、吞吐提升 2-4× 的原始出处
-- [PagedAttention in vLLM: KV Cache Paging for 24x Throughput](https://tildalice.io/pagedattention-vllm-kv-cache-throughput/)：vLLM 官方博客口径"相对 HuggingFace Transformers 最高 24× 吞吐"
+- [PagedAttention in vLLM: KV Cache Paging for 24x Throughput](https://tildalice.io/pagedattention-vllm-kv-cache-throughput/)：**2026-09-13 更正**——该页是**个人博客**（署名 TildAlice，含 Amazon Associate 联盟营销声明），不是 vLLM 官方博客（官方博客入口为 https://vllm.ai/blog ）；原注「vLLM 官方博客口径『相对 HuggingFace Transformers 最高 24× 吞吐』」应改为：24× 是 vLLM 2023 年发布时的官方测评口径（对比 HuggingFace Transformers、特定负载），典型对话负载实测多为 2-4×（见上条论文）
+- [vLLM 官方博客](https://vllm.ai/blog)：官方发布与测评口径的权威入口（2026-09-13 抓取，HTTP 200）
 - [Ollama Modelfile 官方文档](https://docs.ollama.com/modelfile)：`num_gpu`/`num_ctx`（默认 4096）/`keep_alive`（默认 5m）/`temperature`（默认 0.8）等参数与默认值
 - [Ollama keep_alive 运维说明](https://github.com/geeks-accelerator/ollama-herd/blob/main/docs/troubleshooting.md)：空闲 5 分钟自动卸载模型的现象与规避
 - [Ollama 多卡并发调度讨论（Issue #7253）](https://github.com/ollama/ollama/issues/7253)：Ollama 单模型默认单卡、多卡调度（`OLLAMA_SCHED_SPREAD`）的官方讨论
 - [OLLAMA_NUM_PARALLEL 参数解读](http://theneuralbase.com/ollama/learn/intermediate/ollama-num-parallel-parallel-requests/)：并行请求数环境变量
 - [vLLM `bench` CLI 引入（PR #13993）](https://github.com/vllm-project/vllm/pull/13993) 与 [`bench serve` 迭代（PR #18566）](https://github.com/vllm-project/vllm/pull/18566)：压测命令来源与用法；[旧脚本移除记录](https://github.com/vllm-project/vllm/commit/6fb27881634d89c2e70e9e5fbad1b918c0d916cf)
 - [Ray CLI 参考（ray start --head/--address）](https://docs.ray.io/en/latest/ray-core/starting-ray.html)：Demo 3 集群启动命令出处
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | `gpu_memory_utilization` 注释写成「最多占用单卡 90% 显存（留 10% 给 KV/碎片）」，把 KV Cache 的分配来源说反 | 注释就地更正为「总预算 = 0.9 × 卡显存（含权重、激活、KV Cache 池），10% 留给运行时开销与碎片」，并加更正块给出 `KV 池 ≈ 0.9×显存 − 权重 − 激活`。来源 [vLLM 论坛](https://discuss.vllm.ai/t/what-does-gpu-memory-utilisation-include/1651)、[Engine Arguments](https://docs.vllm.ai/en/latest/configuration/engine_args/) |
+| 纠错 | 第 85 行「2 机 × 1 卡（TP=2）× 2 段（PP=2）」与 Demo 3「每节点 1 卡各持半份权重」自相矛盾，装不下 4 个 worker | 改为「2 机 × 每机 2 卡」，点明 world_size = TP × PP = 4，并给两种自洽写法：(a) 只设 TP=2 不设 PP；(b) TP=2+PP=2 每机 2 卡（Demo 3 采用，16 卡中用 4 卡）。来源 [vLLM config/parallel.py](https://raw.githubusercontent.com/vllm-project/vllm/main/vllm/config/parallel.py) |
+| 纠错 | `OLLAMA_SCHED_SPREAD` 被描述成「把请求分散到多卡、跨卡负载均衡」（表与正文 ① 各一处） | 按官方定义更正为「把**单个模型**摊到所有 GPU（Always schedule model across all GPUs）」，并列表区分 `OLLAMA_SCHED_SPREAD` / `OLLAMA_NUM_PARALLEL` / `num_gpu` 三者职责。来源 [ollama envconfig/config.go](https://raw.githubusercontent.com/ollama/ollama/main/envconfig/config.go) |
+| 纠错 | 参考链接 `docs.vllm.ai/en/latest/models/engine_args.html` 已 404（该链接是参数默认值类论断的唯一出处） | 改为现路径 `https://docs.vllm.ai/en/latest/configuration/engine_args.html`，并在条目内注明旧路径失效 |
+| 纠错 | 参考链接 `docs.vllm.ai/en/latest/design/automatic_prefix_caching.html` 已被重定向到 `/contributing/` | 改为 `https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html` |
+| 纠错 | 把 `tildalice.io` 个人博客当作「vLLM 官方博客口径」引用 | 条目内标注该页为个人博客（署名 TildAlice、含 Amazon Associate 联盟营销声明），24× 注明为 vLLM 2023 年发布时的官方测评口径（对比 HF Transformers、特定负载），典型对话负载实测多为 2-4×，并补官方博客入口 [vllm.ai/blog](https://vllm.ai/blog) |
+| 补疏漏 | 环境约定「≥8G 显存可跑 7B 级模型」缺边界（Demo 2 自带 TP=2 + AWQ、Demo 3 需多卡，按 8G 单卡复现会 OOM） | 该行就地加更正标注，并补显存预算表（7B FP16 ≈13GiB / 7B 4bit ≈3.5-4.5GiB / 72B FP16 ≈134GiB / 72B 4bit ≈34GiB）+ 复现判据（启动日志 KV blocks、`vllm:gpu_cache_usage_perc` 长期 >95%） |
+| 补疏漏 | 全文没有可手算的 KV Cache 显存公式，读者无法判断 `num_ctx` / 并发 / 量化的取舍 | 原理剖析新增「KV Cache 显存怎么算」小节：`2 × n_layers × n_kv_heads × head_dim × dtype_bytes`，给出 512 KiB/token、32K 单序列 ≈16 GiB 与 GQA 变体 ≈4 GiB 的算例（本机复算） |
+
+回链：[[CORRECTIONS]]（本库更正总表）· [[AGENTS]]（AI 协作规范）

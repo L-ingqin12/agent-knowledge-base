@@ -3,7 +3,7 @@ title: 参考-Pi Agent 技术调研报告
 aliases: [Pi Agent 调研报告, pi-mono 调研, pi-coding-agent-research, earendil-pi]
 tags: [reference, ai/agent]
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: 基于 web_search 多源交叉验证（pi.dev/GitHub/npm/CHANGELOG/DeepWiki/社区解析）；§11 为 npm 官方包 0.84.3 源码实机核验
 fetched_at: 2026-08-25
@@ -26,6 +26,7 @@ fetched_at: 2026-08-25
 ### 1.1 收购与迁移时间线
 
 - 2026-04-08 作者发文《I've sold out》宣布项目被收购；2026-05-07 官方公告 "Pi has a new home"，仓库迁至 Earendil 组织。[来源](https://mariozechner.at/posts/2026-04-08-ive-sold-out/)、[来源](https://pi.dev/news/2026/5/7/pi-has-a-new-home)、[来源](https://devbytes.co.in/news/earendil-acquires-pi-the-minimal-agent-within-openclaw)
+  > [!info] 机器证据（2026-09-13 补，可替代二手博文）：GitHub API 对 `badlogic/pi-mono` 返回 301，重定向后仓库 id=1035029907，与 `earendil-works/pi` 是**同一仓库**（旧路径重定向，非独立仓库）；npm 旧作用域 `@mariozechner/pi-coding-agent` latest 停在 **0.73.1**、最后发布 **2026-05-07T14:45Z**（与公告同日），其后全部发版在 `@earendil-works/*`。[来源](https://api.github.com/repos/badlogic/pi-mono)、[来源](https://registry.npmjs.org/@mariozechner/pi-coding-agent)
 - npm 随之从 `@mariozechner/pi-*` 迁往 `@earendil-works/*`，旧作用域进入弃用流程（第三方安装器 changelog 明确记录移除旧包 deprecation 警告）。[来源](https://raw.githubusercontent.com/itayinbarr/little-coder/main/CHANGELOG.md)
 - 收购后继续开源并运营 pi.dev，但商业化路线由 Earendil 主导。[来源](https://learnblockchain.cn/article/27092)
 
@@ -56,6 +57,19 @@ fetched_at: 2026-08-25
 - **流式接口**：统一流式输出，事件流可直接对接 SSE 服务化场景。[来源](https://blog.frognew.com/2026/08/pi-sdk-lesson-02-events-and-sse.html)
 - **运行形态**："一个 runtime、四种使用姿势"（交互 TUI / print 非交互 / RPC 或 JSON 事件流 headless / SDK 进程内嵌入，官方命名细节**待确认**）。[来源](https://kimigao.com/blog/pi-sdk-runtime/)、[来源](https://lobehub.com/skills/tangledgroup-tangled-skills-pi-mono-0-66-1)、[来源](https://www.cnblogs.com/znlgis/p/20959176)
 - **与 CLI subprocess 方式的本质区别**：嵌入式下循环跑在业务 Node.js 进程内——共享内存、直接读写 session 对象、同步收结构化事件、函数调用注入工具/拦截事件；CLI/RPC 形态则隔着进程边界只能走 stdin/stdout JSON 协议，控制粒度与实时性低一档。[来源](https://www.cnblogs.com/znlgis/p/20959176)、[来源](https://deepwiki.com/agentic-dev-io/pi-agent/7-rpc-mode-and-headless-integration)
+
+**嵌入式 vs CLI / RPC headless 的失败模式对照（2026-09-13 补）**：
+
+| 维度 | 进程内嵌入 SDK | CLI / RPC headless |
+|---|---|---|
+| 隔离强度 | 与业务同进程：Agent 崩溃 / 内存泄漏 / 死循环会带走宿主 | 进程隔离，Agent 挂了业务还在（官方 sdk.md 明列 "process isolation" 为 RPC 首选理由） |
+| 跨进程续跑 | 会话对象在内存，进程退出即需重建 | 天然可断线重连、可多客户端接入 |
+| 跨语言 | 只能 Node.js / TS | 任何语言（stdin/stdout JSON 协议），官方口径 "integrating from another language" |
+| 升级代价 | 依赖升版直接进业务构建，breaking change 立刻暴露 | 只换 CLI 二进制，业务侧不动 |
+| 并发写会话 | 同进程共享 session 对象，需自行加锁 | 协议层有边界，但冲突仍要自己处理 |
+| 控制粒度 | 函数调用注入工具、拦截事件、直接读写状态 | 只有协议暴露的字段，粒度低一档 |
+
+> 官方 sdk.md 原文：「The SDK is preferred when: type safety / same Node.js process / direct access to agent state」「RPC mode is preferred when: integrating from another language / **process isolation** / language-agnostic client」——即「隔离」是**双向取舍**而非单向优点。[来源](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/sdk.md)
 
 ## 3. 会话与交互控制
 
@@ -112,6 +126,7 @@ fetched_at: 2026-08-25
 - **npm 仿冒/镜像供应链风险**：npm 存在数十个 `@xxx/pi-coding-agent` 式同名镜像包，锁错包即引入不可信代码；必须锁 `@earendil-works` 官方作用域并私有镜像。[来源](https://www.npmjs.com/package/@vandeepunk/pi-coding-agent?activeTab=versions)、[registry](https://registry.npmjs.org/@earendil-works%2fpi-coding-agent)
 - License 生态普遍按 MIT 惯例发布，LICENSE 文本未直接核验**待确认 → ✅ 已确认 MIT（package.json，见 §11.4）**（OpenClaw 第三方声明收录可作旁证）。[来源](https://raw.githubusercontent.com/openclaw/openclaw/HEAD/THIRD_PARTY_NOTICES.md)
 - Star 数各来源口径不一（中文报道称 9.3 万星），未经 GitHub 直接核验**待确认**。[来源](https://news.qiniu.com/archives/1787103478559)
+  > [!warning] 更正（2026-09-13）：已直接核验——GitHub API 实测 stars = **约 10.4 万**（104,522 @2026-09-13，repo `earendil-works/pi`，license MIT、default_branch=main）；中文报道的 9.3 万偏低约 1.1 万，「待确认」可消除。取数为时点值，正文一律带「约」字与取数日期。（原表述为「未经 GitHub 直接核验待确认」）[来源](https://api.github.com/repos/earendil-works/pi)
 
 ## 10. 作为业务基座二次开发的可行路径与风险
 
@@ -121,7 +136,7 @@ fetched_at: 2026-08-25
 4. **多代理编排**：从官方 subagent 示例起步，按需选 tmux 并行或进程内方案；勿重复造会话管理（JSONL 树已内建）。[来源](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/extensions/subagent/README.md)
 
 > [!question] 主要待确认项汇总（2026-08-25 实机核验后更新）
-> ① 产品名 "LiblibPi" 无公开来源（维持原判：疑为记忆偏差）；② 工具参数 schema 用 zod 还是原生 JSON Schema——✅ **已解决：TypeBox `TSchema`**（见 §11）；③ web-ui/slack/pods 存续状态——**部分解决**：`pi-web-ui` npm 包存在但停滞在 0.75.x（见 §11）；④ 四种运行模式官方精确命名——**部分解决**：源码 modes 目录见 interactive/rpc/print 三形态（见 §11）；⑤ 内置工具完整权威清单——✅ **已解决**（见 §11）；⑥ LICENSE 文本原文——✅ **已确认 MIT**（package.json，见 §11）；⑦ 精确 star 数（未核验）；⑧ MCP 是否已有官方一等支持（0.84.3 dist 内未见 mcp 目录，倾向无内核支持）。
+> ① 产品名 "LiblibPi" 无公开来源（维持原判：疑为记忆偏差）；② 工具参数 schema 用 zod 还是原生 JSON Schema——✅ **已解决：TypeBox `TSchema`**（见 §11）；③ web-ui/slack/pods 存续状态——**部分解决**：`pi-web-ui` npm 包存在但停滞在 0.75.x（见 §11）；④ 四种运行模式官方精确命名——**部分解决**：源码 modes 目录见 interactive/rpc/print 三形态（见 §11）；⑤ 内置工具完整权威清单——✅ **已解决**（见 §11）；⑥ LICENSE 文本原文——✅ **已确认 MIT**（package.json，见 §11）；⑦ 精确 star 数（未核验）（2026-09-13 更正：GitHub API 实测 **约 104,522** @2026-09-13，见 §9）；⑧ MCP 是否已有官方一等支持（0.84.3 dist 内未见 mcp 目录，倾向无内核支持）。
 
 ## 11. 实机核验增补（2026-08-25）
 
@@ -138,6 +153,9 @@ fetched_at: 2026-08-25
 
 > [!tip] 对二开的影响
 > TypeBox 的 `Static<T>` 可静态推导参数类型且原生产出 JSON Schema（可直接喂 LLM tool 定义），比 zod 少一层转换；迁移 OpenCode 插件（zod 契约）到 pi 时工具参数层需重写。
+
+> [!tip] 开放复核路径（2026-09-13 补）
+> 本条结论可由分发物独立复核，不必信本文：`npm pack @earendil-works/pi-coding-agent` 后看 `dist/core/extensions/types.d.ts`——`import type { Static, TSchema } from "typebox"`、`defineTool<TParams extends TSchema, TDetails = unknown, TState = any>(...)`、`registerTool<TParams extends TSchema = TSchema, ...>` 逐条可验；现行 sdk.md 示例同样 `import { Type } from "typebox"`。与 OpenCode 的 zod 契约（插件 `tool()` 用 `z.ZodRawShape`）确实分属两套。[来源](https://cdn.jsdelivr.net/npm/@earendil-works/pi-coding-agent@0.85.1/dist/core/extensions/types.d.ts)
 
 ### 11.2 steer/followUp 双队列实锤
 
@@ -157,7 +175,23 @@ fetched_at: 2026-08-25
 | 版本节奏 | 核验当日 latest = **0.84.3**；`pi-web-ui` 最新 0.75.3 且长期未更（web-ui 线停滞佐证仓库自述收窄为 "unified LLM API, agent loop, TUI, coding agent CLI"） |
 | MCP | 0.84.3 dist 内无 mcp 内核模块目录 → 维持 §4/⑧ 判断：MCP 走社区扩展 |
 
+> [!warning] 更正（2026-09-13）：上表「核验当日 latest = **0.84.3**」为 0.84.3 快照；现 latest = **0.85.1**（registry time **2026-09-05T12:17:19Z**），0.84.3 之后另有 **0.84.4（08-28）、0.85.0（09-04）、0.85.1（09-05）** 三版。[来源](https://registry.npmjs.org/@earendil-works/pi-coding-agent)
+
+### 11.5 升级与冒烟核验清单（2026-09-13 补）
+
+把 §9/§10 的「锁定版本 + 私有镜像」口号补成可复制动作：
+
+| 步骤 | 命令 | 通过判据 |
+|---|---|---|
+| 1 版本对齐 | `npm view @earendil-works/pi-coding-agent version` | 与锁文件一致；按 patch 滞后 1–2 版属预期（节奏佐证：0.84.3（08-24）→ 0.85.1（09-05）约 12 天三版） |
+| 2 作用域核验 | 私有源安装后 `npm ls @earendil-works/pi-*` | 全部落在 `@earendil-works` 作用域，无 `@xxx/pi-coding-agent` 式仿冒包 |
+| 3 契约冒烟 | 跑一次 `defineTool` + `createAgentSession` | 参数类型推导不报错；`streamingBehavior: "steer" \| "followUp"` 仍在 |
+| 4 类型约束核验 | 打开 `dist/core/extensions/types.d.ts` | `TSchema` 约束仍在（历次破坏性变更高发点） |
+
+> 依据：[npm registry](https://registry.npmjs.org/@earendil-works/pi-coding-agent)、[GitHub releases](https://api.github.com/repos/earendil-works/pi/releases)。
+
 > 版本对照：同期 OpenCode npm latest = 1.18.23（见 [[参考-OpenCode-技术调研报告]] §11），两家均处高速发版期。
+> **2026-09-13 更正**：同期 Pi latest = **0.85.1**、OpenCode latest = **1.18.30**。
 
 ## 反向链接
 
@@ -165,3 +199,15 @@ fetched_at: 2026-08-25
 - [[opencode-pi-base-development-analysis]] — OpenCode/Pi 双基座二开分析
 - [[main-subagent-realtime-interaction]] — 主子代理实时交互模式
 - [[参考-OpenCode-技术调研报告]] — 同期对照调研
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §11.4 版本快照 latest = 0.84.3；§9 星数「各来源口径不一（中文报道 9.3 万）、未经 GitHub 核验待确认」 | 保留原句 + 就地更正：npm latest = **0.85.1**（2026-09-05T12:17:19Z），0.84.3 后另有 0.84.4/0.85.0/0.85.1 三版；GitHub API 实测 stars = **约 104,522**（2026-09-13），9.3 万偏低约 1.1 万。§ 待确认汇总⑦同步解除 |
+| 补疏漏 | §1.1 迁移时间线只有事实链，未给旧路径的可验证行为 | 新增「机器证据」块：`badlogic/pi-mono` 301 → 仓库 id=1035029907 与 `earendil-works/pi` 同库；旧 npm 作用域 latest 停在 0.73.1、末次发布 2026-05-07T14:45Z（与公告同日）。二手博文来源可被 API 证据替代 |
+| 加厚 | §11.1 TypeBox 结论无开放复核路径 | 新增「开放复核路径」块：`npm pack` 后看 `dist/core/extensions/types.d.ts` 的 typebox 导入与 `defineTool/registerTool` 的 `TSchema` 约束 |
+| 加厚 | §11.4 只有 bin/license/版本节奏，§9 只提「锁定版本 + 私有镜像」口号 | 新增 §11.5 升级与冒烟核验清单：版本对齐 / 作用域核验 / `defineTool`+`createAgentSession` 冒烟 / `types.d.ts` 类型约束复核，各带命令与判据 |
+| 补疏漏 | §2 把进程内嵌入写成单向优点（共享内存、直接读写 session），无失败模式对照 | 新增「嵌入式 vs CLI/RPC headless」六维对照表（隔离强度、跨进程续跑、跨语言、升级代价、并发写会话、控制粒度），引官方 sdk.md 的双向取舍原文 |
+
+依据：[registry.npmjs.org/@earendil-works/pi-coding-agent](https://registry.npmjs.org/@earendil-works/pi-coding-agent)、[api.github.com/repos/earendil-works/pi](https://api.github.com/repos/earendil-works/pi)、[api.github.com/repos/badlogic/pi-mono](https://api.github.com/repos/badlogic/pi-mono)、[sdk.md](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/sdk.md)。方法论回链：[[CORRECTIONS]] · [[AGENTS]]。

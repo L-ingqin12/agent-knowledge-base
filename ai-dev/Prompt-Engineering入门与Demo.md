@@ -3,7 +3,7 @@ title: Prompt-Engineering入门与Demo
 aliases: [提示词工程入门, Prompt Engineering入门, PE入门与Demo]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -33,14 +33,21 @@ status: review
 
 ### 六件套通用技法速查
 
-| 技法 | 作用 | 关键要点 |
-|------|------|----------|
-| 角色设定 | 收窄输出分布、激活领域知识 | "你是资深 Python 工程师"优于"你帮我写代码" |
-| 分隔符 | 防注入、防指令混淆 | 用三引号或 XML 标签把指令、示例、用户输入隔开 |
-| 结构化输出 | 让结果可被程序消费 | 要求"只输出 JSON"，并给出字段名与取值说明 |
-| CoT 思维链 | 提升推理类任务正确率 | 数学/逻辑题先列步骤；关键词"让我们一步一步思考" |
-| Few-shot 示例 | 校准输出格式与风格 | 示例必须覆盖边界情况，且与目标输出同分布 |
-| 温度搭配 | 控制随机性 | 代码/数学/信息抽取用 0-0.2；头脑风暴/文案用 0.7-1.0 |
+| 技法 | 作用 | 关键要点 | 适用边界 |
+|------|------|----------|----------|
+| 角色设定 | 收窄输出分布、激活领域知识 | "你是资深 Python 工程师"优于"你帮我写代码" | 角色只收窄分布、不补知识；领域细节仍要靠资料或工具 |
+| 分隔符 | 防注入、防指令混淆 | 用三引号或 XML 标签把指令、示例、用户输入隔开 | 用户输入里可能出现同款分隔符，需随机化或转义 |
+| 结构化输出 | 让结果可被程序消费 | 要求"只输出 JSON"，并给出字段名与取值说明 | 提示词约束只是"软"约束，程序侧必须解析兜底；硬约束（strict / Structured Outputs）见 [[Function-Calling工具调用实战]] |
+| CoT 思维链 | 提升推理类任务正确率 | 数学/逻辑题先列步骤；关键词"让我们一步一步思考" | **增益依赖模型规模**，且两种触发方式出处不同（见下方「CoT 的两种形态」）；需在本模型上用可复现的小规模对照实验先验证 |
+| Few-shot 示例 | 校准输出格式与风格 | 示例必须覆盖边界情况，且与目标输出同分布 | 示例挤占上下文；与目标分布不一致时会产生负迁移 |
+| 温度搭配 | 控制随机性 | 代码/数学/信息抽取用 0-0.2；头脑风暴/文案用 0.7-1.0 | 官方区间是 0–2，0.7–1.0 属**默认值附近**而非"高随机"；部分 reasoning 模型不接受该参数（见下） |
+
+> [!tip] 温度怎么验证（2026-09-13 补录）
+> 上一行的两档经验值只给数值、不给验证方法，补到可执行程度：
+> ① **参数区间与官方描述**（SDK 文档逐字）："What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic."——可见 0.7–1.0 落在默认值附近，把它说成"高随机"并不准确；
+> ② **可复现判据**：同一 prompt 同参数连跑 5 次统计输出差异率；或把 Demo 2 扩成 `temperature ∈ {0, 0.2, 0.7}` × 三次重复的对照表，记录「正确率 / 输出波动」两个指标后再定档；
+> ③ **模型差异**：reasoning 类模型可能不接受 temperature 或只支持默认值，需以具体模型文档为准。
+> 来源：https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/completion_create_params.py ，https://github.com/openai/openai-openapi/blob/master/openapi.yaml
 
 ### Few-shot 示例选择三原则
 
@@ -57,7 +64,7 @@ status: review
 提示词工程的本质是调用模型的上下文学习（In-Context Learning，ICL）能力。Transformer 的注意力机制（Attention）让模型在生成每个 Token 时都能回看 Prompt 里的所有示例，从示例的"输入→输出"对里临时拟合出一个映射函数——这个函数只存在于本次前向计算中，不会写入任何权重。由此推出三条推论：
 
 - **示例质量决定上限**：示例本质是训练数据的"现场补丁"，错误示例会直接产生负迁移（Negative Transfer）；
-- **示例位置影响权重**：注意力随距离衰减，把最关键的示例放在 Prompt 末尾（离目标问题最近处）效果最好；
+- **示例位置影响权重**：注意力随距离衰减，把最关键的示例放在 Prompt 末尾（离目标问题最近处）效果最好；〔**2026-09-13 更正**：这是本文的机制推断，**没有一手出处**，不要先验假定「放末尾最好」。Lu et al.《Fantastically Ordered Prompts and Where to Find Them: Overcoming Few-Shot Prompt Order Sensitivity》(ACL 2022) 证明同一组示例**只换排列顺序**性能就能大幅波动，最优顺序需按任务实测或搜索得到；Anthropic 也提醒 "although the exact formatting of prompts is likely becoming less important as models become more capable"。正确做法：用固定评测集对比 2–3 种位置方案（可直接复用 Demo 2 脚本）再定。来源：https://aclanthology.org/2022.acl-long.556/ ，https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents 〕
 - **上下文就是工作台**：指令 + 示例 + 用户输入共享同一个上下文窗口，任何一块过大都会挤占其他部分。
 
 > [!note] 与参数微调（Fine-tuning）的区别
@@ -70,6 +77,16 @@ status: review
 | ICL | Brown et al., 2020（GPT-3，arXiv 2005.14165） | 首次系统展示"给示例即学会"的上下文学习能力 |
 | CoT | Wei et al., NeurIPS 2022 | 思维链显著提升多步推理任务正确率 |
 | LtM | Zhou et al., ICLR 2023（arXiv 2205.10625） | 由易到难分解提示，应对复杂任务 |
+
+**CoT 的两种形态（2026-09-13 补录）**——原文把关键词"让我们一步一步思考"挂在 Wei et al. 名下，实际它出自另一篇独立工作，两者需分开引用：
+
+| 形态 | 出处 | 做法与量化 |
+|------|------|-----------|
+| 示例式 CoT（few-shot CoT） | Wei et al., NeurIPS 2022 | 给约 8 条带推理步骤的示例；原文摘要："we show how such reasoning abilities emerge naturally in sufficiently large language models via a simple method called chain of thought prompting"——**增益随模型规模出现**，规模不足时可能消失甚至为负 |
+| 关键词触发（zero-shot CoT） | Kojima et al., NeurIPS 2022《Large Language Models are Zero-Shot Reasoners》 | 不加示例，只加一句 "Let us think step by step"：MultiArith 17.7% → 78.7%、GSM8K 10.4% → 40.7%（text-davinci-002），540B PaLM 上有同量级提升 |
+
+来源：https://proceedings.neurips.cc/paper_files/paper/2022/hash/9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html ，https://nips.cc/virtual/2022/poster/54287
+用途：这两组数字正好补强 Demo 2 里只有 zero-shot / few-shot / CoT 三组的对照设计——「不加示例也能激发推理」本身是可对照的第四组。
 
 ### LtM 提示流程：复杂任务拆解
 
@@ -155,6 +172,9 @@ if __name__ == "__main__":
 
 同一个数学任务，三种 Prompt 写法对照；未配置 `OPENAI_API_KEY` 时自动走 Mock 客户端，保证离线可运行：
 
+> [!warning] 更正（2026-09-13）：代码曾被推送期脱敏规则误伤，按原样粘贴**无法运行**（离线可跑的承诺不成立）。实测原第 200/202/204 行为 `api_key = [已脱敏]("OPENAI_API_KEY")`、`[已脱敏] fake_llm(prompt)`、`OpenAI(api_key=[已脱敏])`——其中 `[已脱敏] fake_llm(prompt)` 会解析成列表字面量后紧跟调用，是 **SyntaxError**；另两处触发 **NameError**。下方代码已改回可运行形态（用 `os.getenv` 读取，**不写回任何明文密钥**）。
+> 根因归属：脱敏规则不应匹配 `os.environ.get` / `return` / `api_key` 这类标识符，只应匹配真实密钥值——需修的是 `scripts/prepush-selfscan.sh` 的规则，不是文档正文。同一缺陷在 [[Function-Calling工具调用实战]] 正文代码中原样存在，已同步修复。
+
 ```python
 # -*- coding: utf-8 -*-
 """同一任务下 Zero-shot / Few-shot / CoT 三种 Prompt 效果对比脚本。
@@ -197,11 +217,11 @@ def fake_llm(prompt: str) -> str:
 
 def chat(prompt: str) -> str:
     """真实客户端插槽：有 Key 走 OpenAI 兼容接口，无 Key 走 Mock。"""
-    api_key = [已脱敏]("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")          # 【2026-09-13 修复】原为 [已脱敏]("OPENAI_API_KEY")
     if not api_key:
-        [已脱敏] fake_llm(prompt)
+        return fake_llm(prompt)                    # 【2026-09-13 修复】原为 [已脱敏] fake_llm(prompt)，会语法报错
     from openai import OpenAI                      # pip install openai
-    client = OpenAI(api_key=[已脱敏])
+    client = OpenAI(api_key=api_key)               # 【2026-09-13 修复】原为 OpenAI(api_key=[已脱敏])
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
@@ -263,6 +283,10 @@ def code_generate(requirement: str, llm=call_llm) -> str:
 > [!warning] 换模型的必做动作
 > GLM-4 级模型（如 GLM-4-Flash / GLM-4-Plus）与 GPT-4 级模型的提示词大体可迁移，但温度敏感性、示例偏好存在差异。**每换一次模型，就用 Demo 2 的脚本重跑评测集**，把差异量化后再上线（GLM-4 模型名单见文末参考资料）。
 
+> [!warning] 更正（2026-09-13）：上面的对照基线已过期。智谱官方文档当期明确写「GLM-4 系列包含 Plus、Air-250414、AirX、FlashX-250414、Flash-250414 这五个模型」——名单里**已没有独立的「GLM-4-Flash」条目**（该名仅在正文中作为 FlashX 所增强的免费模型被提及），GLM-4-Plus 仍在列；同时文档站当期主力已是 **GLM-5.3 / GLM-5.3-Flash / GLM-5.2**，并设有专门的《迁移至 GLM-5.3》页。因此「GLM-4 级 / GPT-4 级」只应作为历史基线保留，实际对照请改用当期模型（GLM-5.3/5.2 与同期 GPT 线）；本节标题与表格结构保留不动，仅收敛模型点名。
+> 结论本身不变：**每换一次模型，就用 Demo 2 重跑评测集**这条动作仍然成立。
+> 来源：https://docs.bigmodel.cn/cn/guide/models/text/glm-4 ，https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3
+
 ### 大模型 Debug 能力检测与自动 Debug 函数
 
 检测方法：① 故意给含 bug 的代码，问"找出问题并说明原因"；② 给报错堆栈（Traceback），问"如何修复"；③ 迭代修复直到测试用例通过，记录修复轮数作为能力指标。
@@ -305,13 +329,32 @@ def auto_debug(code: str, error: str, template, llm=call_llm, max_rounds: int = 
 
 ## 参考资料
 
-> [!info] 本文关键技术事实经 web_search 交叉核实，以下为实际参考的公开资料（访问日期 2026-08-25）。
+> [!info] 本文关键技术事实经 web_search 交叉核实，以下为实际参考的公开资料（访问日期 2026-08-25）。第 9–12 条为 2026-09-13 回写补录（访问日期 2026-09-13）。
 
-1. [OpenAI Prompt engineering guide（官方六大策略指南）](https://platform.openai.com/docs/guides/prompt-engineering) — 清晰指令、提供参考文本、拆解复杂任务、让模型"思考"等策略的官方出处；
+1. [OpenAI Prompt engineering guide（官方六大策略指南）](https://platform.openai.com/docs/guides/prompt-engineering) — 清晰指令、提供参考文本、拆解复杂任务、让模型"思考"等策略的官方出处；〔**2026-09-13 标注**：该地址对非浏览器请求返回 403（Cloudflare "Sorry, you have been blocked"），疑似反爬、**不等于失效**，本库无法自动核验内容；OpenAI 自家规格生成的 SDK 文档内部已把函数调用指南指向 `https://developers.openai.com/api/docs/guides/function-calling`，提示文档主域正向 developers.openai.com 迁移——须人工用浏览器复核后统一为当期规范地址并标注访问日期。〕
 2. [Anthropic: Prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices) — XML 标签、角色提示、few-shot 示例、思维链等 2024-2026 最佳实践；
 3. [Brown et al., Language Models are Few-Shot Learners（arXiv 2005.14165）](https://arxiv.org/abs/2005.14165) — In-Context Learning（上下文学习）概念的原始出处；
-4. [Wei et al., Chain-of-Thought Prompting Elicits Reasoning in Large Language Models（NeurIPS 2022）](https://proceedings.neurips.cc/paper_files/paper/2022/hash/9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html) — CoT 思维链原始论文；
+4. [Wei et al., Chain-of-Thought Prompting Elicits Reasoning in Large Language Models（NeurIPS 2022）](https://proceedings.neurips.cc/paper_files/paper/2022/hash/9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html) — CoT 思维链原始论文。〔**2026-09-13 补充**：该文摘要逐字为 "we show how such reasoning abilities emerge naturally in sufficiently large language models via a simple method called chain of thought prompting"，实证是 540B 模型 + 8 条 CoT 示例在 GSM8K 上超过带 verifier 的微调 GPT-3——即 CoT 的增益**随模型规模出现**，这是上文技法表「适用边界」一列的出处。〕
 5. [Zhou et al., Least-to-Most Prompting Enables Complex Reasoning（arXiv 2205.10625, ICLR 2023）](https://arxiv.org/abs/2205.10625) — LtM 由易到难提示原始论文；
-6. [OpenAI Help Center: What are tokens and how to count them?](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them) — "100 Token ≈ 75 英文单词"官方口径；中文 Token 压缩比无官方数据（待验证）；
-7. [OpenAI API Reference: chat/completions](https://platform.openai.com/docs/api-reference/chat/create) — temperature 默认值为 1、低温度输出更确定性的官方参数定义；
-8. [智谱 GLM-4 系列模型官方文档](https://docs.bigmodel.cn/cn/guide/models/text/glm-4) — GLM-4-Flash / GLM-4-Plus 等模型名单与能力说明。
+6. [OpenAI Help Center: What are tokens and how to count them?](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them) — "100 Token ≈ 75 英文单词"官方口径；中文 Token 压缩比无官方数据（待验证）；〔**2026-09-13 标注**：help.openai.com 对非浏览器请求返回空响应页（疑似反爬），该数字**未能自动核验**，请与"中文压缩比"同样按待验证对待。〕
+7. [OpenAI API Reference: chat/completions](https://platform.openai.com/docs/api-reference/chat/create) — temperature 默认值为 1、低温度输出更确定性的官方参数定义。〔**2026-09-13 标注**：区间 0–2 与"低值更集中/更确定"的描述已由 openai-python 类型定义与 openapi 规格核实；**"默认值为 1"未在规格 `default` 字段中独立复核到**，保留待人工确认。〕
+8. [智谱 GLM-4 系列模型官方文档](https://docs.bigmodel.cn/cn/guide/models/text/glm-4) — GLM-4-Flash / GLM-4-Plus 等模型名单与能力说明。〔**2026-09-13 更新**：当期 GLM-4 系列名单已无独立「GLM-4-Flash」；主力模型为 GLM-5.3 / GLM-5.3-Flash / GLM-5.2，见 https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3 。〕
+9. [Kojima et al., Large Language Models are Zero-Shot Reasoners（NeurIPS 2022）](https://nips.cc/virtual/2022/poster/54287) — zero-shot CoT（"Let us think step by step"）原始工作：MultiArith 17.7%→78.7%、GSM8K 10.4%→40.7%（text-davinci-002）；
+10. [Lu et al., Fantastically Ordered Prompts and Where to Find Them（ACL 2022）](https://aclanthology.org/2022.acl-long.556/) — 示例顺序敏感性："同一组示例只换顺序，性能即可大幅波动"，推翻"放末尾最好"的先验假定；
+11. [OpenAI openai-python: completion_create_params.py](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/completion_create_params.py) — temperature 取值区间与官方描述的规格出处（文档主域迁移的证据同在此仓库）；
+12. [Anthropic — Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — "prompt formatting is likely becoming less important as models become more capable"，用于给位置类经验规则设边界。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | Demo 2 `chat()` 被推送期脱敏规则误伤：`api_key = [已脱敏]("OPENAI_API_KEY")`、`[已脱敏] fake_llm(prompt)`（SyntaxError）、`OpenAI(api_key=[已脱敏])`（NameError）——「离线可跑」承诺不成立 | 三行改回可运行形态（`os.getenv` / `return` / `api_key` 变量），**不写回任何明文密钥**；代码上方加更正块，指明根因在 `scripts/prepush-selfscan.sh` 的脱敏规则（该脚本把 `[已脱敏]` 视为已处理形态，第 36–37、77–78 行）；同一缺陷在 [[Function-Calling工具调用实战]] 同步修复 |
+| 纠错 | 原理剖析「示例位置影响权重：注意力随距离衰减 ⇒ 最关键示例放末尾最好」无一手出处 | 保留原句 + 就地更正：Lu et al.《Fantastically Ordered Prompts…》(ACL 2022) 证明示例仅换顺序性能即大幅波动；判据改为「固定评测集对比 2–3 种位置方案」并接回 Demo 2 回归流程 |
+| 纠错 | 关键词「让我们一步一步思考」被挂在 Wei et al.（few-shot CoT）名下 | 新增「CoT 的两种形态」表：示例式 CoT（Wei et al.，含规模边界原文）与关键词触发 zero-shot CoT（Kojima et al.，NeurIPS 2022，含 17.7%→78.7% / 10.4%→40.7% 数字）；「六件套」表行数保持不变以免与标题冲突 |
+| 补疏漏 | 技法表漏掉 CoT 的规模边界（增益依赖模型规模，规模不足时可能消失甚至为负） | 技法表新增「适用边界」列；CoT 行写明该边界，并把 Demo 2 三路脚本升级为上线前的可复现小规模对照验收 |
+| 补疏漏 | 温度只给两档经验值（0–0.2 / 0.7–1.0），无参数区间与验证方法 | 新增「温度怎么验证」块：官方 0–2 区间与原文（说明 0.7–1.0 属默认值附近而非"高随机"）、连跑 5 次统计差异率 / 三档对照表判据、reasoning 类模型可能不接受该参数 |
+| 纠错 | 对照基线仍写「GLM-4 级模型（GLM-4-Flash / GLM-4-Plus）与 GPT-4 级」 | 保留原表与原标题 + 更正块：当期 GLM-4 系列为 Plus / Air-250414 / AirX / FlashX-250414 / Flash-250414（无独立 GLM-4-Flash），文档站主力已是 GLM-5.3 / GLM-5.3-Flash / GLM-5.2；「每换模型重跑评测集」结论保留 |
+| 加厚 | 参考资料 1/6/7/8 的官方链接与数字无法自动核验 | 逐条标注：platform / help.openai.com 对非浏览器请求返回 403（疑似反爬，**不等于死链**，待人工复核）；文档主域正向 `developers.openai.com` 迁移；「100 Token ≈ 75 英文单词」与「temperature 默认值 1」均标注未自动核验 |
+| 补疏漏 | 参考资料缺 CoT 规模边界、zero-shot CoT、示例顺序敏感性的原始论文 | 第 4 条补规模边界原文；编号 9–12 追加 Kojima et al.、Lu et al.、openai-python 规格、Anthropic 上下文工程 |
+
+回链：[[CORRECTIONS]] | [[AGENTS]]

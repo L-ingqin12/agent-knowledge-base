@@ -3,7 +3,7 @@ title: Claude Code 中断恢复方案
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-17
+updated: 2026-09-13
 status: review
 ---
 
@@ -33,6 +33,8 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-context-continuity-guide]] · [[cla
   ✗ 所有文件都要重新读、所有分析都要重新做 = Token 浪费
 ```
 
+> 前提注（2026-09-13）：本节「Claude 报错退出」是本文写作时的假设。[[claude-network-resilience-v2]] 的结论是 **Claude 对话不退出，只是报错后停住等用户输入**；因此下文的守护 / 自动 `--resume` 机制按归档方案保留，不再作为现行部署（见 §九 口径更新）。
+
 ### 1.2 当前环境的脆弱性
 
 ```
@@ -56,6 +58,10 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-context-continuity-guide]] · [[cla
 | Daemon 自动重启 | 二进制变更后自动拉起 | 不对应网络中断 |
 | `history.jsonl` | 完整对话记录 | ❌ 不用于恢复——resume 不会 replay history |
 | `scheduled_tasks.json` | 定时任务持久化 | 只存 prompt 字符串，不存中间状态 |
+
+> [!warning] 更正（2026-09-13）：Claude Code 会把会话持续写入本地 transcript——`claude --continue` 可重开最近一次对话、`claude --resume <session-id>` 可恢复指定会话、`claude -p --resume <session-id> "…"` 还能在同一会话里追加回合，**恢复的不只是 shell 环境，对话历史与任务上下文会一并恢复**；例外是以 `claude -p` 创建的会话不进会话选择器、也不被 `claude --continue` 收录，必须用 `--resume <session-id>` 显式指定（官方文档未标注该行为的版本下限，本环境实测版本未记录）。（原表述为「只恢复了 **shell 环境**，不恢复**任务上下文**」与「❌ 不用于恢复——resume 不会 replay history」。）据此本表把第 1 层的会话恢复能力评低了；§三 仍把第 1 层列为「最优路径」，与本更正一致，§1.3 末尾的「核心缺口」只在「结构化任务进度（做到第几步）不落盘」这一意义上成立。
+>
+> 依据：https://code.claude.com/docs/en/sessions.md（核验于 2026-09-13）
 
 **核心缺口**：没有任何机制把 **"任务做到哪里了"** 持久化到文件系统中。
 
@@ -471,6 +477,8 @@ EOF
 | **task-state.json**（结构化） | 重做 0 个步骤（几十 tokens 读文件） | 纳入任务设计习惯 | ⭐⭐⭐⭐ |
 | **claude-guardian.sh**（守护） | 0 tokens（自动恢复，用户无感） | 部署一次 | ⭐⭐⭐⭐⭐ |
 
+> 注（2026-09-13）：末行守护方案对应的两份脚本现已归档（`claude-network-guardian.sh`、`claude-full-guardian.sh` 头部状态均为「⚠️ 归档」），星级只反映设计完备度，不代表当前启用状态；详见 §九 口径更新。
+
 ---
 
 ## 八、当前环境的快速实施
@@ -515,4 +523,35 @@ $task" --permission-mode accept-edits
 | **外部守护** | 脚本检测到会话死掉→自动 `--resume`→注入恢复 prompt |
 | **备份先行** | 改文件前先 cp 备份，回滚成本为 0 |
 
+> [!warning] 口径更新（2026-09-13）：本表「外部守护」一行**已不是现行策略**——[[claude-network-resilience-v2]] 的结论是「进程守护 / `--resume` 机制」❌ 移除、不需要；库内两份守护脚本（`claude-network-guardian.sh`、`claude-full-guardian.sh`）头部状态均为「⚠️ 归档 — 当前场景不需要」，只保留供未来启用。该行仅是本表六行中的一行，不应再被当作主推方案；若未来实测确认 Claude 会崩溃退出，再解档启用。
+
 **核心原则**：Claude 无法控制网络质量，但可以通过**外部化任务状态**彻底消除"重头再来"的痛苦。中断的成本从 "几千 tokens 重做" 降为 "几十 tokens 读文件"。
+
+---
+
+## 十、恢复验收判据（补 2026-09-13）
+
+原文 §三 / §五 / §七 只给方案与开销星级，没有「怎么验证恢复真的成功」的判据。补下表；判据以脚本真实输出与文件事实为准。
+
+| # | 验收用例 | 操作 | 通过判据 |
+|---|----------|------|----------|
+| 1 | 会话被判定死亡 | kill 掉 `kind=interactive` 的会话进程（或断网后等其停住），守护循环一个周期内（`CHECK_INTERVAL=30` 秒；cron 方案为 5 分钟） | `guardian.log` 出现 `Session <id> is DEAD (PID <pid> gone, restart #n)` |
+| 2 | 自动接续 | 守护执行 `claude --resume … -p "<恢复 prompt>"` | `guardian.log` 出现 `Session resumed successfully`——**该行只是 `--resume` 的退出码回显，不能单独作为成功判据**（以用例 3 为准） |
+| 3 | 已完成步骤不被重做 | 恢复前后对 `task-state.json` 中 `completed[].step` 的产物文件做 `sha256sum` 对比 | 哈希不变；恢复后的第一个动作是读 `task-state.json`，只从第一个 `pending` 步骤继续 |
+| 4 | 升级后 `--resume` 仍可接续 | 升级 Claude Code 后重跑用例 1–2 | 命中原 session-id 且无「会话不存在」报错；否则按 §3.1 场景 C 走第 2 层重建上下文 |
+| 5 | 不可恢复时明确停止 | 连续重启达到 `MAX_RESTARTS=5` | 守护打印 `FATAL: 5 consecutive restarts, giving up`、发出 `notify` 通知并 `break`，不再静默重试 |
+
+> 判据来源：`AGENTS.md` 部署四规则（部署前验证 / 逃生机制 / 日志可审计）；脚本事实取自 `claude-full-guardian.sh`（`MAX_RESTARTS=5`、`RESTART_COOLDOWN=60`）、`claude-network-guardian.sh`（`CHECK_INTERVAL=30`）与本文 §3.2 / §五 脚本。
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §1.3 表断言 `claude --resume`「只恢复了 shell 环境，不恢复任务上下文」，并称 resume 不会 replay history | 保留原表与原文，在表后就地加更正块：transcript 落盘，`--continue` / `--resume <session-id>` / `-p --resume` 可恢复对话与任务上下文，`-p` 创建的会话需显式 `--resume`；依据 https://code.claude.com/docs/en/sessions.md |
+| 补疏漏 | §九 把「外部守护自动 `--resume`」列为主推策略，未同步 v2「守护不需要」的前提变化 | §九 加「口径更新」块（两守护脚本均已归档，v2 判定守护与 `--resume` 机制移除，该行只是六行之一）；§七 加星级注；§1.1 标注「Claude 报错退出」为未修正前提 |
+| 补疏漏 | 全文无「恢复是否真的成功」的验收判据（§七 只有开销星级对比） | 新增 §十 验收判据表：死亡日志行、接续日志行及其局限、`completed` 产物 sha256 不变、升级后可接续、达 `MAX_RESTARTS` 时明确停止并通知 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
+

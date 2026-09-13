@@ -3,7 +3,7 @@ title: 路由器完全能力手册
 tags: [network/router, network]
 aliases: [路由器能力手册]
 created: 2026-07-28
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 
@@ -38,6 +38,10 @@ See also: [[Network-KB-Home]] | [[GUIDE]] | [[ROUTER-DEEP-EXPLORATION]] | [[ROUT
 | mtd7 | 12.4MB | OS1 | 固件 |
 | mtd8 | 10.9MB | rootfs | 根文件系统 |
 | mtd9 | 2MB | disk | 用户数据 (/userdisk) |
+
+> [!warning] 补疏漏（2026-09-13）：上表**平铺列出 mtd0~mtd9，掩盖了 OS1 与 rootfs 的嵌套关系**（原表未说明二者重叠）。
+> 与 OpenWrt TOH 页的 stock `/proc/mtd` 对照，数字一致（mtd0 `01000000` ALL、mtd6 `00100000` overlay、mtd7 `00c60000` OS1、mtd8 `00af0000` rootfs、mtd9 `00200000` disk）。但**除 mtd0 外的切片相加 ≈ 26.675MB，远超 16MB 芯片容量**——因此 mtd8 `rootfs` 必然**位于 mtd7 `OS1` 之内**（嵌套），不是两块独立分区；读写固件时要认准这一点，误把 rootfs 当独立分区会写坏镜像。
+> 来源：<https://openwrt.org/toh/xiaomi/xiaomi_mi_router_4c>、<https://raw.githubusercontent.com/openwrt/openwrt/main/target/linux/ramips/dts/mt7628an_xiaomi_mi-router-4c.dts>
 
 ## 三、存储使用
 
@@ -154,6 +158,10 @@ busybox nslookup <domain>   # DNS 查询
 - debugfs (原厂内核不支持)
 - Lua Web API 修改 (源码已编译)
 
+> [!warning] 更正（2026-09-13）：上表最后三条中，**两条归因有误**（原表述保留于上）。
+> - **「WPA3 (MT7628 不支持)」**：是否可用取决于**固件 / hostapd 版本**，而非 MT7628 硬件本身。OpenWrt 文档原文：「*WPA3 modes are supported by default starting with the OpenWrt 21.02 release.*」——即 21.02 起的 OpenWrt 自带 WPA3。本机不可用是**原厂固件**的限制，应写作「原厂固件不支持（需 OpenWrt 21.02+）」。来源：<https://openwrt.org/docs/guide-user/network/wifi/basic>
+> - **「debugfs (原厂内核不支持)」**：本条**结论正确，但与 [[FINAL-SUMMARY]] 的 P2「禁用 MT7628 frames buffering (debugfs)」直接冲突**——相应 debugfs 属性由 mt76/mt7603 补丁在 **2024-03-25** 才加入 mainline，原厂 3.10 内核不可能具备，P2 在现固件上不可执行（已在 FINAL-SUMMARY 侧同步加注）。来源：<https://lkml.indiana.edu/hypermail/linux/kernel/2403.3/05496.html>
+
 ## 九、SSH 连接
 
 ```bash
@@ -228,3 +236,18 @@ flag_boot_success=1  # 启动成功
 - [[GUIDE]] — 使用指南
 - [[ROUTER-DEEP-EXPLORATION]] — 路由器深度探索报告
 - [[ROUTER-OPTIMIZATION]] — 路由器优化分析
+
+> [!warning] 更正（2026-09-13）：标题中的固件号 `2.14.87` 为**本机历史实测值**，官方发布页最新已到 **2.14.502（2024-02-21）**（原表述保留于标题）。
+> 引用固件版本时应写明「本机 2.14.87 / 官方最新 2.14.502，未升级」。来源：<https://miuirom.org/miwifi/mi-router-4c>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 补疏漏 | 「二、Flash 分区」把 mtd0~mtd9 平铺，未说明 OS1 与 rootfs 的嵌套关系 | 加注：切片和 26.675MB > 16MB 芯片容量 ⇒ mtd8 rootfs 嵌套在 mtd7 OS1 内（OpenWrt TOH `/proc/mtd` + ramips DTS） |
+| 纠错 | 「❌ WPA3 (MT7628 不支持)」归因错误 | 保留原条目并加更正块：可用性取决于固件/hostapd，OpenWrt 21.02+ 默认支持 WPA3（OpenWrt wireless 文档） |
+| 纠错 | 「❌ debugfs (原厂内核不支持)」与 FINAL-SUMMARY P2 冲突 | 保留原条目并加更正块：结论本身正确，冲突在 FINAL-SUMMARY P2，已同步标注该项不可执行（lkml mt7603 补丁 2024-03-25） |
+| 纠错 | 标题固件号 `2.14.87` 无「官方最新/本机实际」对照 | 加注：官方最新 2.14.502（2024-02-21），本机未升级（miuirom.org） |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

@@ -3,7 +3,7 @@ title: Flash 为主、Pro 为辅 — 深度可行性分析
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-06-17
-updated: 2026-08-17
+updated: 2026-09-13
 status: review
 ---
 
@@ -12,6 +12,9 @@ status: review
 See also: [[Claude-Ops-KB-Home]] · [[claude-cache-strategy]] · [[claude-streaming-forward-design]]
 
 > 日期: 2026-06-17 | 状态: 讨论阶段，暂不落地
+
+> [!warning] 时点订正（2026-09-13）：本文是 **2026-06-17 的历史快照**，其中的 `deepseek-v4-flash` 命名**在当时并非错误**（不改写全文，只加本条订正）。官方定价页脚注 (1) 现写明：「Use `deepseek-flash` as the model name. The legacy names `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are still accepted, but the corresponding models have been retired, their requests are served by the DeepSeek-V4.1-Flash model and billed at the Flash price.」——**旧名仍可用，但对应模型已退役、由 V4.1-Flash 承接**。脚注 (2)：「we have decided to continue providing API services for DeepSeek V4 Pro after September 14, 2026, with the billing method remaining unchanged.」
+> 能力面亦已变：`deepseek-flash` 支持 Vision、1M 上下文、384K 最大输出、思考/非思考双模式（默认思考）、并发 2500；`deepseek-v4-pro` 并发 500 且不支持 Vision。[来源](https://api-docs.deepseek.com/quick_start/pricing)
 
 ---
 
@@ -24,6 +27,17 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-cache-strategy]] · [[claude-stream
 | deepseek-v4-flash | $0.0028/M | $0.28/M | 中等 |
 | deepseek-v4-pro | $0.145/M | $3.48/M | 高 |
 | **价差** | **~50x** | **~12x** | |
+
+> [!warning] 更正（2026-09-13）：上表数值**不对应官方现行任何一档**，倍数口径也被误读（原表述为「输入 ~50x / 输出 ~12x」）。官方 [Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)（2026-09-13 实取，$/1M tokens，off-peak | peak 双档）：
+>
+> | 模型 | 缓存命中输入 | 未命中输入 | 输出 |
+> |---|---|---|---|
+> | deepseek-flash | 0.003 \| 0.006 | 0.15 \| 0.30 | 0.60 \| 1.20 |
+> | deepseek-v4-pro | 0.022 \| 0.044 | 0.66 \| 1.32 | 1.98 \| 3.96 |
+>
+> off-peak 为 peak 半价（peak = 周一至周五 01:00–04:00 与 06:00–10:00 UTC）。按此复算 pro/flash 比：**命中输入 ≈ 7.3x**（0.022 / 0.003）、**未命中输入 = 4.4x**（0.66 / 0.15）、**输出 ≈ 3.3x**（1.98 / 0.60）——**「50x」「12x」都不对应任何一档**。列名应改为「缓存命中输入 / 未命中输入 / 输出（$/M，标注 off-peak|peak）」，并写明**成本比随命中率与峰谷时段变化，不能用一个 50x 概括**。
+> （审计曾推测原数值「恰好 1/100、疑单位换算错误」，本次无法证实，故不作为结论。）
+> 旁证：OpenRouter `z-ai/glm-5.3-flash` prompt $0.15/M、completion $0.5/M、cache_read $0.03/M（实取一致）。[来源](https://openrouter.ai/api/v1/models)
 
 ---
 
@@ -169,6 +183,22 @@ if len(response) < 200 and "?" in prompt: upgrade()  # 问答不完整
 **预期**: 质量兜底更可靠
 **风险**: 低，纯逻辑判断
 
+> [!warning] 机制不匹配（2026-09-13 补）：官方定价页注明 `deepseek-flash`「Supports both non-thinking and thinking (default) modes」，Thinking Mode 页要求把 assistant 的 `reasoning_content` 随 messages 回填——在默认思考模式下，真实劣化信号更可能是「思考块与终答矛盾」「工具参数 JSON 解析失败」「同一工具同轮重复调用（循环）」。且上面的字符串启发式在**中文回复下直接失效**（不含 `I cannot` / `I don't know`）。建议改为四类结构化信号：①空/极短回复（与语言无关的长度阈值）；②工具参数 JSON 解析失败率；③单轮工具调用次数上限（循环检测）；④用户显式重问（同一问题重复出现）；并给出升级阈值与**误升级成本**（升级＝缓存锚点变化，命中率受损）。[来源](https://api-docs.deepseek.com/guides/thinking_mode)
+
+### 5. 上述四项的可测断言与采集口径（2026-09-13 补）
+
+原文四条措施全部只写「预期 + 风险」，没有一条判据。改成可测断言：
+
+| 措施 | 可测断言 | 采集口径 |
+|---|---|---|
+| 1 扩大 flash 窗口 | flash 请求占比上升 | relay 按模型分桶统计请求数占比；2 周窗口、日粒度曲线 |
+| 2 缓存锚点对齐 | 模型切换轮次的命中 token 跌幅收窄 | 对比对齐前后切换轮次命中 token（Anthropic 端点口径 `cache_read_input_tokens`）；判据：跌幅 < 5 个百分点 |
+| 3 flash 预热 | 同会话首轮 vs 次轮命中 token 有明显差 | 同 prompt 连续两轮取命中 token 差值 |
+| 4 质量兜底 | 误升级率 / 漏升级率可统计 | 人工标注 + 上条四类结构化信号 |
+
+> [!danger] 前置风险：验证前必须先确认生效路由
+> 本机 `~/.claude/settings.json` 的 `ANTHROPIC_BASE_URL` 指向官方直连，只有 `~/.claude/settings.local.json` 指向 `:8790`。**若生效值是直连，措施 2/3 依赖的 relay 统计与锚点对齐全部不成立**（连数据都收不到）；详见 [[deepseek-400-mitigation-design]] 的「路由自检」。
+
 ---
 
 ## 五、推荐路径
@@ -188,6 +218,23 @@ if len(response) < 200 and "?" in prompt: upgrade()  # 问答不完整
 ```
 
 ---
+
+## 五·附：成本模型与临界点（2026-09-13 补）
+
+原文全篇用倍数论证（50x/12x）与占比目标，始终没有换算成绝对金额。补最小成本模型：
+
+```
+设：总输入 token = I、缓存命中率 = h、输出 token = O，单价按 off-peak | peak 取档
+flash_total = I × (h × 命中价 + (1 − h) × 未命中价) + O × 输出价
+pro_total   = 同式，换 pro 的三档单价
+节省率       = 1 − flash_total / pro_total
+```
+
+- **临界点**：h = 0.9 时输入侧 pro/flash 只差约 **7.3 倍**（命中价 0.022 vs 0.003，off-peak），未命中侧 4.4 倍、输出侧 3.3 倍——所以「把 20% 请求挪到 flash」的实际金额节省**远小于 50x 给人的直觉**。
+- **h 不可假设为常数**：官方 Context Caching 页明写 best-effort、不保证 100% 命中，且缓存闲置数小时到数天自动清除 → 跨天/跨会话的成本模型必须按新命中率重算。
+- 换算示例（off-peak，pro 全量假设 I=1M、O=100K）：pro ≈ 0.022×0.9M + 0.66×0.1M + 1.98×0.1 = 0.0198 + 0.066 + 0.198 = **$0.284**；同量走 flash ≈ 0.003×0.9M + 0.15×0.1M + 0.6×0.1 = 0.0027 + 0.015 + 0.06 = **$0.0777**（约 3.7x 差距，而非 50x）。
+
+> 来源：[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)、[Context Caching](https://api-docs.deepseek.com/guides/kv_cache)。
 
 ## 六、决策点
 
@@ -210,7 +257,23 @@ proxy 上游延迟是主因，非 permafrost 补丁:
 | proxy 中位延迟 | 16s |
 | proxy 最大延迟 | 76s |
 
+> [!warning] 降级为假设（2026-09-13）：上表四项统计量**没有样本量、测量区间（TTFB？首字节？整轮结束？）、负载条件与模型/端点口径**，且被测时点对应的 `deepseek-v4-flash` 现已退役（见文首时点订正）。故「proxy 上游延迟是主因」属**归因推断**而非取证结论，「流式转发可将感知延迟减半」是**未实测预期**——在拿到数据前，两句都只能当假设。
+> 补齐口径后再测：定义测量点、记录样本量与采集脚本、设对照组（同 prompt / 缓存已命中 / 峰谷分别采样），并给同组 p50 / p95。
+
 原因: proxy 缓冲模式 — 收到完整响应后才发给 CC。
 优化: pipe 流式转发(边收边发)，可将感知延迟减半。
 
 permafrost 补丁处理 <1ms，本地链路 <5ms，均非瓶颈。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §一目标表的价格（flash 命中 $0.0028/M、pro 命中 $0.145/M）与「~50x / ~12x」价差 | 保留原表 + 更正块：官方现行四档（off-peak\|peak）为 flash 0.003\|0.006 / 0.15\|0.30 / 0.60\|1.20，pro 0.022\|0.044 / 0.66\|1.32 / 1.98\|3.96；复算 pro/flash 比 = 命中 7.3x、未命中 4.4x、输出 3.3x，原倍数不对应任何一档；写明「成本比随命中率与峰谷变化，不能用一个 50x 概括」 |
+| 纠错 | 全篇以 `deepseek-v4-flash` 为现役模型名（含 `ANTHROPIC_MODEL`、§四、§六） | 文首加「时点订正」：本文是 2026-06-17 历史快照、当时非错误，**不改写全文**；官方脚注(1) 说明旧名仍接受但对应模型已退役、由 V4.1-Flash 承接，脚注(2) 记录 Pro 服务延续决定；并补能力面变化（Vision / 1M 上下文 / 384K 输出 / 双思考模式 / 并发 2500 vs 500） |
+| 补疏漏 | 全篇用倍数论证，从未换算成绝对金额，也未说明对总量的敏感度 | 新增「五·附」成本模型：`flash_total = I×(h×命中价+(1−h)×未命中价)+O×输出价`、节省率公式、h=0.9 临界点、h 非常数（best-effort + idle 清除），并给一组 off-peak 数值示例（$0.284 vs $0.0777，约 3.7x） |
+| 加厚 | §四质量反馈用英文串启发式（`I cannot` / `I don't know`），与默认思考模式不匹配、中文场景失效 | 保留原代码 + 补「机制不匹配」块：改判思考块与终答矛盾、工具参数 JSON 解析失败、单轮重复调用；建议四类结构化信号并计误升级成本 |
+| 加厚 | §四四条措施只有「预期 + 风险」，无一条验证方法或验收判据 | 新增 §四-5「可测断言与采集口径」表（占比分桶统计 / 切换轮次命中跌幅 < 5pp / 首轮 vs 次轮命中差 / 误升级率）＋前置路由风险（直连则 relay 统计不成立，指向 [[deepseek-400-mitigation-design]] 路由自检） |
+| 纠错 | 附录延迟表（最小 2.8s / 平均 25s / 中位 16s / 最大 76s）与「上游延迟是主因」「流式可减半」的断言 | 保留原表 + 降级为**假设**：无样本量、测量区间、负载条件与端点口径，且被测模型已退役；给出补齐口径（测量点定义、样本量、对照组、p50/p95） |
+
+依据：[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)、[Context Caching](https://api-docs.deepseek.com/guides/kv_cache)、[Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode)、[OpenRouter models](https://openrouter.ai/api/v1/models)。方法论回链：[[CORRECTIONS]] · [[AGENTS]]。

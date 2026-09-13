@@ -3,7 +3,7 @@ title: Claude Code 无人值守 — 跨平台架构指南
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -54,6 +54,17 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-unattended-operation-plan]] · [[cl
 | 🟡 中 | `accept-edits` + 通用 allow | 读写+git+npm | 代码修改、测试修复 |
 | 🟠 较高 | `bypass` + deny 清单 | 仅 deny | CI 环境、可信脚本 |
 | 🔴 高 | `bypass` 无限制 | 无 | **永远不推荐** |
+
+> [!warning] 更正（2026-09-13）：模式名应为官方 camelCase，且实际有六档
+> 上面 ASCII 树里的 `accept-edits` / `bypass`（原表述为「├─ accept-edits」「└─ bypass」）与矩阵两行的 `accept-edits` / `bypass` 都不是官方取值。`--permission-mode` 接受 **`default`、`acceptEdits`、`plan`、`auto`、`dontAsk`、`bypassPermissions`**，以及 `default` 的别名 **`manual`**（v2.1.200+，`claude --help` 里以 `manual` 列出）。
+> - **`auto`**：由第二个模型（classifier）逐条审动作，是官方给出的**长任务推荐档**，无人值守场景应优先考虑——本文原先完全没提这一档。
+> - `acceptEdits`：放行读取、文件编辑与常见文件系统命令（`mkdir`/`touch`/`mv`/`cp`），**网络操作并不因此自动放行**。
+> - `dontAsk`：只放行**预先批准**的工具，其余**直接拒绝而非弹窗**——免打扰但不放权，适合心跳类只读任务。
+> - `plan`：只读规划，先出方案再执行。
+> - `bypassPermissions`：等价于 `--dangerously-skip-permissions`，仅在一次性、可丢弃且不可达生产凭据的环境使用。
+>
+> 本文其余示例中的 `--permission-mode accept-edits` / `--permission-mode bypass`（含 §6.1、§8 检查清单等处）同样按此换算，此处保留原文以便对照。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）· https://code.claude.com/docs/en/permission-modes.md（核验于 2026-09-13）
 
 ### 2.3 通用 allow 规则模板
 
@@ -135,6 +146,13 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-unattended-operation-plan]] · [[cl
 - deny 覆盖**危险模式**（管道到 shell、强制推送、破坏性 IO）
 - 两条都要有——allow 打开大门，deny 锁住后门
 
+> [!warning] 更正（2026-09-13）：补求值顺序与 ask 档；模板里的 `"Write(**/*)"` 不生效
+> - 上面 JSON 模板中紧挨 `"Read(**/*)"` / `"Edit(**/*)"` 的 `"Write(**/*)"`（原表述）**永远不会被查询**：文件路径规则只对 `Edit(path)` / `Read(path)` 生效，`Write(path)` 会被接受但在启动时告警、之后不再使用。**写文件与编辑同一路径统一由 `"Edit(**/*)"` 覆盖**，该行可直接删去（此处保留原文以便对照；§6.1 的同一行同理）。
+> - 规则按 **deny → ask → allow** 顺序求值，**先命中者胜**，规则写得多具体都不改变这个顺序——所以 deny 永远压过 allow。
+> - 除 allow / deny 外还有第三档 **ask**：命中的规则强制弹窗确认，适合「想放行但要求确认」的操作，例如 `"ask": ["Bash(git push *)"]`。无人值守场景必须把 ask 命中项清空或改写成 allow，否则任务仍会停下来等人。
+>
+> 依据：https://code.claude.com/docs/en/permissions.md（核验于 2026-09-13）
+
 ### 2.4 settings 文件作用域
 
 | 文件 | 作用域 | 适用 |
@@ -190,6 +208,27 @@ SyslogIdentifier=claude-daemon
 [Install]
 WantedBy=multi-user.target
 ```
+
+> [!warning] 更正（2026-09-13）：`claude daemon start` / `daemon restart` 不是存在的子命令
+> 官方 CLI 的 daemon 子命令只有两个：**`claude daemon status`**（打印后台会话 supervisor 的状态、版本、socket 目录与 worker 数；**未运行时退出码 1**）与 **`claude daemon stop --any [--keep-workers]`**（停 supervisor，`--keep-workers` 保留后台会话供下个 supervisor 接管）。**没有 `daemon start`**（原表述为 `ExecStart=/bin/bash -c 'claude daemon start 2>&1'`），也**没有 `daemon restart`**（原表述为 `ExecReload=/bin/bash -c 'claude daemon restart 2>&1'`）。官方另注明：v2.1.199 之前 `daemon <subcommand>` 会被当作新交互会话的提示词，子命令根本不会执行——照抄原 unit 的结果是「看似启动、实际没起」或被 systemd 反复重启。
+> supervisor 由 Claude Code 按需托管，不存在「用 `daemon start` 常驻一个守护进程」这条路径。按用途改写：
+> - **常驻/后台工作**：用 `claude --bg "<任务>"` 派发后台会话（立即返回并打印会话 ID，交给 supervisor 托管），`claude attach <id>` 接入，`claude respawn <id>` 重启会话（`--all` 重启全部运行中会话，用于升级二进制之后）；`claude agents` 打开 agent view 集中监控，但它**需要交互终端**，不适合放进无 tty 的 unit。
+> - **定时任务**：`Type=oneshot` + systemd timer（见 §4.3 的 `claude-daily-check.service`）。
+> - **健康探针**：`claude daemon status`（退出码 1 = supervisor 未运行），可放进监控脚本或 timer，而不是 `ExecReload`。
+>
+> 改写后的参考片段（原 `Type=forking` 的前提不成立，不再使用）：
+
+```ini
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/claude --bg "常驻任务描述"
+ExecStop=/usr/local/bin/claude daemon stop --any
+# 健康探针（退出码 1 = supervisor 未运行），由 timer / 监控脚本调用：
+#   claude daemon status
+```
+
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
 
 ```bash
 # 部署
@@ -266,6 +305,10 @@ tmux send-keys -t claude-session 'claude --permission-mode accept-edits' Enter
 </plist>
 ```
 
+> [!warning] 更正（2026-09-13）：`ProgramArguments` 里的 `daemon start` 不存在（原表述为 `<string>daemon</string><string>start</string>`）
+> 见 §3.1 更正块：官方只有 `claude daemon status` / `claude daemon stop --any`。macOS 上常驻改以 `claude --bg "<任务>"` 派发后台会话（由 supervisor 托管），需重启会话时用 `claude respawn <id>`；`KeepAlive` 对「派发即返回」的进程语义不再适用，定时任务请用 §4.3 的 `StartCalendarInterval` 调 `claude -p`。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
+
 ```bash
 # 部署
 launchctl load ~/Library/LaunchAgents/com.user.claude-daemon.plist
@@ -302,6 +345,10 @@ wsl -d Ubuntu -u deploy -- bash -c '
   echo $! > /home/deploy/.claude/daemon.pid
 '
 ```
+
+> [!warning] 更正（2026-09-13）：`claude daemon start` 不存在（原表述为 `nohup claude daemon start …`）
+> 见 §3.1 更正块。WSL 内常驻改用 `claude --bg "<任务>"` 派发后台会话，nohup 不再需要；判活改跑 `claude daemon status`（退出码 1 = supervisor 未运行）。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
 
 **方案B — Windows Task Scheduler 触发**：
 ```xml
@@ -390,6 +437,10 @@ services:
       crond -f -l 2
       "
 ```
+
+> [!warning] 更正（2026-09-13）：`command: daemon start` 里的子命令无效（原表述为 `command: daemon start`）
+> 见 §3.1 更正块：没有 `daemon start` 子命令。容器内改用 `command: ["claude", "--bg", "<任务描述>"]` 派发后台会话，或干脆让容器只跑 `claude -p`（容器自身的 `restart: unless-stopped` 已提供进程级恢复）；`healthcheck` 的 `claude --version` 只验证二进制存在，判 supervisor 请用 `claude daemon status`。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
 
 > [!note] 修正说明: 原 `image: alpine` 容器内既无 node 也无 claude，cron 任务执行 `claude -p` 必然失败；上例在 entrypoint 中补了安装步骤（也可改用含 claude 的镜像）。
 
@@ -571,6 +622,43 @@ jobs:
             如果无法修复，在 issue 中记录详细分析。
 ```
 
+> [!warning] 更正（2026-09-13）：上面两个输入名都不存在，照抄会静默失效
+> `anthropic-api-key:` 与 `permission-mode: 'bypass'`（原表述）都不是 claude-code-action v1.0 的输入：
+> - 密钥输入名是 **`anthropic_api_key`**（下划线，另有 `claude_code_oauth_token` 可选）。写成 `anthropic-api-key` 时该输入被忽略，**密钥静默为空**，workflow 直到认证失败才报错，且不会提示你输入名写错。
+> - **没有 `permission-mode` 输入**。v1.0 把权限类参数统一收进 **`claude_args`**（透传给 Claude CLI 的额外参数），写成独立输入不报错，只是**静默失效**、模式退回默认档。
+>
+> 依据：https://cdn.jsdelivr.net/gh/anthropics/claude-code-action@main/action.yml（v1.0，核验于 2026-09-13）
+
+改写后（仅 `with:` 段）：
+
+```yaml
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--permission-mode bypassPermissions"
+          prompt: |
+            检查最近一次 CI 运行的结果。
+            如果有失败的测试，分析原因并尝试修复。
+            如果修复成功，提交并推送。
+            如果无法修复，在 issue 中记录详细分析。
+```
+
+v1.0 已移除/改名的输入（照抄 v0.x 示例即踩）：`mode`（改为按事件自动检测）、`direct_prompt` / `override_prompt`（→ `prompt`）、`custom_instructions`（→ `claude_args: --append-system-prompt`）、`max_turns` / `model` / `allowed_tools` / `disallowed_tools` / `mcp_config`（→ `claude_args: --max-turns / --model / --allowedTools / --disallowedTools / --mcp-config`）、`claude_env`（→ `settings`）、`timeout_minutes`（→ job 级 `timeout-minutes`）。
+
+> 依据：https://raw.githubusercontent.com/anthropics/claude-code-action/main/docs/migration-guide.md（v0.x→v1.0，核验于 2026-09-13）
+
+**无人值守的会话续接策略（2026-09-13 补）**
+
+本节各平台的 cron / systemd timer / launchd 示例都是「每次开新会话」，§6.5 的 Actions 示例每次由 runner 起全新环境，两者都不涉及续接。真正需要单独设计的是「同一任务被中断后接着跑」：
+
+| 目标 | 命令 | 说明 |
+|---|---|---|
+| 固定会话 ID，便于事后续接 | `claude -p --session-id <uuid> "任务"` | `--session-id` 要求**合法 UUID**；在脚本里预生成并落盘，续接时无需再猜 |
+| 接上一次 `-p` 会话 | `claude -p --continue "追加指令"` | 裸 `claude --continue` **跳过** `claude -p`、Agent SDK 与首条 prompt 为 `/loop` 创建的会话；`claude -p --continue` 才把它们包含进来 |
+| 恢复指定会话 | `claude --resume <session-id>` 或 `claude -p --resume <session-id> "…"` | 后者在同一会话**追加回合**，适合守护脚本注入恢复 prompt |
+| 无人应答时的权限兜底 | `claude -p --permission-prompts none "任务"` | 没人能应答权限提示时**直接拒绝**而不是挂起等待（需 v2.1.259+）；因此常走的路必须提前写进 allow 规则 |
+
+> 依据：https://code.claude.com/docs/en/cli-reference.md · https://code.claude.com/docs/en/sessions.md（核验于 2026-09-13）
+
 ---
 
 ## 五、Layer 4（通知）— 多渠道触达
@@ -706,6 +794,9 @@ cat > ~/.claude/settings.local.json << 'EOF'
 }
 EOF
 
+# 注: 见 §2.3 更正——"Write(**/*)" 不生效（文件路径规则只对 Read/Edit 生效），
+#     写文件与编辑统一由 "Edit(**/*)" 覆盖，可删去 Write 行。
+
 # 3) 创建 systemd 服务
 sudo tee /etc/systemd/system/claude-daemon.service << 'EOF'
 [Unit]
@@ -740,6 +831,10 @@ systemctl status claude-daemon
 # 注: ANTHROPIC_BASE_URL 指向 DeepSeek 兼容端点时，模型名用 deepseek-chat（原 claude-haiku-4-5 为 Anthropic 模型名）
 claude -p "回复: ok" --model deepseek-chat
 ```
+
+> [!warning] 更正（2026-09-13）：本段的 `Type=forking` + `claude daemon start` 同样无效
+> `ExecStart=/bin/bash -c 'claude daemon start'` 与 `ExecStop=… 'claude daemon stop'` 里的 **`daemon start` 不是子命令**（`daemon stop` 需要 `--any`，见 §3.1 更正块）。官方只有 `claude daemon status` 与 `claude daemon stop --any [--keep-workers]`；`Type=forking` 所假设的「父进程 fork 后退出」也不成立。常驻改为 `Type=oneshot` + `RemainAfterExit=yes` 调 `claude --bg "<任务>"`，恢复会话用 `claude respawn <id>`，判活用 `claude daemon status`。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
 
 ### 6.2 macOS
 
@@ -786,6 +881,10 @@ launchctl load ~/Library/LaunchAgents/com.user.claude-daemon.plist
 launchctl list | grep claude
 ```
 
+> [!warning] 更正（2026-09-13）：`<string>daemon</string><string>start</string>` 不是有效子命令
+> 同 §3.1 / §3.2 更正块：改为 `claude --bg "<任务>"` 派发后台会话，或把该 plist 改成定时调用 `claude -p` 的 LaunchAgent。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
+
 ### 6.3 Windows + WSL2
 
 ```powershell
@@ -813,6 +912,10 @@ Register-ScheduledTask -TaskName "ClaudeCodeDaily" -Action $action -Trigger $tri
 # 5) 启动 WSL 内 daemon
 wsl -d Ubuntu -- bash -c 'nohup claude daemon start > /root/.claude/daemon.log 2>&1 &'
 ```
+
+> [!warning] 更正（2026-09-13）：`claude daemon start` 不是子命令（原表述为 `nohup claude daemon start … &`，见上一行）
+> 改为 `wsl -d Ubuntu -- bash -c 'claude --bg "检查项目状态"'`；判活用 `wsl -d Ubuntu -- claude daemon status`（退出码 1 = supervisor 未运行）。详见 §3.1 更正块。
+> 依据：https://code.claude.com/docs/en/cli-reference.md（核验于 2026-09-13）
 
 ### 6.4 Docker
 
@@ -853,6 +956,10 @@ jobs:
             ${{ github.event_name == 'schedule' && '每日检查：运行测试，修复失败。' || '' }}
             ${{ github.event_name == 'issues' && '检查新 issue，尝试自动修复并回复。' || '' }}
 ```
+
+> [!warning] 更正（2026-09-13）：`anthropic-api-key` / `permission-mode` 两个输入名无效（原表述同 §4.3 示例）
+> 与 §4.3 的 Actions 示例同一处错误：密钥输入应为 **`anthropic_api_key`**，权限模式须并入 **`claude_args: "--permission-mode bypassPermissions"`**；v1.0 已没有 `permission-mode` / `mode` / `allowed_tools` 等输入。改法与完整清单见 §4.3 更正块。
+> 依据：https://cdn.jsdelivr.net/gh/anthropics/claude-code-action@main/action.yml（v1.0，核验于 2026-09-13）
 
 ### 6.6 云 VM
 
@@ -951,3 +1058,15 @@ Pattern 4: Container Orchestration
 | 开机自启 | systemd enable | RunAtLoad | Boot trigger | restart: always | N/A |
 | 日志管理 | journald | 文件 | 事件查看器 | stdout/stderr | Actions log |
 | 资源限制 | cgroup | launchd limits | Job limits | docker limits | runner limits |
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §3.1 / §6.1 的 systemd unit 用 `Type=forking` + `claude daemon start`，§3.1 另有 `claude daemon restart`——都不是存在的子命令（§3.2 / §3.3 / §3.4 / §6.2 / §6.3 的 plist、nohup、docker command 同源） | 保留原 unit 与 plist 并在各处补更正块：官方只有 `claude daemon status`（未运行退出码 1）与 `claude daemon stop --any [--keep-workers]`；常驻改 `claude --bg` + `claude respawn <id>`，探针改用 `daemon status`（cli-reference 官方页） |
+| 纠错 | §4.3 / §6.5 的 GitHub Actions 示例用 `anthropic-api-key:` 与 `permission-mode: 'bypass'` 两个不存在的输入 | 保留原 YAML，补改写块：`anthropic_api_key` + `claude_args: "--permission-mode bypassPermissions"`，并列出 v1.0 已移除/改名的输入（action.yml v1.0、migration-guide 官方页） |
+| 纠错 | §2.1 / §2.2 把权限模式写作 `accept-edits` / `bypass` | 保留原树与矩阵，补官方六档 camelCase（含 `manual` 别名）并补 `auto`（官方长任务推荐档）/ `dontAsk` / `plan` 的适用场景（cli-reference、permission-modes 官方页） |
+| 补疏漏 | §2.3 的 allow/deny 模板缺规则求值顺序与 ask 档，且含永不生效的 `"Write(**/*)"`（§6.1 同） | 保留原 JSON，在 §2.3 与 §6.1 就地标注：规则按 deny → ask → allow「先命中者胜」；文件路径规则只对 Read/Edit 生效，`Write(path)` 被接受但永不查询，写与编辑统一用 `Edit(**/*)`（permissions 官方页） |
+| 补疏漏 | §4.3 的调度示例用 `claude -p` 但未说明 headless 会话的隔离与续接语义（全文无 `--continue` / `--resume` / `--session-id`） | 保留原示例，在 §4.3 补「无人值守的会话续接策略」表：`--session-id`（须合法 UUID）、`claude -p --continue`（裸 `--continue` 跳过 `-p` 会话）、`--resume <session-id>`、`--permission-prompts none` 权限兜底（cli-reference、sessions 官方页） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

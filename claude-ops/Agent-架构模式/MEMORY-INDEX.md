@@ -3,7 +3,7 @@ title: MEMORY-INDEX
 aliases: [Memory 索引, memory 知识索引, MEMORY 记忆索引]
 tags: [ai/ops, ai/agent]
 created: 2026-08-17
-updated: 2026-08-26
+updated: 2026-09-13
 status: stable
 ---
 
@@ -14,17 +14,36 @@ status: stable
 
 See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[AI-Links-KB-Home]]
 
+## 定位：本索引 vs Claude Code 官方记忆模型（2026-09-13 补）
+
+> [!warning] 补疏漏：本索引是**项目自有归档**，不是 Claude Code 的 `MEMORY.md`
+> 全文（原表述）只索引本库文档，一处未提官方记忆模型，容易被误读为「本库记忆 = Claude Code 记忆」。二者是两套东西，对照如下：
+>
+> | 官方机制 | 官方行为 | 与本索引的关系 |
+> |---|---|---|
+> | `CLAUDE.md` 层级（企业 / 用户 / 项目 / 子目录） | 每次会话启动即载入；**项目根 `CLAUDE.md` 在 `/compact` 后由 Claude Code 从磁盘重读并重新注入** | 本索引不承担该职责；本库规范入口是 [[AGENTS]] |
+> | auto memory | Claude 自己写入的 `MEMORY.md`，每次启动只载入**前 200 行或 25KB（先到者）**；`/memory` 打开、`/context` 查看实际占用 | **本文件不是它**——同名但不同物，本文是 Agent-架构模式目录的库内索引 |
+> | 子代理记忆 | 子代理定义里的 `memory` frontmatter 字段可开启独立持久记忆 | 与本索引无重叠，属未收录的官方载体 |
+>
+> 来源：<https://code.claude.com/docs/en/memory.md>
+
 ## 实际存在的记忆文档（7 条）
 
-| 记忆文档 | 摘要 |
-|----------|------|
-| [[agent-async-isolation-pattern]] | ThreadPoolExecutor + asyncio.wait_for 三层超时包装同步 Agent 调用 |
-| [[deploy-workflow-write-to-repo-first]] | ⚠️ 所有代码变更先在归档仓库编写测试，用户确认后再部署 |
-| [[fan-out-subagent-pattern]] | 并行分发 N 个子任务、防冲突机制、OpenCode vs Claude Code 对比 |
-| [[log-analysis-agent-windows-architecture]] | Nginx+Tornado 多进程+ThreadPoolExecutor 异步隔离+Windows TCP 调优 |
-| [[opencode-multi-agent-architecture]] | Primary/Subagent 两层模型、自规划调度、Fan-Out、权限隔离 |
-| [[pi-agent-framework-knowledge]] | TypeScript monorepo、内置工具 9 种（0.84.3 源码核验，含 powershell/edit-diff）、800token 预算、programmatic SDK |
-| [[state-machine-quality-gate-loop]] | 7 状态控制流、VERIFY 门/RETRY 回环/ESCALATE、死循环保护 |
+| 记忆文档 | 摘要 | 核验方式 | 最后核验日 |
+|----------|------|---------|-----------|
+| [[agent-async-isolation-pattern]] | ThreadPoolExecutor + asyncio.wait_for 三层超时包装同步 Agent 调用 | 未复核 | — |
+| [[deploy-workflow-write-to-repo-first]] | ⚠️ 所有代码变更先在归档仓库编写测试，用户确认后再部署 | 未复核 | — |
+| [[fan-out-subagent-pattern]] | 并行分发 N 个子任务、防冲突机制、OpenCode vs Claude Code 对比 | 未复核 | — |
+| [[log-analysis-agent-windows-architecture]] | Nginx+Tornado 多进程+ThreadPoolExecutor 异步隔离+Windows TCP 调优 | 未复核 | — |
+| [[opencode-multi-agent-architecture]] | Primary/Subagent 两层模型、自规划调度、Fan-Out、权限隔离 | 未复核 | — |
+| [[pi-agent-framework-knowledge]] | TypeScript monorepo、内置工具 9 种（0.84.3 源码核验，含 powershell/edit-diff）、800token 预算、programmatic SDK | 本机包源码核验（见摘要括注） | — |
+| [[state-machine-quality-gate-loop]] | 7 状态控制流、VERIFY 门/RETRY 回环/ESCALATE、死循环保护 | 未复核 | — |
+
+> [!warning] 补疏漏（2026-09-13）：为什么加「核验方式 / 最后核验日」两列
+> 原表（原表述）只有「记忆文档 / 摘要」两列，**没有任何核验标注**，而本库 `sources/*.md` 的登记里 `verified::` 大量集中在 2026-09-12（另有 2026-09-13），**同日集中登记无法区分「看过官方文档」与「只看过本机」**。
+> 可验证的对照：官方 changelog 显示 **2026-09-12 已发布 v2.1.270**（2.1.269 为 09-11），而本簇笔记仍停留在 2.1.1xx（无人值守方案记 v2.1.172）——日期相近不等于版本同期。
+> 取值口径：「**本机观察** / **官方文档 URL** / **未复核**」三档；日期填最后核验日，`—` 表示无记录。本表 2026-09-13 复核时**未逐篇回核原文**，故除自带核验说明的 Pi 条外一律记「未复核」，不冒充已核验。
+> 来源：<https://code.claude.com/docs/en/changelog.md> · [[sources/security-audit|sources/security-audit.md]] · [[sources/README]]
 
 ## 2026-08-25 新增架构文档（4 篇）
 
@@ -72,6 +91,14 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[AI-Links-KB-Home]]
 > [!bug] 遗留问题
 > 以上 6 条记忆源文件不在远程归档中（`_install-tmp/akb-remote/memory/` 仅有 9 个 md：7 条记忆 + 本索引 + README）。如需补全，需回到原始运行环境 `/root/.claude/projects/-root/memory/` 取回。
 
+> [!note] 补全判据（2026-09-13 补）
+> 上条 callout 只给了路径与「需回到原始运行环境取回」，**没有可执行判据**（怎么算补全、补到哪一步停）。补三条：
+> 1. **路径写法确认**：官方 auto memory 目录为 `~/.claude/projects/<project>/memory/`，`<project>` 由**工作目录路径把非字母数字替换为 `-`** 得到，故 `/root` 工作目录对应 `-root`——`/root/.claude/projects/-root/memory/` 写法正确。
+> 2. **逐个验收动作**：对「散落条目」表 6 行逐条处置——能找到源文件 ⇒ 迁入本目录并在索引表标注；只能找到等价文档 ⇒ 在「已重定向」表补一行；两者都无 ⇒ 转 `deprecated` 墓碑行。
+> 3. **放弃判据**：远程归档已删除**且**原始运行环境不可达 ⇒ 就地标 `deprecated` 并在索引**保留墓碑行**（不删行，历史可追溯）。**完成信号**：索引表「散落条目」一节清空，或全部转为 `deprecated` + 替代链接。
+>
+> 来源：<https://code.claude.com/docs/en/memory.md>
+
 ## 交叉 Wikilink
 
 - 记忆索引 → MOC：[[Claude-Ops-KB-Home]]
@@ -82,3 +109,13 @@ See also: [[Claude-Ops-KB-Home]] · [[AGENTS]] · [[AI-Links-KB-Home]]
 - Harness 解剖/评测观测：[[agent-harness-anatomy]] · [[agent-evals-observability]]
 - Pi Agent 体系：[[pi-agent-framework-knowledge]] · [[pi-agent-constraints-reference]]
 - Hermes 并行机制：[[hermes-parallel-task-report]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | 全文无一处引用官方记忆模型（CLAUDE.md 层级 / auto memory），易被误认为「本库记忆 = Claude Code 记忆」 | 新增「定位：本索引 vs Claude Code 官方记忆模型」对照表，并注明本文是项目自有归档而非官方 `MEMORY.md`（memory 官方页） |
+| 补疏漏 | 索引表无任何核验标注，而同日本库 sources 登记集中在 2026-09-12/13，无法区分「看过官方文档」与「只看过本机」 | 主表增「核验方式」「最后核验日」两列（三档口径），并给可验证对照：官方 changelog 2026-09-12 已到 v2.1.270，本簇笔记仍停在 2.1.1xx |
+| 加厚 | 「遗留问题」只给取回路径，无补全判据 | 补三条判据：路径写法确认（`-root` 由来）、6 条逐个验收动作、放弃判据与完成信号（清空或全部转 deprecated 墓碑行） |
+
+回链：本文 See also 已含 [[AGENTS]]；新增 [[CORRECTIONS]]

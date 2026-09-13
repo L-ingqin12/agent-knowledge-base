@@ -3,9 +3,9 @@ title: Redis原理与实践
 aliases: [redis八股, Redis进阶]
 tags: [cs/db, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
-source: Redis 官方文档与源码结构共识（7.x 口径）；行为细节随版本核对处标待确认
+source: Redis 官方文档与源码结构共识（7.x/8.x 双口径，8.0 GA 于 2025-05-01）；行为细节随版本核对处标待确认
 fetched_at: 2026-08-26
 ---
 
@@ -13,6 +13,9 @@ fetched_at: 2026-08-26
 
 > [!abstract] 定位
 > 内存数据库纵深：底层数据结构与类型编码映射、单线程模型边界、持久化两路线、过期淘汰、复制分片高可用，以及分布式锁争议。缓存三连问在 [[高并发系统设计]] §三不重复。
+
+> [!info] 版本口径（2026-09-13 补）：Redis **8.0 GA**（官方博文 2025-05-01）——免费版更名为 **Redis Open Source**（AGPLv3 成为许可选项之一）；一次性内置 8 种数据结构（vector set(beta)、JSON、time series，以及 Bloom / cuckoo / count-min sketch / top-k / t-digest 五种概率结构，部分原为独立模块）；官方称 30+ 项性能改进（命令最快提升 87%、吞吐最高 2x、复制最快 18%）；**Redis Stack 6.2 / 7.2 / 7.4 的补丁支持已于 2025-09-15 停止**。本文涉及 7.0 的 multi-part AOF 与 7.x 差异处均已就地标注。
+> 来源：https://redis.io/blog/redis-8-ga.md
 
 See also: [[CS-KB-Home]] · [[MySQL-InnoDB精要]] · [[高并发系统设计]] · [[操作系统八股]]
 
@@ -41,7 +44,10 @@ See also: [[CS-KB-Home]] · [[MySQL-InnoDB精要]] · [[高并发系统设计]] 
 |------|------|------|
 | RDB | fork 子进程 + COW 全量快照 | 恢复快/间隔期数据丢失窗口大；fork 瞬间页表拷贝与大实例抖动 |
 | AOF | 写命令追加 + `appendfsync always/everysec/no` | everysec 折衷最多丢 1s；重写(bgrewriteaof) fork 压缩体积 |
-| 混合(4.0+) | 重写后 RDB 头+AOF 尾 | 兼得恢复速度与低丢失，默认推荐 |
+| 混合(4.0+) | 重写后 base 文件(RDB 或 AOF 格式) + 增量 AOF 文件 | 兼得恢复速度与低丢失。**7.0 起为多部分 AOF（multi part AOF）**：原单一 AOF 拆成 base 文件（至多一个）+ 增量文件（可多个），统一放在 `appenddirname` 目录并由 manifest 跟踪——"RDB 头+AOF 尾"是 7.0 之前的单文件形态 |
+
+> [!warning] 更正（2026-09-13）："重写后 RDB 头+AOF 尾"是 7.0 **之前**的混合持久化单文件形态；7.0 起文件已拆成 base + 增量多文件（`appenddirname` + manifest），RDB 只是 base 文件的一种格式。既然本文自称 7.x 口径，此处按多部分 AOF 表述。（原表述为「重写后 RDB 头+AOF 尾」，且原表把它写成"默认推荐"这一结论性描述）
+> 来源：https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/
 
 ## 四、过期与内存淘汰
 
@@ -111,10 +117,22 @@ end
 - 大 key：`--bigkeys` 扫描/拆分(hash 分桶)/压缩；热 key：本地缓存副本+key 打散
 - 内存碎片：activedeflate(4.0+ `activedefrag`)
 - 监控四件套：命中率/内存碎片率/阻塞客户端数/主从偏移 lag
+- **AOF-only 部署的备份 SOP**（官方文档口径，7.0+ 多文件形态）：① `CONFIG SET auto-aof-rewrite-percentage 0` 暂停自动重写；② 确认 `INFO persistence` 的 `aof_rewrite_in_progress` 为 0（并看 `aof_last_bgrewrite_status` 为 ok）；③ 复制 **`appenddirname` 整个目录**（可先建硬链接缩短窗口）；④ 恢复原配置。**重写进行中直接拷文件会得到无效备份**——这是 AOF 备份最常见的翻车点
+  > 来源：https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/
 
 ## 八、待确认项
 
-> ① 7.2 Function 替代 EVAL 的生产迁移度；② Multi-part AOF(7.0) 在大重写风暴下的表现实测；③ Cluster proxy 类网关对跨槽 mget 的性能损耗口径。
+> ① 7.2 Function 替代 EVAL 的生产迁移度（8.x 下仍成立，另需核对 Redis 8 内置的 JSON/概率结构是否改变函数侧用法）；② Multi-part AOF(7.0) 在大重写风暴下的表现实测；③ Cluster proxy 类网关对跨槽 mget 的性能损耗口径。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §三 混合持久化写成"重写后 RDB 头+AOF 尾、默认推荐"，与本文自称的 7.x 口径冲突 | 改为 7.0+ 多部分 AOF（base 文件 + 增量文件，`appenddirname` + manifest），保留原表述于更正块；依据 [官方持久化文档](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/) |
+| 纠错 | 全文以 7.x 为最新口径（source 行、§八 待确认） | 补 8.0 GA 版本口径块（更名 Redis Open Source、8 种新数据结构、性能改进、Redis Stack 6.2/7.2/7.4 补丁于 2025-09-15 停止），source 行改为 7.x/8.x 双口径；依据 [Redis 8.0 GA 博文](https://redis.io/blog/redis-8-ga.md) |
+| 补疏漏 | §三/§七 未写 AOF-only 部署的备份前置条件 | §七 增备份 SOP（停自动重写 → 确认 `aof_rewrite_in_progress=0` → 复制 `appenddirname` → 恢复配置），点明"重写中直接拷文件=无效备份"；依据官方持久化文档 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
 
 ## Related
 

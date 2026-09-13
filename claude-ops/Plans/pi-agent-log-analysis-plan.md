@@ -3,7 +3,7 @@ title: 日志分析 Agent 服务 — Pi Agent 版技术方案
 aliases: []
 tags: [ai/ops]
 created: 2026-07-09
-updated: 2026-08-25
+updated: 2026-09-13
 status: deprecated
 ---
 
@@ -196,6 +196,12 @@ export async function analyzeLog(
   }
 }
 ```
+
+> [!warning] 更正（2026-09-13）：上面 `import` 用的包名已废弃（原表述为 `from "@mariozechner/pi-coding-agent"`）
+> npm 亲验：`@mariozechner/pi-coding-agent` **停在 0.73.1 且已 deprecated**，deprecated 字段逐字「please use @earendil-works/pi-coding-agent instead going forward」（`engines: node>=20.6.0`，**无 `./rpc-entry` 导出**）。
+> 现行包为 **`@earendil-works/pi-coding-agent@0.85.1`**（`engines: node>=22.19.0`，依赖 `pi-ai` / `pi-tui` / `pi-agent-core` `^0.85.1`）。
+> 处置：**所有 `import` 与 `npm i` 的名字都要替换**为 `@earendil-works/pi-coding-agent`；并在文档里加一句「旧名已 deprecated，`npm install` 会告警」。
+> 依据：<https://registry.npmjs.org/@mariozechner/pi-coding-agent/latest> · <https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest>
 
 ### 2.2 系统提示词设计 (≤800 tokens)
 
@@ -433,6 +439,11 @@ app.listen(port, () => {
 });
 ```
 
+> [!warning] 更正（2026-09-13）：`Promise.race` 超时只是提前返回，底层 `session.prompt()` 仍在跑，没有取消路径（原表述为上面「超时控制」段）
+> 逐字核对无误：`Promise.race([analyzeLog(...), 超时 reject])` 只让**调用方**提前拿到 `ANALYSIS_TIMEOUT`，被 race 掉的那个分支**不会被取消**。
+> 一处措辞要收紧：实例**并非「永远不会被 dispose」**——`analyzeLog` 的 `finally { await session.dispose() }` 挂在它自己身上，`prompt` 正常返回后仍会执行。准确说法是：**超时分支既不等待、也不取消它**，分析继续消耗 token；并且**成功路径上的 `setTimeout` 没有 `clear`**，每次成功请求都会留下一个到点才触发的定时器。
+> 该补：①给分析链路加 `AbortSignal` / 显式 `session.dispose()` 的取消路径；②暴露**在途分析计数**（超时后仍在跑的数量）；③验收判据——超时后 5 分钟内在途计数必须回落到 0，且 token 消耗不再增长。
+
 ### 3.2 Node.js Cluster 多进程
 
 Windows 上利用 Node.js 原生 `cluster` 模块实现多进程:
@@ -475,6 +486,13 @@ if (cluster.isPrimary) {
   import('./server');
 }
 ```
+
+> [!warning] 更正（2026-09-13）：崩溃重启固定回 `PORT_START`(8801)，会与存活 worker 冲突且端口不回填（原表述为上面 `cluster.on('exit')` 段）
+> 原逐字为 `cluster.fork({ PORT: String(PORT_START), // 复用原端口 (先 kill 再 restart), WORKER_ID: 'restarted' })`——注释说「复用原端口」，代码却**固定回 8801**。两个后果：
+> ①**非 0 号 worker 退出后，新进程会去抢 8801**，与存活的 worker 0 冲突（`EADDRINUSE`）并进入崩溃循环；
+> ②**其余端口不回填**，容量只减不增。
+> 修法：复用**退出 worker 自己的 `PORT` / `WORKER_ID`**（在 fork 时把它们记在 `Map` 里，退出回调按 PID 反查），并加上**重启计数与退避**（避免崩溃循环打满 CPU）。
+> 另需写明：`cluster` 的 IPC 端口共享只在「同一端口」场景生效；本例每个 worker 独占端口，`cluster` 实际只当**看门狗**用——这一点原文没写，容易被误读成负载均衡。
 
 ### 3.3 对比: Node.js cluster 与手动多进程
 
@@ -642,6 +660,13 @@ pi-agent-log-analysis-plan
 | P2 | Nginx 前置 | 同 opencode 版配置 | 需 P1 |
 | P2 | 压测对比 | Pi Agent 版 vs opencode 版 | 需 P1 |
 
+> [!warning] 补（2026-09-13）：本表只有任务名与 ✅，没有验收判据
+> 每项都应给出**通过阈值与产出物**，否则「✅」只是自评：
+> - **P0**：单次分析端到端成功率 **≥ 95%**；P95 延迟；**单次 token 成本**（这是本方案与 opencode 版的核心对比项）。
+> - **P1**：4 进程并发 32 路分析**不 OOM**；崩溃后**自动恢复时限**（从 kill 到端口重新可用 ≤ 30s）。
+> - **P2**：与 opencode 版**同载荷对比表**（QPS / P95 / 单次成本 / 失败率四列同口径）。
+> 另需写明「什么算验证失败、失败记录写在哪」——本库要求结论可重跑，验证失败同样要留档。
+
 ## 参考资料
 
 - [Pi Agent GitHub (badlogic/pi-mono)](https://github.com/badlogic/pi-mono)
@@ -649,3 +674,23 @@ pi-agent-log-analysis-plan
 - [Pi Agent SDK 用法](https://deepwiki.com/earendil-works/pi/7-sdk-and-programmatic-usage)
 - [Pi Agent Tool Execution](https://deepwiki.com/badlogic/pi-mono/4.5-tool-execution-and-built-in-tools)
 - [Agent Skills 标准](https://agentskills.io)
+
+> [!warning] 更正（2026-09-13）：上面三条 `badlogic/pi-mono` 链接已转移，靠重定向才能打开（原表述为第 1、2、4 条链接）
+> 直接请求 `https://api.github.com/repos/badlogic/pi-mono`，跟随重定向后落到 `https://api.github.com/repositories/1035029907`，返回 **`full_name = earendil-works/pi`**（`private=false`、`archived=false`，description「AI agent toolkit: unified LLM API, agent loop, TUI, coding agent CLI」）；分头请求 team 版本另测到原始 `301 + Location` 头。
+> 第 2、4 条的 **DeepWiki 页面基于旧仓库名**，属 AI 生成页面，会随重定向失效：
+> - canonical 仓库：<https://github.com/earendil-works/pi>
+> - 官方文档站：<https://pi.dev/docs/latest>（含 sdk / rpc / json / skills / extensions 等章节）
+> 建议把三条 `badlogic/pi-mono` 链接与两条 DeepWiki 链接一起换成上述两处（DeepWiki 若保留，须标注「AI 生成、非官方」并降为辅助来源）。
+> 附注：第 3 条（`deepwiki.com/earendil-works/pi/...`）已经是新域名，无需替换。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 纠错 | `import … from "@mariozechner/pi-coding-agent"` 使用的包名已废弃 | §2.1 代码块后加更正块：旧名停在 0.73.1 且 deprecated（逐字「please use @earendil-works/pi-coding-agent instead」、无 `./rpc-entry`），现行为 `@earendil-works/pi-coding-agent@0.85.1`；所有 import 与 npm 名需替换。依据两个 npm registry 端点 |
+| 纠错 | 参考资料里 `badlogic/pi-mono` 链接已转移，靠重定向才能打开 | 「参考资料」后加更正块：仓库已迁至 `earendil-works/pi`（API 返回 `full_name=earendil-works/pi`，另有 301 + Location 实测），给出 canonical 仓库与官方文档站 `pi.dev/docs/latest`；两条 DeepWiki 页面基于旧仓库名、属 AI 生成页，需降为辅助来源。依据 GitHub API |
+| 纠错 | `cluster.on('exit')` 重启逻辑总是用 `PORT_START`(8801) 重建 worker，会与存活 worker 冲突且端口不回填 | §3.2 代码块后加更正块：注释「复用原端口」与代码固定回 8801 不符；给出「按 PID 反查退出 worker 自己的 PORT/WORKER_ID + 重启计数与退避」的修法，并写明 cluster 本例只当看门狗、IPC 端口共享不生效 |
+| 纠错 | `Promise.race` 超时只是提前返回，底层 `session.prompt()` 仍在跑，没有取消路径 | §3.1 代码块后加更正块：收紧措辞为「超时分支不等待也不取消」（而非「永不 dispose」），补 `setTimeout` 未 `clear` 的泄漏点，并要求加取消路径、在途分析计数与验收判据 |
+| 加厚 | 实施优先级表只有任务名与 ✅，没有验收判据 | §6 表后补每项的通过阈值与产出物：P0 成功率 ≥95%/P95/单次 token 成本；P1 并发 32 不 OOM、崩溃恢复 ≤30s；P2 与 opencode 版同载荷四列对比表；并要求写明失败记录位置 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

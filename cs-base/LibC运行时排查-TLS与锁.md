@@ -3,7 +3,7 @@ title: LibC运行时排查-TLS与锁
 aliases: [dlclose排查, pthread_key, libc实战]
 tags: [cs/toolchain, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: glibc/musl 手册页与源码行为、POSIX 规范口径；glibc/musl 实现差异处标待确认
 fetched_at: 2026-08-26
@@ -46,10 +46,43 @@ pthread_setspecific(k, buf);          // 线程私有值
 
 | 约束/坑 | 说明 |
 |---------|------|
-| `PTHREAD_KEYS_MAX`=1024(Linux) | 高频建 key 不删会耗尽 → 返回 EAGAIN；key 必须 `pthread_key_delete` |
+| `PTHREAD_KEYS_MAX`：glibc **1024** / musl **128**（= POSIX `_POSIX_THREAD_KEYS_MAX` 下限） | 高频建 key 不删会耗尽 → 返回 EAGAIN；key 必须 `pthread_key_delete`。运行时实测用 `sysconf(_SC_THREAD_KEYS_MAX)`；**同一插件在 musl 上会提前 8 倍耗尽 key** |
 | **析构器与 dlclose** | key 的 destructor 函数指针属于某 so：若 so 已 dlclose 而任意线程仍持 specific → 线程退出时跳进已卸载内存。**这是 dlclose 崩溃榜第一**。对策：delete all keys in shutdown |
 | 析构顺序 | POSIX 未规定顺序（实现多为创建序相关），不要写依赖顺序的析构器 |
 | fork 后 | 子进程只保留调用线程，TSD 表状态以实现为准——多线程库 fork handler 里应清理 |
+
+> [!warning] 更正（2026-09-13）：原表写作「`PTHREAD_KEYS_MAX`=1024(Linux)」——1024 只对 glibc 成立，musl 同为 Linux 却取 128，标「(Linux)」会误导。依据 glibc `sysdeps/unix/sysv/linux/bits/local_lim.h`（`#define PTHREAD_KEYS_MAX 1024`，且 `_POSIX_THREAD_KEYS_MAX 128`）与 musl `include/limits.h`（`#define PTHREAD_KEYS_MAX 128`）。两份实现的 `PTHREAD_DESTRUCTOR_ITERATIONS` 都是 4。
+
+**两件可直接粘贴的复现素材**（把"只有结论"变成"能自己看到"）：
+
+```c
+/* ① key 耗尽最小复现：循环建 key 直到 EAGAIN，打印实测上限与成功次数
+   预期：sysconf 在 glibc 得 1024、musl 得 128；created 与之一致 */
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+int main(void) {
+    pthread_key_t k; int n = 0;
+    printf("sysconf(_SC_THREAD_KEYS_MAX) = %ld\n", sysconf(_SC_THREAD_KEYS_MAX));
+    while (pthread_key_create(&k, NULL) == 0) n++;   /* 刻意不 delete，制造耗尽 */
+    printf("created=%d, next pthread_key_create -> EAGAIN\n", n);
+    return 0;
+}
+```
+
+```c
+/* ② 4 轮析构迭代的可观测验证：析构器里再次 setspecific，打印轮次
+   预期：打印 round=1..4；第 5 轮不再被调用，剩余 specific 被放弃（泄漏自担） */
+static pthread_key_t k;
+static void dtor(void *v) {
+    static _Thread_local int round = 0;      /* 每线程独立计数 */
+    printf("dtor round=%d value=%p\n", ++round, v);
+    if (round < 5) pthread_setspecific(k, (void *)(long)(round + 1));  /* 挂回去 → 触发下一轮 */
+}
+void run(void) { pthread_key_create(&k, dtor); pthread_setspecific(k, (void *)1); }
+```
+
+> 来源（本轮补完）：glibc 上限 https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=sysdeps/unix/sysv/linux/bits/local_lim.h;hb=HEAD ；musl 上限 https://git.musl-libc.org/cgit/musl/plain/include/limits.h
 
 ### C++ `thread_local` 三种存储与 ELF TLS 四模型
 - `thread_local`(C++11, 可带动态构造/析构) vs `__thread`(GCC 扩展, 仅平凡类型) vs pthread_key
@@ -74,6 +107,12 @@ fastpath: 用户态 CAS(0→1) 成功即得锁, 零系统调用
 | PRIO_INHERIT | 实时优先级反转 | PI-futex(FUTEX_LOCK_PI) |
 
 - **rwlock**：默认读优先实现易写者饥饿（glibc 偏向读者）；EPOLLEXCLUSIVE 类比——写临界区敏感场景改 mutex+双缓冲
+  - 官方口径：`PTHREAD_RWLOCK_PREFER_READER_NP` 就是 glibc 的默认 kind——只要有读者持续进入，写者就会被饿死；真正可用的是 `PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP`（**`PTHREAD_RWLOCK_PREFER_WRITER_NP` 被 glibc 忽略**，写了等于没写）
+  - 旋钮与前提：`_XOPEN_SOURCE >= 500 || _POSIX_C_SOURCE >= 200809L` 下 `pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)` → 再 `pthread_rwlock_init(&lk, &attr)`
+  - 验收判据：写者获锁等待时间的 **P99** 开关前后对比（配 `perf lock`/futex 等待栈），不要用"有没有饥饿"这种定性说法
+  - 何时才换 mutex+双缓冲：写占比高、或写临界区长度远超两次上下文切换成本时，读并发收益抵不过写者延迟；低写占比只需改 kind
+
+  > 来源：pthread_rwlockattr_setkind_np(3) https://man7.org/linux/man-pages/man3/pthread_rwlockattr_setkind_np.3.html
 - **spinlock**：仅当临界区 < 两次上下文切换成本且 CPU 不让出（实时核隔离下）；普通应用 pthread_spin 大多是负优化
 - **process-shared**：`PTHREAD_PROCESS_SHARED` + shm mmap → 跨进程互斥；配合 pshared 信号量
 - 死锁现场取证：`gdb -p PID` → `thread apply all bt` 找互相 wait 的 futex 地址；或 `eu-stack -p`；TSan 离线复现优先（见 [[LLVM编译器基础设施]] §三）
@@ -96,13 +135,30 @@ fastpath: 用户态 CAS(0→1) 成功即得锁, 零系统调用
 ldd -r app            # 缺失符号即时暴露(递归)
 nm -D lib.so          # 动态导出面对账
 LD_DEBUG=symbols      # 符号解析全过程(输出巨大,配 OUTPUT 前缀)
-catchsegv/gdb batch   # 崩溃自动化栈回放
+gdb -batch -ex bt ./app core   # 崩溃自动化栈回放(配 ulimit -c unlimited + core_pattern)
+eu-stack -p PID                # 在线抓栈(elfutils，不依赖 gdb)
 ```
+
+> [!warning] 更正（2026-09-13）：原写作「catchsegv/gdb batch  # 崩溃自动化栈回放」。`catchsegv` 与 `libSegFault.so` 自 **glibc 2.35 起已被移除**（glibc NEWS「Deprecated and removed features」段：The catchsegv script and associated libSegFault.so shared object have been removed. https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=NEWS;hb=HEAD ），该行不能再用。替代路径：core dump + `gdb -batch -ex bt ./app core`（配 `ulimit -c unlimited` 与 `/proc/sys/kernel/core_pattern`）、`eu-stack -p PID`、或 systemd-coredump/abrt 这类 out-of-process 收集；musl 环境直接 core + gdb。
+
+> 边界：`LD_DEBUG` 是 glibc ld.so 的调试开关（选项表在 elf/rtld.c 的 `debopts[]`，含 `tls` 项，未知选项会警告 unknown），**musl 的 ldso 不实现这一套**——musl 环境排查 TLS/dlopen 只能走 core dump / eu-stack。来源：https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=elf/rtld.c;hb=HEAD
 
 ## 五、待确认项
 
-> ① musl ld.so 对 LD_DEBUG 子集的支持范围；② glibc 2.35+ malloc tcache/arena 统计字段变化对旧脚本的兼容；③ RTLD_NODELETE 与 dlmopen 新 namespace 组合的隔离效果实测；④ 各发行版默认是否已启 io_uring 辅助的 malloc 路径（无此物，防讹传——仅列待查证伪）。
+> ① musl ld.so 对 LD_DEBUG 子集的支持范围（2026-09-13 收口：`LD_DEBUG` 属 glibc ld.so 专有调试开关，musl ldso 无对应实现，详见 §四 边界说明；遇实测反例再翻案）；② glibc 2.35+ malloc tcache/arena 统计字段变化对旧脚本的兼容；③ RTLD_NODELETE 与 dlmopen 新 namespace 组合的隔离效果实测；④ 各发行版默认是否已启 io_uring 辅助的 malloc 路径（无此物，防讹传——仅列待查证伪）。
 
 ## Related
 
 [[CS-KB-Home]] · [[LibC与动态链接]] · [[LLVM编译器基础设施]] · [[LLVM使用调优与SO优化]] · [[操作系统八股]] · [[opencode-pi-base-development-analysis]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §四 速查表把 `catchsegv` 当现役工具 | `catchsegv`/`libSegFault.so` 自 glibc 2.35 起移除；换 core dump + `gdb -batch -ex bt`、`eu-stack -p`、systemd-coredump/abrt。依据 glibc NEWS「Deprecated and removed features」 |
+| 纠错 | §二 写「`PTHREAD_KEYS_MAX`=1024(Linux)」 | 改为 glibc 1024 / musl 128（= POSIX 下限），并给 `sysconf(_SC_THREAD_KEYS_MAX)` 实测法；依据 glibc local_lim.h 与 musl limits.h |
+| 补疏漏 | §二 TSD 段只有结论，无复现素材 | 补两段可粘贴代码：key 耗尽最小复现、4 轮析构迭代的可观测验证；依据同上两处源码常量 |
+| 加厚 | §三 rwlock 只给「易写者饥饿」结论，无可执行旋钮 | 补默认 kind 口径、`PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP`（`PREFER_WRITER_NP` 被 glibc 忽略）、特性宏与最小片段、P99 验收判据、换 mutex+双缓冲的条件；依据 man 3 pthread_rwlockattr_setkind_np |
+| 加厚 | §四 `LD_DEBUG=tls` 未标实现边界 | 补边界说明（glibc 专有，musl ldso 不实现）并据此收口 §五 待确认①；依据 glibc elf/rtld.c `debopts[]` |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

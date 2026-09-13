@@ -4,7 +4,7 @@ aliases: [MOC, 网络知识库, Network KB, 000 Home]
 tags: [moc, network, network/moc]
 cssclass: dashboard
 created: 2026-07-27
-updated: 2026-09-06
+updated: 2026-09-13
 status: stable
 ---
 
@@ -56,6 +56,11 @@ status: stable
 | 代理 | v2rayN + xray 26.3.27, 端口 10808, balancer 池 SG1/US1/US3/JP1（watcher 自动修规则） |
 | 延迟改善 | 541ms → 113ms (-79%) |
 | 状态 | ✅ 代理多节点, ✅ 路由器已调优, ⚠️ WiFi 驱动待更新 |
+
+> [!warning] 更正（2026-09-13）：上表“代理/路由器”两行是**未标核对日期的历史快照**，与上游现状已漂移；原值保留以便追溯，现况如下。
+> - **代理**：原记 `v2rayN + xray 26.3.27`。核验：Xray-core `v26.3.27` 确为正式版（prerelease=false，2026-03-27）；但上游 releases 首条已是 `v26.9.9`（prerelease=true，2026-09-08），v2rayN 侧最新为 `7.25.1`（2026-09-10，同为预发布）。**引用“上游最新”时必须注明预发布性质**——`/releases/latest` 只取非预发布版（故 `sources/network-device.md` 登记的 latest=`v26.3.27` 与本条并不矛盾），`?per_page=N` 才含预发布。来源：<https://api.github.com/repos/XTLS/Xray-core/releases?per_page=5>、<https://api.github.com/repos/2dust/v2rayN/releases?per_page=5>
+> - **路由器**：原记 `Xiaomi R4CM, fw 2.14.87`。核验：官方发布页最新为 `2.14.502`（2024-02-21）。来源：<https://miuirom.org/miwifi/mi-router-4c>
+> - **WiFi 驱动**：状态栏 `⚠️ WiFi 驱动待更新` 表述本身成立，但驱动站设备清单共 305 款，**QCA9377 不在其中**（全页检索 `9377` 命中 0），故“最新版 v3.1.0.1486”这一版本关系仍无可核来源。来源：<https://www.qc-drivers.eu/wifi-device-list.html>
 
 ## 脚本
 
@@ -113,3 +118,13 @@ LIMIT 15
 - 修改后更新 `updated` 字段和反向链接
 
 > [!tip] 安装 Dataview 插件后，上方查询自动填充。无需额外配置。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 「关键数据」表代理行 `xray 26.3.27` 无核对日期，且已被上游覆盖 | 保留原值并加更正块：核验 Xray-core v26.3.27 为正式版、上游最新 v26.9.9 为预发布，v2rayN 最新 7.25.1 亦预发布（GitHub Releases API） |
+| 纠错 | 「关键数据」表路由器行 `fw 2.14.87` 已过期 | 保留原值并加更正块：官方发布页最新 2.14.502（2024-02-21），来源 miuirom.org |
+| 补疏漏 | 状态栏「WiFi 驱动待更新」隐含的「最新版 v3.1.0.1486」无来源 | 加注：qc-drivers.eu 设备清单 305 款不含 QCA9377，该版本关系不可核 |
+
+相关：[[CORRECTIONS]]

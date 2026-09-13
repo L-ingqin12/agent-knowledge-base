@@ -3,7 +3,7 @@ title: 主Agent与Subagent实时交互方案设计
 aliases: [实时交互方案, subagent看门狗, 主子agent心跳与唤醒, Realtime Interaction]
 tags: [ai/ops, ai/agent]
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 ---
 
@@ -11,6 +11,17 @@ status: review
 
 > [!abstract] 概述
 > 当前主流编码 Agent（OpenCode task 工具、Claude Code Agent 工具、Pi Agent 手动编排）的主↔子调用本质是**单向黑盒**：父级发出 prompt 后阻塞等待最终报告，中途既感知不到子级是否卡死，也无法注入新指令。本文把"实时交互"拆解为四个正交原语——**活性感知、邮箱通知、打断抢占、断点恢复**，给出分层卡死判定矩阵、升级式干预阶梯（observe → nudge → interrupt → kill）、checkpoint 协议与 OpenCode/Pi Agent 落地蓝图。
+
+> [!warning] 更正（2026-09-13）：对 Claude Code，「单向黑盒」已不成立
+> 上段断言（原表述）称三家主流框架的主↔子调用「中途既感知不到子级是否卡死，也无法注入新指令」。该判断对 **OpenCode task 与 Pi 手动编排仍成立**，但对 **Claude Code 已过期**：
+> - `/tasks` 可看本会话在跑的全部工作，`/background` 把会话脱离终端，`claude agents` 的 agent view 按 **Needs input / Working / Completed** 分组监控，并可 attach 进去回复；
+> - cross-session messaging 支持会话之间直接传消息；
+> - agent teams 提供 teammate 间直接消息与集中管理（**实验性**，需 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`）；
+> - hooks 已有 `SubagentStart` / `SubagentStop`，团队另有空闲事件 `TeammateIdle`。
+>
+> 因此准确表述应收窄为：**子代理内部推理过程仍不可见（隔离上下文）**，而**会话级已可观察、可插手**。下文四原语依然成立，但 Claude Code 上属于「原生已有、按需映射」而非「必须自建」。
+>
+> 来源：<https://code.claude.com/docs/en/agent-view.md> · <https://code.claude.com/docs/en/cross-session-messaging> · <https://code.claude.com/docs/en/agent-teams.md> · <https://code.claude.com/docs/en/hooks.md>
 
 See also: [[opencode-multi-agent-architecture]] · [[fan-out-subagent-pattern]] · [[state-machine-quality-gate-loop]] · [[pi-agent-framework-knowledge]] · [[A2A多智能体协作协议]] · [[Claude-Ops-KB-Home]]
 
@@ -43,6 +54,20 @@ See also: [[opencode-multi-agent-architecture]] · [[fan-out-subagent-pattern]] 
 
 > [!tip] 设计原则
 > 四原语正交意味着可独立演进：先用文件轮询实现 Liveness（零依赖），Mailbox 可以先于 Interrupt 落地（更安全），Checkpoint 则是其余三个原语的"安全网"。参考 [[interactive-aware-subagent-plan-2026-07-03]] 的教训——hook 是 advisory 的，硬约束必须落在文件系统等可验证介质上。
+
+> [!warning] 更正（2026-09-13）：需分级——「advisory」只对提示词类注入成立
+> 上条 tip 的结论被官方口径支持（记忆/上下文是 context，不是 enforced configuration），但表述过宽会误导实现，按官方 hooks 参考精确化为**两级**：
+>
+> | 级别 | 事件 | 官方语义 |
+> |------|------|---------|
+> | **可阻断（硬门禁）** | `PreToolUse` | Exit code 2 ⇒ *Blocks the tool call*，每次工具调用前拦截 |
+> | **可阻断（硬门禁）** | `UserPromptSubmit` | 可阻断并**擦除** prompt |
+> | **可阻断（硬门禁）** | `Stop` | 可阻止停止并继续对话 |
+> | **仅可建议 / 需另走 decision** | `PermissionRequest` | 官方原文：*Exit code 2 isn't honored for this event*，须用 decision 对象显式 deny |
+>
+> ⇒ 对**工具调用类可控点**，hook 是一等公民的硬门禁，可与文件系统判据并用；只有**提示词/上下文类注入**才是建议性的。原文「硬约束必须落在文件系统等可验证介质上」应加一句：可控点上的硬约束**也可以且应该**落在 hook 上。
+>
+> 来源：<https://code.claude.com/docs/en/hooks.md> · <https://code.claude.com/docs/en/memory.md>
 
 ## 三、卡死判定：四层活性金字塔
 
@@ -78,6 +103,16 @@ See also: [[opencode-multi-agent-architecture]] · [[fan-out-subagent-pattern]] 
 | ✓ | ✓ | ✗ >T_soft | ✗ | 半活跃（模型输出但不再动工具） | T1 nudge "汇报当前状态" |
 
 阈值经验值起点：`T_soft = 3 × 平均步长`，`T_hard ≥ 120s`（参考 [[interactive-aware-subagent-plan-2026-07-03]] 的 stale 判定），`N_loop = 3` 次相同 `(tool, args哈希)` 序列。所有阈值应配置化并按任务类别分档（只读探索类放宽，写操作类收紧）。
+
+> [!note] 补疏漏（2026-09-13）：这三个值的定标方法与验收判据
+> 上段三个数（`T_soft = 3 × 平均步长`、`T_hard ≥ 120s`、`N_loop = 3`）是**经验起点**，原文未给验证方法，无法判断定标是否合理。补三条：
+> 1. **定标**：用历史会话 trace 回放，标出每条失败会话「**最后一次有效推进**」的真实时刻，取 **P50 作 `T_soft`、P95 作 `T_hard`**；按任务类别分档，不全局一刀切。
+> 2. **验收**：注入 **10 个已知卡死用例 + 10 个正常长任务**，要求 **T2 误触发 ≤ 1 次、T3 漏杀 = 0**，并记录每次触发的判定层级与耗时。
+> 3. **退避与终止**：给 `max_nudge`（建议 2）与指数退避上限（建议 4×`T_soft`），并定义「nudge 后仍无响应」的判定窗口（建议 2×`T_soft`）；nudge 计数与窗口必须落状态文件，不能只存在内存里。
+>
+> 设计动机（官方依据）：控制信息应走**结构通道**而不是自然语言上下文——Anthropic 的上下文工程文章以 **attention budget（注意力预算）** 为核心论点，把看门狗信号塞进业务提示词会直接挤压该预算。
+>
+> 来源：<https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents>
 
 ## 四、通知与唤醒：升级式干预阶梯
 
@@ -117,6 +152,20 @@ T0 observe ──超时──→ T1 nudge ──无响应×k──→ T2 interru
 1. **注入不靠模型自觉**。靠 prompt 里写"记得查邮箱"必然被遗忘；正确做法是在框架层缝入——OpenCode 用插件 `chat.message`/`tool.execute.before` hook 在每次工具调用前自动检查 inbox 并注入未读摘要；Pi Agent 用 extension 的 beforeToolCall 事件做同样的事。
 2. **消息幂等且带序号**。子级以 `inbox_cursor` 记录消费位点，重复投递不产生重复效果（T2/T3 重试时尤其重要）。
 3. **stop 类消息直达控制面**。控制面 hook 见 `type:"stop"` 直接调用 abort，不经模型。
+
+> [!note] 补疏漏（2026-09-13）：「框架层缝入」在 Claude Code 的原生落点
+> 第 1 条纪律只给了 OpenCode 插件 hook 与 Pi extension 两条路（原文未声称 Claude Code 做不到，但读者会这么理解）。官方 hooks 覆盖同一能力，可直接映射：
+>
+> | 本文机制 | Claude Code 原生 hook 事件 | 关键语义 |
+> |---------|--------------------------|---------|
+> | 每次工具调用前检查 inbox 并注入未读摘要 | `UserPromptSubmit` / `PreToolUse` | `UserPromptSubmit` 的纯文本 stdout 会作为 **Claude 可见的上下文注入**；`PreToolUse` 每次工具调用前拦截且可阻断 |
+> | 代写心跳（零模型自觉） | `PostToolUse` | 工具调用后自动触发，写心跳/进度文件**不需要模型配合** |
+> | 子代理生命周期记账 | `SubagentStart` / `SubagentStop` | 输入含 `agent_id` / `agent_type` |
+> | 团队空闲唤醒 | `TeammateIdle` | 配合 agent teams 的空闲事件 |
+>
+> 且 hooks 可**绑定到 skill / agent 内部**，即真正的「缝在框架层」而非「写在提示词里」。
+>
+> 来源：<https://code.claude.com/docs/en/hooks.md>
 
 ## 五、Checkpoint 恢复协议
 
@@ -194,6 +243,21 @@ Pi 无内置子 agent 但 SDK 全在手：官方 subagent 示例扩展与社区�
 
 三者叠加才构成完整的多智能体生产系统：Fan-Out 没有 watchdog 是裸奔，watchdog 没有质量门是盲干，质量门没有 Fan-Out 是串行浪费。
 
+### 6.4 Claude Code 版（官方原生设施，无需自建插件）
+
+§6.1/6.2 只给了 OpenCode 与 Pi 两版，Claude Code 被排除在设计对象之外（原表述）。官方已有覆盖同一职责的原生设施，四原语对照：
+
+| 本文原语 | Claude Code 原生 | 说明 |
+|---------|-----------------|------|
+| Liveness 感知 | `/tasks` + agent view | agent view 的 **Needs input / Working / Completed** 三态即可直接读作 L1/L2 活性信号 |
+| Mailbox 通知 | cross-session messaging | 会话之间直接传消息，不必自建 `.agent-bus/` 文件协议 |
+| 隔离（防优先级反转） | git worktrees | 每个并行会话一条分支，规避 §八「打断正在持锁写文件的子 agent」问题 |
+| 编排 | agent teams（实验性） | 需 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`；已知限制：**lead 不可转让**、**teammate 不能起后台子代理** |
+
+这四点同时是 §八「跨机部署」的**官方级替代答案**：跨机不必换成 Redis/消息队列，用会话层消息 + worktree 隔离即可；自建方案的价值收窄为「需要跨框架统一协议」（对应本文 A2A 列）时。
+
+来源：<https://code.claude.com/docs/en/agent-view.md> · <https://code.claude.com/docs/en/cross-session-messaging> · <https://code.claude.com/docs/en/agent-teams.md>
+
 ## 七、反模式清单
 
 > [!warning] 五个高频反模式
@@ -219,3 +283,15 @@ Pi 无内置子 agent 但 SDK 全在手：官方 subagent 示例扩展与社区�
 - [[pi-agent-framework-knowledge]] — Pi Agent 事件流/会话树依据
 - [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调研报告]] — 两基座控制面 API 依据（Server/SDK、steer/followUp）
 - [[A2A多智能体协作协议]] — 跨进程/跨框架时的协议化对应物
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | 概述断言三家主流框架「中途不可见、不可注入」，对 Claude Code 已过期 | 保留原表述并加更正 callout，收窄为「子代理内部推理不可见、会话级可观察可插手」（agent-view / cross-session-messaging / agent-teams / hooks 官方页） |
+| 纠错 | 「hook 是 advisory 的」表述过宽，会误导实现 | 补分级表：`PreToolUse`/`UserPromptSubmit`/`Stop` 可阻断，`PermissionRequest` 的 exit 2 不被采纳（hooks 官方页） |
+| 补疏漏 | 注入纪律只给 OpenCode/Pi 两条路，无 Claude Code 原生映射 | 新增「本文机制 → Claude Code 原生 hook 事件」映射表 |
+| 补疏漏 | §6 蓝图无 Claude Code 版，§8 跨机开放问题只谈自建 | 新增 §6.4 原生设施对照（agent view / cross-session messaging / worktrees / agent teams） |
+| 加厚 | T0..T3 阈值只有经验起点，无定标法与验收判据 | 补定标法（trace 回放取 P50/P95）、验收判据（T2 误触发 ≤1、T3 漏杀 = 0）、退避参数与注意力预算依据 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

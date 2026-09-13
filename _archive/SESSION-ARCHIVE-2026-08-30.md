@@ -3,7 +3,7 @@ title: SESSION-ARCHIVE 2026-08-30
 aliases: [会话归档 2026-08-30, DSH升级与思考控制归档]
 tags: [meta, session-archive, ai/agent]
 created: 2026-08-30
-updated: 2026-08-30
+updated: 2026-09-13
 status: review
 ---
 
@@ -23,6 +23,10 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 | `@deepseek-ai/dsh`（全局） | 0.1.0-rc.6 | **0.1.1-rc.2** | `npm i -g @deepseek-ai/dsh@latest` |
 | `dsh-tui`（全局） | 未装（profile 集成旧路线） | **0.2.19** | `npm i -g dsh-tui` |
 
+> [!note] 2026-09-13 复核回标（版本演进，上表原文不改）：npm registry 实测 dist-tags 为 `latest=0.1.5-rc.1`、`next=0.1.5-rc.2`、`alpha=0.1.5-alpha.2`——今天 `npm i -g @deepseek-ai/dsh@latest` 装到的不再是 0.1.1-rc.2，更新的 rc 在 `next` 通道而非 `latest`，上表方式列按当时记录保留但已不宜照抄。升级前先看 dist-tags，再决定用 `@latest` 还是 `@next`。
+>
+> 来源：https://registry.npmjs.org/@deepseek-ai%2Fdsh
+
 ### 2. 安装方式修正（已完成 ✅）
 
 - 旧路线：`dsh --profile tui`（cordis 插件包 `@dsh-tui/dsh-tui`，profile 集成）
@@ -40,10 +44,29 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 - 控制入口 = **host 端 settings.yaml 热加载**：改 `agent-default-model.reasoningEffort` 新会话即生效；或 Web 端模型选择器 /model
 - GLM-5.3-flash 实证：默认 max 思考（最费），`low` 有效降档（say ok 仅 26 reasoning tokens）；`disabled`/`none` 无效（GLM 思考不可关）
 
+> [!note] 2026-09-13 复核回标（时效性快照）：§3/§4 的模型侧结论（默认模型改 glm-5.3-flash、`reasoningEfforts` 仅 low/high/max 有效、minimax-m3:free 无响应、GLM 思考不可关）均属 2026-08-30 的一次性实测，未经外部佐证——复核时抓 OpenRouter 模型页只得前端渲染骨架，无可引用文本，故不构成定论。复现方法：
+>
+> | 待复核项 | 复核方法 |
+> |---|---|
+> | 模型是否仍在列 | 调 `GET /api/v1/models` 读返回清单，不靠页面肉眼读 |
+> | 档位是否有效 | 同一提示词分别用 low/high/max 发最小请求，比对返回的 reasoning token 数 |
+> | 失效模型 | 保留请求 ID 与响应体再判失效，不凭单次超时下结论 |
+>
+> 来源：https://openrouter.ai/models
+
 ### 5. 自动 compact（已完成 ✅）
 
 - web profile `cordis.patch.yml`：`compaction-basic` 配置 `auto: true` + `thresholdRatio: 0.75`（默认 0.8）+ 主力模型 0.7
 - 工具结果压缩 `tool-result-pruner` 为 dsh-base 内建（8192/4096/1024），未改
+
+> [!note] 2026-09-13 复核回标（补验收判据）：本机 `~/.dsh/profiles/web/cordis.patch.yml` 实测确含 `id: compaction-basic`、`auto: true`、`thresholdRatio: 0.75` 与主力模型段 `0.7`，与上文数字一致；缺的是「怎么判断它真的触发了」。补：
+>
+> | 项 | 判据 / 操作 |
+> |---|---|
+> | 触发证据 | 触发时要落盘字段名 + 输出片段：会话中出现 compact 触发条目及其 token 占比；无条目即未见触发 |
+> | 阈值回归 | 0.75 与默认 0.8 各跑一次等长会话，对比触发时机先后 |
+> | 失败信号 | 阈值过低 → 上下文被过早截断，表现为前文结论在后续轮次丢失 |
+> | 生效方式 | `~/.dsh/settings.yaml` 热加载（新会话即生效）；`cordis.patch.yml` 需重启 host 才生效——改完要重启的是 host，不是 TUI |
 
 ## 二、排障过程（429 限流）
 
@@ -72,6 +95,10 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 - [ ] 升级到 rc.2 后 profile tui（旧路线）未验证，已保留未删
 - [ ] 官方文档站 https://deepseek-harness.github.io/deepseek-harness/ 可作为后续配置查阅源
 
+> [!note] 2026-09-13 复核回标：该站实测 HTTP 200、标题 DeepSeek Harness，可从「待确认的查阅源」升级为**已确认入口**；DeepSeek 官方 API 文档已把它列为 Agent Integrations 入口，具体路径为 `https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart`（Quick Start）。
+>
+> 来源：https://deepseek-harness.github.io/deepseek-harness/ ；https://api-docs.deepseek.com/
+
 ## Related
 
 - [[DSH-TUI插件使用手册]] — TUI 两种安装路线
@@ -79,3 +106,14 @@ See also: [[AI-Links-KB-Home]] | [[DSH-TUI插件使用手册]] | [[DSH提效与T
 - [[DSH插件与Hook开发最佳实践]] — 插件机制
 - [[AI-Links-KB-Home]] — MOC
 - [[AGENTS]] — 知识库规范
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | 升级记录止于 0.1.1-rc.2，未标版本边界与通道语义 | §一.1 回标：npm registry 实测 dist-tags `latest=0.1.5-rc.1` / `next=0.1.5-rc.2` / `alpha=0.1.5-alpha.2`；原文不改，升级前先看 dist-tags |
+| 加厚 | 模型侧结论（默认模型 / 档位 / 失效模型）无时效标注 | §一.4 回标：标为 2026-08-30 一次性实测快照，补 `/api/v1/models` 与最小请求比对 reasoning token 的复现方法 |
+| 补疏漏 | compaction-basic 只记配置数字，无验收判据与生效路径 | §一.5 回标：补触发证据、0.75/0.8 对比回归、阈值过低失败信号，以及 settings.yaml 热加载 vs cordis.patch.yml 重启生效 |
+| 加厚 | 官方文档站只写「可作为后续配置查阅源」 | §五 回标：实测 HTTP 200 升级为已确认入口，补 Quick Start 具体路径 |
+
+复核入口：[[CORRECTIONS]]（本批审计与复核结论）

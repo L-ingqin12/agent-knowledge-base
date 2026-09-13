@@ -3,7 +3,7 @@ title: 最优韧性设计 — 四目标约束下的决策推导
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: deprecated
 ---
 
@@ -242,6 +242,10 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-network-resilience-v2]] · [[claude
   不能让 Claude 认为"请求成功了", 实际没有
 ```
 
+> [!warning] 更正（2026-09-13）：硬底线 4 写的「超时后或因发送(接受风险)或因返回错误(让用户决定)」，在参考实现里只有**一种**落法——`wait_for_stability()` 超时同样 `return True`（`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:287-289`，并打印 `[proxy] Gate timeout after Ns, releasing anyway`），即 **fail-open：超时后请求照发**；`_handle()` 里的 503 `gate_timeout` 分支（`:331-342`）因此不可达，是遗留的 fail-closed 占位。若要改回 fail-closed，需同步把超时返回值改为 `False` 并补测试。本文 status: deprecated，本段属历史推导；现行部署的 `claude-resilience-proxy.js` 不含门控。
+>
+> 依据：`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:254-289`、`:331-342`（核验于 2026-09-13）
+
 ---
 
 ## 六、最终架构总结
@@ -295,3 +299,21 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-network-resilience-v2]] · [[claude
 
 延迟增加: 网络切换后额外 5-15s, 网络稳定时 0
 ```
+
+> [!warning] 更正（2026-09-13）：上面的场景分布（95%/3%/1%/0.5%/0.5%）与「降幅 > 95%」是**历史推导中的设计预估**，不是统计量——原文未给统计口径、样本窗口与验收判据。要复核需先定死三件事：
+> - 统计口径：按会话 / 按请求 / 按时间片（三者分母不同，占比会显著不同；上文未声明是哪一种）
+> - 样本窗口：连续运行 ≥7 天，且至少覆盖一次 WiFi→蜂窝切换
+> - 可核验判据（仅对启用门控的 `.py` 参考实现成立；现行部署的 `claude-resilience-proxy.js` 无门控）：`/root/.claude/proxy.log` 中 `[proxy] Gating …` 命中次数与 502 返回次数之比、`[proxy] Gate passed after Ns` 的 p50/p95、`[proxy] Gate timeout after Ns, releasing anyway` 占比
+>
+> 在采集到上述计数之前，「降幅 > 95%」应读作设计目标，不是已得出的定量结论。
+>
+> 依据：`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:254-289`、`:329`（核验于 2026-09-13）
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | §七 效果预估的场景分布与「降幅 > 95%」无测量方法、无验收判据 | 按历史推导口径补统计分母（会话/请求/时间片）、样本窗口（≥7 天且含一次 WiFi→蜂窝切换）与可复核判据（proxy.log 中门控命中数、`Gate passed` 延迟分位数、超时占比）；并声明「降幅 > 95%」为设计目标而非结论 |
+| 补疏漏 | §五 硬底线 4 未说明门控超时后的可观测行为 | 补写实现为 fail-open（超时 `return True`、打印 `Gate timeout … releasing anyway`），503 分支不可达属遗留 fail-closed 占位，并给出改回 fail-closed 的同步改动点 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

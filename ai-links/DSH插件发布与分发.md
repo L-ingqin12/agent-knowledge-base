@@ -80,7 +80,11 @@ pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)
 
 > Add the `dsh-plugin` topic to your plugin repository **for discoverability**
 
-**这是官方推荐的唯一一种发现机制**，而且它落在 GitHub 上，不在 npm 上。
+**这是官方 README 唯一点名的插件发现机制**，而且它落在 GitHub 上，不在 npm 上。
+
+> [!warning] 更正（2026-09-13）：口径收窄到「插件发现」
+> 原表述为「**这是官方推荐的唯一一种发现机制**」。逐字复核 README 的 "Community and support" 一节后，该说法过宽：同节还列出 GitHub Discussions（https://github.com/deepseek-ai/deepseek-harness/discussions）与 Discord（discord.gg/Ycq5dCaS4）两个官方支持渠道，只是它们不是"插件发现"通道；README 首屏另指向文档站 https://deepseek-harness.github.io/deepseek-harness/ 。
+> 依据：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/README.md
 
 ### 1.5 `dsh plugin add` 的真实行为（实测）
 
@@ -121,6 +125,19 @@ pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)
 | `dsh plugin … search dsh-plugin`（关键词） | **搜不到**新包 | npm 搜索索引对新包有延迟 |
 | `npm view <包名>` | **立刻可读** | 直接读元数据，不经过搜索索引 |
 | 关键词搜索的第一命中 | 一个**名字就叫 `dsh-plugin`** 的第三方市场包 | npm 搜索里**精确名匹配权重最高** |
+
+**三条通道各扫什么、延迟多少（2026-09-13 复核）**：
+
+| 入口 | 读的是什么 | 新包可见延迟 |
+|---|---|---|
+| `dsh plugin … search <词>`（转发 `npm search`） | npm **搜索结果索引** | 新包有延迟（原文「搜不到新包」即此） |
+| `npm view <包名>` | **直读 registry 元数据** | 无（发布即可读） |
+| npm 网页 `keywords:dsh-plugin` | 同一搜索结果索引的网页入口（https://www.npmjs.com/search?q=keywords:dsh-plugin） | 同搜索索引 |
+| GitHub topic `dsh-plugin` | GitHub **仓库**搜索（扫仓库，不扫包） | 加 topic 即可见 |
+| 第三方目录站 | 自建抓取 | 各自抓取周期，见 §6.2 |
+
+复核补充：那个「名字就叫 `dsh-plugin`」的包现为 **1.4.3**，`repository` = github.com/dshplugin/dsh-plugin-hub，自述「4000+ 人工精选社区插件，每日更新」——它本身就是一条**按 keyword 的发现通道**，不只是"精确名匹配权重最高"的趣闻。
+来源：https://registry.npmjs.org/dsh-plugin/latest ；「`npm search` 走搜索索引、与直读元数据是两回事」见 https://docs.npmjs.com/cli/v11/commands/npm-search
 
 > [!important] 本节结论（全文最重要的一句）
 > **官方通道只有"按名安装"，没有"浏览 / 发现"能力。**
@@ -297,6 +314,12 @@ FAIL files 白名单全部命中实际内容 — 白名单里有但包里没有�
 | **GitHub topic `dsh-plugin`** | 至少 6 个目录扫它 |
 | **npm keyword `dsh-plugin`** | harnessai.io 扫它 |
 
+> [!note] topic 命中数 ≠ 可安装插件数（2026-09-13 复核）
+> - GitHub 搜索 API 报 `topic:dsh-plugin` 命中 **14626** 个仓库（同一时点的审计快照记 14808，量级一致）——来源 https://api.github.com/search/repositories?q=topic:dsh-plugin&per_page=1
+> - 而目录站的计数报 **3632** 个「已核实」插件——来源 https://awesome-dsh-plugin.com/count.json
+> ⇒ **约 3/4 的 topic 命中不是可安装插件**。topic 是"仓库自报"（谁都能加），目录站才是"包被核实过"。
+> 目录站的剔除规则（bruc3van/awesome-dsh-plugin 的 CONTRIBUTING 明列）：**必须有 `description`、必须是可安装插件、不得是"别的目录站"**（逐字核对：https://raw.githubusercontent.com/bruc3van/awesome-dsh-plugin/main/CONTRIBUTING.md ，收录标准四条）。
+
 > [!important] 包名不必以 `dsh-plugin-` 开头
 > 两个信号都是**标注**，不是**命名**。反过来说：名字里带 `dsh-plugin` 而不加 topic / keyword，一样不会被扫到。
 
@@ -403,6 +426,12 @@ FAIL files 白名单全部命中实际内容 — 白名单里有但包里没有�
 
 在 `SECURITY.md` 里写清"**这个包不能对使用者做什么**"；并且**审计对象应当是已发布的 tarball，而不是源码树**——别人这样才能复现你说的话。
 
+**把验收对象钉到字节**（2026-09-13 复核）：`npm view <包>@<版本> dist.integrity` 给出 registry 上那一份 tarball 的 SRI 哈希。第三方据此可下载同一 tarball、校验同一哈希，再对**自己拿到的字节**跑随包发布的测试——这是 §2.2 第 6 步「从 registry 真装验收」唯一可复现的形式。
+来源：https://registry.npmjs.org/ （包元数据的 `dist.integrity` 字段）
+
+> [!warning] 可复现性的边界（2026-09-13 复核）
+> 本文的证据主体是「2026-09-13 的一次完整发布实践」＋本机源码行号，front matter 里没有 `source_urls`，凡涉及自建仓库（`dsh-plugin-redact` / `dsh-plugin-content-policy` / `dsh-redaction`）与同日自证的论断，第三方**无法独立复跑**。补强方式就是本节新增的两条：每条实测附最小命令与期望输出，并把"已发布包"的验收对象钉到 registry tarball 的 `dist.integrity`。在这些补齐之前，这类条目不应被当作可外部核验的事实引用。
+
 ---
 
 ## 八、给下一个要发布的人的检查清单
@@ -437,3 +466,14 @@ FAIL files 白名单全部命中实际内容 — 白名单里有但包里没有�
 - [[CORRECTIONS]] — C-012（本机绿测 ≠ 跨平台验收）、C-014（豁免必须显式）、C-015~C-022（本轮发布实践新增，含 C-020 的因果推断撤回与 C-021/C-022 两条真实根因）
 - [[ci-and-prepush-gates]] — 知识库仓库的同构门禁（两道本地闸 + 三道 CI 闸），与本文 §四 的守卫共享同一套设计原则
 - [[AI-Links-KB-Home]] · [[HOME]] · [[AGENTS]] — 子库 MOC / 全局索引 / 协作规范
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | §6.1 只给「至少 6 个目录扫它」，缺 topic 命中总数与真插件数的量级落差 | 补 `> [!note]`：topic 命中 14626 vs 已核实插件 3632 ⇒ 约 3/4 非可安装插件，并列出目录站剔除规则；依据 GitHub 搜索 API 与 awesome-dsh-plugin.com/count.json |
+| 纠错 | §1.4 原写「官方推荐的唯一一种发现机制」，口径过宽 | 保留原表述于更正块内，改为「官方 README 唯一点名的**插件**发现机制」；依据 master README「Community and support」逐字核对 |
+| 加厚 | §1.7 只把 `dsh-plugin` 当"精确名匹配"趣闻，未区分 `npm search` / `npm view` 语义，也未给 keyword 网页入口 | 补三条通道对照表（搜索索引 / registry 元数据 / 仓库 topic / 目录站）与 `dsh-plugin@1.4.3` 现状；依据 npm CLI 文档与 registry 元数据 |
+| 加厚 | 全文无外链，自建仓库与同日自证条目不可外部复跑 | §7.5 补 `dist.integrity` 验收对象与「可复现性的边界」声明（含最小命令）；§1.4 补官方 README 来源块。来源登记见 [[sources/dep-cve]] 与 [[sources/dsh-routing]] |

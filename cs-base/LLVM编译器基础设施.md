@@ -3,7 +3,7 @@ title: LLVM编译器基础设施
 aliases: [LLVM, 编译原理工具链, clang-lld]
 tags: [cs/toolchain, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: LLVM 官方文档(Kaleidoscope/Passes/Source Level Debugging)、DWARF 规范、编译器教材共识；版本演进处标待确认
 fetched_at: 2026-08-26
@@ -26,6 +26,8 @@ See also: [[CS-KB-Home]] · [[计算机组成原理]] · [[lognet-rootcause-mult
 - **为什么三段式赢**：m 语言×n 目标只需 m+n 组件而非 m×n；IR 成为语言生态公共汇率——Rust/Swift/Zig/JIT(Metal/Mojo 类) 全踩在 LLVM 上
 - GCC 对照：单体内核+GPLv3 vs LLVM 模块化+Apache2.0(带例外)；IDE 补全(libclang)/增量场景 LLVM 占优，部分基准代码生成互有胜负（口径随版本波动**待确认**）
 - IR 三形态：`.ll` 文本 / `.bc` bitcode / 内存态 API；SSA 形式+无限寄存器；`mem2reg` 把 alloca/load/store 提升成 SSA 值——读优化代码先想这步
+- **IR 版本敏感点（指针类型模型）**：LLVM 15 起不透明指针 `ptr` 默认开启（typed pointers 仍支持）；16 起 typed pointers 仅 best-effort、不再测试；**17 起只支持不透明指针**，`LLVMGetElementType()` 一类 API 被移除。这正是旧教程里 `i32*`/`%struct.Foo*` 在新版 IR 变成 `ptr`、GEP 必须显式给源元素类型的原因
+  > 来源：https://llvm.org/docs/OpaquePointers.html
 
 ## 二、关键优化 Pass（读懂 -O2 在干什么）
 
@@ -50,6 +52,11 @@ See also: [[CS-KB-Home]] · [[计算机组成原理]] · [[lognet-rootcause-mult
 | UBSan | 未定义行为(溢出/错对齐) | 编译期检查点最小插桩 | 低 |
 | TSan | 数据竞争 | 访问事件向量时钟 happens-before 状态机 | ~5-15x，只用于测试环境 |
 | MSan | 读未初始化 | 逐位影子追踪 | 高 |
+| HWASan | 同 ASan 类内存安全（越界/UAF，AArch64 为主） | 依赖硬件 **Address Tagging**：对象按 TG(如 16/64) 对齐、指针高位置 TS 位 tag(如 4/8 位)，影子内存只要 1/TG；x86_64 为受限实现——`utilizes page aliasing` 且 Currently only heap tagging is supported（页别名依赖共享内存，应用 `fork()` 时会共享堆） | 低于 ASan（影子内存省），需硬件支持 |
+
+选型判据：AArch64 生产/预发要低开销内存安全用 HWASan；x86_64 全功能（含栈/全局变量与 UAF 定位精度）仍用 ASan。
+
+> 来源：https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html
 
 CI 组合拳：单测跑 ASan+UBSan，并发专项跑 TSan——[[CPP-核心知识]] §五工程实践的具体落地。
 
@@ -73,6 +80,10 @@ CI 组合拳：单测跑 ASan+UBSan，并发专项跑 TSan——[[CPP-核心知�
 | .debug_str/.debug_abbrev | 字符串池/缩写表 |
 | .symtab + .strtab | 链接器符号表(地址/大小/绑定) |
 
+- **DWARF 版本口径**：Clang 14 起默认版本由 DWARFv4 提升为 **DWARFv5**，可用 `-gdwarf-4` 或 `-fdebug-default-version=4` 退回（Darwin/Android/SCE 等平台自行 opt out）。上表节区 v4/v5 都在用，v5 另引入 `.debug_line_str` / `.debug_str_offsets` / `.debug_rnglists` / `.debug_loclists`
+- 判据：`llvm-dwarfdump --debug-info <bin>` 看 `version` 字段，别用"工具链默认是 v4"的旧直觉读符号化结果
+  > 来源：https://releases.llvm.org/14.0.0/tools/clang/docs/ReleaseNotes.html
+
 - 分离调试：`-gsplit-dwarf` 出 `.dwo`/dwp 包——线上镜像不带符号，崩溃时按 **GNU build-id**(note 节) 从符号服务器取回对应 ddeb/debuginfo
 - 符号化链路：`地址 → 所属二进制(build-id 匹配) → llvm-symbolizer/addr2line(+函数内联帧展开 inlining info) → 文件:行`
 - **本库锚点**：[[lognet-rootcause-multiagent-architecture]] M1 的 addr2line/llvm-symbolizer 批处理+artget 适配器正是此节的生产化——离线符号缓存按 build-id 键控，避免每次查询打符号服务器
@@ -89,6 +100,16 @@ CI 组合拳：单测跑 ASan+UBSan，并发专项跑 TSan——[[CPP-核心知�
 ## 八、待确认项
 
 > ① MLIR 在非 ML 领域(硬件/策略扩展)的生产案例边界；② Rust cranelift 后端绕开 LLVM 的调试信息完备度；③ C++20 modules 对 LTO/build 缓存工具链(bazel/ccache)的实际兼容矩阵。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §六 DWARF 节区表无版本口径（默认版本已从 v4 变 v5） | 补版本说明（Clang 14 起默认 v5、`-gdwarf-4` 退回、平台 opt out）、v5 新增节区与 `llvm-dwarfdump` 判据；依据 [Clang 14 Release Notes](https://releases.llvm.org/14.0.0/tools/clang/docs/ReleaseNotes.html) |
+| 补疏漏 | §一 IR 三形态未提指针类型模型（opaque pointers） | 补 LLVM 15/16/17 三档演进与 GEP 显式元素类型的成因；依据 [OpaquePointers 文档](https://llvm.org/docs/OpaquePointers.html) |
+| 补疏漏 | §三 Sanitizer 表只有 ASan/UBSan/TSan/MSan | 增 HWASan 行（TG/TS/1:TG 影子内存、AArch64 标签、x86_64 页别名受限）与 ASan/HWASan 选型判据；依据 [HWASan 设计文档](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html) |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
 
 ## Related
 

@@ -3,7 +3,7 @@ title: 网络稳定性门控 — 不稳定时延迟发送，稳定后再发送
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -100,6 +100,10 @@ Claude Code 的上游超时: 通常 120-180 秒
   代理挂起 90 秒 + 网络未恢复 → wait_for_stability 超时也返回 True (fail-open，与代码一致) → 请求照发，不阻塞主流程
 ```
 
+> [!warning] 更正（2026-09-13）：上面「Claude Code 的上游超时: 通常 120-180 秒」是**估计值**，公开文档未给出该常数，需实测确认（构造一次 >90s 的门控挂起，观察 Claude 何时自行断开）。参考实现自带的上游超时是 `UPSTREAM_TIMEOUT = 180` 秒（`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:46`），与「代理最大挂起 90 秒」是两个独立计时器，不能互相印证。
+>
+> 另一处未写明的约束：参考实现用的是**单线程** `http.server.HTTPServer`（`claude-resilience-proxy.py:430` + `:446 serve_forever()`，无 `ThreadingHTTPServer`）。一次请求挂起 90s 期间会占住唯一工作线程，其间到达的其他请求（例如并发的 2 个子代理探针）只能在 accept 队列里排队，直到挂起结束才被处理。若要支撑并发探针，需改为 `ThreadingHTTPServer`，或显式定义排队/串行模型。
+
 ## 四、实现
 
 ### 4.1 稳定性追踪器
@@ -168,17 +172,23 @@ tracker = StabilityTracker(window_seconds=60)
 
 ### 4.2 请求门控
 
+> [!warning] 更正（2026-09-13）：本节示例原先写作 `def wait_for_stability(threshold, max_wait, target_url, headers)`，并声明「返回 True 表示现在可以发送，False 表示超时」，与参考实现不符。实际签名是 `def wait_for_stability(threshold, streak_n, max_wait=MAX_HOLD_SECONDS)`（`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:254`），探测由**模块级** `quick_probe()`（`:230`）完成，且**超时也返回 True**（fail-open，`:287-289`）——不存在 False 返回。（原表述为「返回 True 表示现在可以发送，False 表示超时」）
+>
+> 连胜次数也不是由阈值反推的：`is_thinking_request()` 只看**请求体**是否含 `thinking` 字段（`:112-125`），再据此取 `STABILITY_STREAK_THINKING`(=5) / `STABILITY_STREAK_NORMAL`(=3)（`:52-53`）。旧示例里的 `n=(5 if threshold > 0.85 else 3)` 属隐式映射，与实现不一致；探测调用原写作 `_quick_head_probe(target_url, headers)`，实现中不存在该函数（原表述为「probe_ok = _quick_head_probe(target_url, headers)」，已改为 `probe_ok = quick_probe()`）。
+
 ```python
 import urllib.request
 
 STABILITY_THRESHOLD = 0.8       # 普通请求
 STABILITY_THRESHOLD_THINKING = 0.9  # 思考请求（更谨慎）
+STABILITY_STREAK_NORMAL = 3     # 普通请求需连续成功次数
+STABILITY_STREAK_THINKING = 5   # 思考请求需连续成功次数（按请求体判定，非按阈值/模型名）
 PROBE_INTERVAL = 5              # 探测间隔(秒)
 MAX_HOLD_SECONDS = 90           # 最大挂起时间
 STABILITY_CONFIRM_DELAY = 2     # 连续两次探测确认稳定
 
 def is_thinking_request(body: bytes) -> bool:
-    """检测请求是否启用了 thinking"""
+    """检测请求是否启用了 thinking —— 只看请求体, 不看阈值或模型名"""
     try:
         data = json.loads(body)
         # Anthropic API: thinking 在请求体中
@@ -186,22 +196,22 @@ def is_thinking_request(body: bytes) -> bool:
     except:
         return False
 
-def wait_for_stability(threshold, max_wait, target_url, headers):
+def wait_for_stability(threshold, streak_n, max_wait=MAX_HOLD_SECONDS):
     """
     挂起当前请求，等待网络稳定。
-    返回 True 表示现在可以发送，False 表示超时。
+    返回 True 表示现在可以发送；超时同样返回 True（fail-open，见 §3.2）。
     """
     deadline = time.time() + max_wait
     
     while time.time() < deadline:
         score = tracker.score()
-        streak_ok = tracker.recent_streak(n=(5 if threshold > 0.85 else 3))
+        streak_ok = tracker.recent_streak(n=streak_n)
         
         if score >= threshold and streak_ok:
             # 稳定性确认：等 2 秒再测一次
             time.sleep(STABILITY_CONFIRM_DELAY)
             score2 = tracker.score()
-            streak_ok2 = tracker.recent_streak(n=(5 if threshold > 0.85 else 3))
+            streak_ok2 = tracker.recent_streak(n=streak_n)
             
             if score2 >= threshold and streak_ok2:
                 return True  # 真的稳了
@@ -211,8 +221,8 @@ def wait_for_stability(threshold, max_wait, target_url, headers):
         if remaining <= 0:
             break
         
-        # 快速 HEAD 探测
-        probe_ok = _quick_head_probe(target_url, headers)
+        # 快速 HEAD 探测（模块级 quick_probe，与参考实现一致）
+        probe_ok = quick_probe()
         if probe_ok:
             tracker.record_success(latency_ms=0)
         else:
@@ -238,19 +248,14 @@ def _handle(self, method):
     is_thinking = is_thinking_request(body)
     threshold = STABILITY_THRESHOLD_THINKING if is_thinking else STABILITY_THRESHOLD
     
-    # streak 阈值随模式配置: 普通3/thinking5
-    # 注: 实现暂统一为 3（thinking 的 5 连胜阈值待参数化后生效）
-    if tracker.score() < threshold or not tracker.recent_streak(3):
+    # streak 阈值随模式配置: 普通 3 / thinking 5（由 is_thinking_request 按请求体判定）
+    streak_n = STABILITY_STREAK_THINKING if is_thinking else STABILITY_STREAK_NORMAL
+    if tracker.score() < threshold or not tracker.recent_streak(streak_n):
         if is_thinking:
-            print(f"[proxy] Thinking request gated — network unstable "
+            print(f"[proxy] Gating thinking request "
                   f"(score={tracker.score():.2f}), holding...")
         
-        ok = wait_for_stability(
-            threshold=threshold,
-            max_wait=MAX_HOLD_SECONDS,
-            target_url=target_url,
-            headers=forward_headers
-        )
+        ok = wait_for_stability(threshold, streak_n)
         
         if not ok:
             # 防御性分支: 当前 wait_for_stability 超时也返回 True (fail-open)，
@@ -272,6 +277,8 @@ def _handle(self, method):
             tracker.record_failure()
             # ... 重试逻辑 ...
 ```
+
+> [!warning] 更正（2026-09-13）：集成片段原先保留了一条过期注释「注: 实现暂统一为 3（thinking 的 5 连胜阈值待参数化后生效）」。参考实现已按请求体分支，thinking 请求确实取 5 连胜（`claude-resilience-proxy.py:129-131` + `:52-53`），该注释与代码相反，故已替换为显式 `streak_n` 取值。同时门控日志串按参考实现的实际输出对齐为 `[proxy] Gating {normal|thinking} request (score=…), holding...`（`:329`），§5.2 的统计口径即以该行为准。门控条件原写作 `not tracker.recent_streak(3)`、调用原写作 `wait_for_stability(threshold=…, max_wait=…, target_url=…, headers=…)`（原表述为「if tracker.score() < threshold or not tracker.recent_streak(3):」）。
 
 ## 五、效果
 
@@ -308,12 +315,21 @@ def _handle(self, method):
 | 长断网(>2min) | 2-3次请求 | 0 | 最多90s然后发(接受风险) |
 | 网络持续稳定 | 0 | 0 | 0(直接放行) |
 
+> [!warning] 更正（2026-09-13）：上表是**设计推算，不是实测结论**。「额外延迟 5-15s / 3-8s」来自 §5.1 场景推演（探测间隔 5s 与确认延迟 2s 的组合），「无门控浪费 1-2 次请求」是重试次数上限的推论——本表没有任何计数或分位数支撑。
+>
+> 回填口径（样本窗口建议 ≥7 天或 ≥50 次门控命中；仅对启用门控的 `.py` 参考实现成立，现行部署的 `claude-resilience-proxy.js` 无门控）：
+> - 门控命中次数 = `/root/.claude/proxy.log` 中 `[proxy] Gating normal|thinking request` 行数
+> - 被门控请求的平均 input token 量 = 上述命中请求对应响应的 `usage.input_tokens` 均值（当前实现未落盘该字段，需先在代理侧补记）
+> - 门控延迟分位数 = `[proxy] Gate passed after Ns` 的 p50/p95；超时占比 = `[proxy] Gate timeout after Ns, releasing anyway` 行数 ÷ 门控命中次数
+
 ## 六、取舍
 
 ```
 收益:
   ✅ 思考中 token 浪费从"偶尔发生,每次几千 tokens"→"基本杜绝"
-  ✅ 每次能省 X input tokens + 部分 thinking tokens
+  ✅ 每次能省 N input tokens + 部分 thinking tokens
+     （占位符 X 待回填：N 需按 §5.2 的口径采集门控命中次数与被门控请求的 input token 量后填入；
+       当前为待测项，无可核验数值，不得据此下定量结论）
   ✅ 网络切换场景（移动端最常见！）完全覆盖
 
 代价:
@@ -345,3 +361,14 @@ def _handle(self, method):
   第 3 道防线: 重试 → 万一还是断了, 自动重试
   第 4 道防线: context-dump → 万一全失败了, 手动能恢复
 ```
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §4.2 示例的 `wait_for_stability(threshold, max_wait, target_url, headers)` 与「返回 False 表示超时」、§4.3 集成片段，均与参考实现不符 | 改为实签名 `(threshold, streak_n, max_wait=MAX_HOLD_SECONDS)` 与模块级 `quick_probe()`，超时语义订正为 fail-open；原表述已就地保留于 §4.2 更正块（依据：`scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py:230/:254/:287-289`） |
+| 纠错 | §4.2 用 `n=(5 if threshold > 0.85 else 3)` 由阈值反推连胜次数；§4.3 留有「实现暂统一为 3」的过期注释 | 改为显式 `streak_n` 并注明 thinking 判定依据请求体；过期注释已就地标注后替换（依据：同文件 `:112-125`、`:52-53`） |
+| 补疏漏 | §3.1/§3.2 断言「Claude 的 HTTP 连接一直保持着」、上游超时「通常 120-180 秒」，且未提单线程服务端的阻塞效应 | 标注 120-180s 为未经验证的估计值、给出实测路径与 `UPSTREAM_TIMEOUT=180` 区别；补单线程 `HTTPServer` 挂起 90s 阻塞并发请求的约束（依据：同文件 `:46`、`:430`、`:446`） |
+| 纠错 | §5.2 量化表被当作结论；§6 收益栏留着未填占位「X input tokens」 | 标注为设计推算并给出回填口径（门控命中数、`usage.input_tokens` 均值、延迟分位数）；占位符就地标注为待测项，未删行 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

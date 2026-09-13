@@ -3,7 +3,7 @@ title: 日志分析 Agent 服务 — Windows 高并发部署方案
 aliases: []
 tags: [ai/ops]
 created: 2026-07-09
-updated: 2026-08-25
+updated: 2026-09-13
 status: deprecated
 ---
 
@@ -511,6 +511,18 @@ if __name__ == "__main__":
     main()
 ```
 
+> [!warning] 更正（2026-09-13）：3.1 的代码有三处与注释 / 设计声明不符（逐行核对全段）
+> **① 413 限额检查发生在 `json.loads` 之后，完全不保护内存**（原表述为「先解析 → 再查大小」这条顺序）
+> `post()` 先执行 `body = json.loads(self.request.body)`，之后才比较 `max_size` 并返回 413；`Application` 又设了 `max_buffer_size=100MB`。也就是说 50MB 以上的请求体**已经被完整读入并解析**，413 只是事后告知。修法：先看 `Content-Length` 头（或直接由 Nginx `client_max_body_size` 拦截），超限**立即 413 并关闭连接**，再对实际 body 复检一次。
+>
+> **② `HealthHandler` 把 `_work_queue.qsize()` 标成 `active_threads`，语义错误**
+> 原逐字为 `"active_threads": LogAnalyzeHandler._executor._work_queue.qsize()`——这其实是**待处理队列长度**。8 个线程全忙且队列为 0 时，看板会显示 `active_threads: 0`，**完全看不出饱和**。修法：维护在途计数（提交 +1 / 完成 −1）或读 `len(executor._threads)`，并把 `queue_depth` 与 `max_workers` 分开暴露；同时避免依赖 `_work_queue` / `_max_workers` 这类**私有属性**。
+>
+> **③ `shutdown_handler` 在信号处理器里直接调用 `IOLoop.current().stop()`，不在官方保证范围内**
+> 官方逐字：「this is the only method in IOLoop that makes this thread-safety guarantee; all other interaction with the IOLoop must be done from that IOLoop's thread」，`add_callback` 也明确「except from a signal handler」；官方为此另有 `add_callback_from_signal`（6.4 起 deprecated，并注明「suspected to have been broken since Tornado 5.0」）。依据：<https://www.tornadoweb.org/en/stable/ioloop.html>
+> **更实质的问题在同一处**：紧随其前的 `executor.shutdown(wait=True)` 会在**事件循环线程里阻塞等待线程池排空**——60s 级分析任务会让关闭过程卡住（参见 [[agent-async-isolation-pattern]] 中「官方不建议把 ThreadPoolExecutor 用于长任务」的更正）。
+> **待验证项**：NSSM 默认以**控制台事件**停止服务，`SIGTERM` 分支在 Windows 上是否真的触发需要实测；验证之前不要把它当作已生效的优雅关闭。
+
 ### 3.2 进程管理脚本 (PowerShell)
 
 ```powershell
@@ -682,6 +694,12 @@ Write-Host "重启后验证: netsh int tcp show global" -ForegroundColor Yellow
 | Chimney | varies | enabled | `netsh int tcp` | TCP 卸载 |
 | KeepAliveTime | 2h | 300000ms（5 分钟） | Registry | TCP keepalive 间隔 |
 
+> [!warning] 更正（2026-09-13）：`MaxUserPort` 的默认值 5000 是 Vista / Server 2008 之前的旧口径（原表述为表内该行「默认值 5000」）
+> 微软 KB 929851（Last updated 2026-02-12）逐字：「The new default start port is **49152**, and the new default end port is **65535**. This is a change from 5000.」——**同一张表的上行自己已经写了「动态端口范围 默认 49152-65535」，两行互相矛盾**。
+> 处置：该行标注「**仅适用于 Windows Server 2003 及更早**」；并且它与脚本里的 `netsh int ipv4 set dynamicport tcp start=10000 num=55535` 是**同一件事的两种写法**，应合并为一处，避免两处都改、互相覆盖。
+> 依据：<https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/default-dynamic-port-range-tcpip-chang>
+> 附核对（该表其余项）：`TcpTimedWaitDelay` 默认 `0x78`（120s）、推荐 30 **正确**——微软 BizTalk 文档逐字「Default value: 0x78 (120 decimal)」「Recommended value: 30」。
+
 ### 4.3 验证
 
 ```powershell
@@ -698,6 +716,12 @@ netstat -ano | findstr "TIME_WAIT" | Measure-Object | Select-Object -ExpandPrope
 Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" `
     | Select-Object TcpTimedWaitDelay, MaxUserPort, Tcp1323Opts
 ```
+
+> [!warning] 补（2026-09-13）：Phase 4 改了全局网络参数，却没有记录改动前原值，也没有 revert 脚本
+> 本文档已有 2026-08-25 勘误说明 `chimney` / `netdma` 已失效（微软页面逐字「[The TCP chimney offload feature is deprecated and should not be used.]」，<https://learn.microsoft.com/en-us/previous-versions/windows/hardware/network/ndis-tcp-chimney-offload>），但 §4.3 的 `netsh` / `Get-ItemProperty` 命令是**改后验证**口径，缺两样东西：
+> ①**改动前原值快照**——先把 `netsh int ipv4 show dynamicport tcp`、`netsh int tcp show global`、`Get-ItemProperty …` 的**输出原文**存档，再执行 `win-tcp-tuning.ps1`；
+> ②**revert 脚本**——本库「部署四规则」要求「逃生机制（rollback）」，Phase 4 与 Phase 1–3 一样应给出回滚命令（恢复原端口范围与注册表值），并附**前后对照输出**。
+> 另：`MaxUserPort` 一行与 `netsh int ipv4 set dynamicport` 是同一设置的两条路径，同时执行时后者会覆盖前者，应只保留一处。
 
 ---
 
@@ -848,6 +872,13 @@ wrk -t 12 -c 1000 -d 60s `
 | 中等负载 | 8 | 4 | ~1000 |
 | 高负载 | 16 | 8 | ~2000 |
 
+> [!warning] 更正（2026-09-13）：上面的 QPS 目标与本架构的「32 槽位 × 60s 超时」自相矛盾（原表述为 §6.2「QPS ≥ 500 (4 workers)」与 §6.3 整表）
+> 数字逐字核对无误（§6.2 写「≥ 500 (4 workers)」；§6.3 表为 ~100 / ~500 / ~1000 / ~2000），问题在**口径未区分**：
+> - **32 个分析槽位、Agent 超时 60s ⇒ 分析吞吐上限 ≈ 32/60 ≈ 0.53 req/s**。即使按占位实现的 2s 计算也只有 16 req/s；要做到 500 QPS，需要约 **3 万个并发分析槽位**。
+> - 压测命令确实指向 `/api/analyze`（`ab -n 50000 -c 500 -p sample_log.json`），所以**不能说「QPS 完全未定义」**——歧义在于「≥ 500」到底是**健康检查 QPS** 还是**分析 req/s**。
+> 该改：①把指标拆成「健康检查 QPS」与「分析 req/s」两列；②补平均 / P99 分析耗时；③用 **Little's law**（并发数 = 到达率 × 平均耗时）反推并发需求与所需 worker 数；④定超时率上限（建议 < 1%），否则超时请求会长期占着槽位把容量吃掉。
+> 姊妹文档 [[log-analysis-agent-architecture]] 的「验证清单」已同步此口径。
+
 ---
 
 ## 三、三层超时体系
@@ -884,6 +915,15 @@ wrk -t 12 -c 1000 -d 60s `
 | 端口耗尽 | 新连接失败 | TIME_WAIT > 1000 | TcpTimedWaitDelay 缩短 + 端口范围扩大 |
 | 内存泄漏 | Tornado 进程内存持续增长 | PerfMon / Task Manager | NSSM 定期重启 (AppRestartDelay + 条件) |
 | 单点磁盘满 | 写日志失败 | 磁盘监控 | 日志轮转 + 告警 |
+
+> [!warning] 更正（2026-09-13）：上面「线程池耗尽」一行描述的 503 路径和「队列满」在代码里都不存在（原表述为表内「线程池耗尽 | 请求排队 / 503 | ThreadPoolExecutor 队列满」该行）
+> 逐行核对 `LogAnalyzeHandler.post`：只返回 **200 / 400 / 413 / 504 / 500**，**没有 503**；`ThreadPoolExecutor` 的提交队列**无界**（官方文档未给容量条款），所以「队列满」这个检测条件**永远不会触发**。
+> 真实行为是：任务**无限堆积**，每个还持有最多 50MB 的请求体，最终表现为**内存耗尽**，而不是快速失败。
+> 两个选项（选一个并落到代码里）：①实现**准入控制**——`qsize()` 超阈值即返回 **503 + `Retry-After`**；②承认没有准入控制，把该行改成真实行为（「请求无限排队 → 内存增长」）并给出内存告警阈值。
+
+> [!warning] 补（2026-09-13）：API 缺幂等与成本护栏——504 之后的重试会触发同一日志的第二次完整分析
+> 路由为 `/api/analyze`、`/api/health`、`/api/status` 三条，状态码为 200/400/413/500/504，**没有幂等键、没有 token / 费用上限**。而 Nginx 的 `proxy_read_timeout`（120s）> `asyncio.wait_for`（60s），客户端有充分理由在 504 后重试 → **重复计费 + 两次结果不一致**。
+> 该补：①`request_id` 幂等键（或接收客户端提供的 `Idempotency-Key`）+ **TTL 去重表**（建议 10 分钟）；②命中即**返回首次结果**而不重新分析；③按调用方设 token / 费用上限，超限返回 **429**；④响应中回传 `request_id`，让客户端重试时可复用。
 
 ---
 
@@ -941,3 +981,19 @@ deployments/log-analysis-agent/
 | P1 | Phase 4: TCP/IP 调优 | 1h | ✅ |
 | P2 | Phase 5: 服务化 | 2h | 需 Phase 2+3 |
 | P2 | Phase 6: 压测 | 3h | 需 Phase 1-5 |
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 纠错 | Phase 6「QPS ≥ 500 (4 workers)」与「4 workers → ~500 QPS / 16 → ~2000」和本架构 32 槽位 × 60s 超时自相矛盾 | §6.3 保留原表并加更正块：32 槽位 ÷ 60s ≈ **0.53 分析 req/s**，500 QPS 需约 3 万槽位；压测命令确实指向 `/api/analyze`，故表述为「口径未区分健康检查与分析吞吐」；要求拆分口径并用 Little's law 反推并发需求 |
+| 纠错 | 故障模式表「线程池耗尽 \| 请求排队 / 503 \| ThreadPoolExecutor 队列满」在代码里不存在 503 路径，队列也无界 | 「故障模式」表后加更正块：`post()` 只返回 200/400/413/504/500；无界队列使「队列满」永不触发，真实后果是内存耗尽；给出「实现准入控制 503 + Retry-After」或「改写为真实行为」两个选项 |
+| 纠错 | 413 限额检查发生在 `json.loads(self.request.body)` 之后，完全不保护内存 | 3.1 代码块后加更正块：请求体已被完整读入解析（`max_buffer_size=100MB`），413 只是事后告知；修法为先查 `Content-Length`/由 Nginx 拦截，再复检 |
+| 纠错 | `HealthHandler` 把 `_work_queue.qsize()` 标成 `active_threads`，语义错误 | 同一更正块中说明该值实为待处理队列长度，8 线程全忙且队列为 0 时会显示 0；改为在途计数或 `len(executor._threads)`，并暴露 `queue_depth` / `max_workers` |
+| 纠错 | `shutdown_handler` 在信号处理器里直接调用 `IOLoop.current().stop()`，不在官方保证范围内 | 同一更正块给出官方原文（线程安全保证仅限 `add_callback`，且明确 except from a signal handler），并指出更实质的问题是 `executor.shutdown(wait=True)` 在事件循环线程里阻塞排空；`SIGTERM` 在 NSSM 下是否触发列为待验证。依据 <https://www.tornadoweb.org/en/stable/ioloop.html> |
+| 纠错 | §4.2「MaxUserPort \| 5000 \| 65534」的默认值 5000 是 Vista/Server 2008 之前的旧口径，且与同表「动态端口范围 49152-65535」矛盾 | §4.2 表后加更正块：微软 KB 929851 逐字「new default start port is 49152… a change from 5000」，标注 5000 仅适用于 2003 及更早，并与脚本里的 `netsh int ipv4 set dynamicport` 合并为单一路径。依据 learn.microsoft.com KB 929851 |
+| 补疏漏 | Phase 4 全局网络参数变更没有记录改动前原值，也没有 revert 脚本 | §4.3 后补两项：改动前原值快照（三条命令的输出原文存档）、revert 脚本与前后对照输出（呼应「部署四规则」的逃生机制） |
+| 补疏漏 | API 设计缺幂等与成本护栏：504 后客户端重试会触发同一日志的第二次完整分析 | 「故障模式」后补四点：`request_id` / `Idempotency-Key` 幂等键 + 10 分钟 TTL 去重表、命中返回首次结果、按调用方设 token/费用上限（超限 429）、响应回传 `request_id` |
+| 加厚 | 姊妹文档 2026-08-25 的 `chimney` / `netdma` 勘误与 `MaxUserPort` 问题已在本文对齐 | 更正块中同步引用该勘误与微软「TCP chimney offload feature is deprecated」原文，避免两份文档各说一套 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

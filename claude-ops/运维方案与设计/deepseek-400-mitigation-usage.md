@@ -3,7 +3,7 @@ title: DeepSeek 400 规避与恢复 — 使用说明
 aliases: [DeepSeek 400 使用说明, sanitize-session 使用说明, cache-relay 兜底使用, 消毒脚本使用说明]
 tags: [ai/ops, ai/agent]
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-13
 status: review
 ---
 
@@ -37,6 +37,12 @@ Claude Code
  api.deepseek.com/anthropic   openrouter.ai/api → z-ai/glm-5.3-flash
 ```
 
+> [!warning] 状态口径（2026-09-13 补）：「常驻 :8790」与 §二「兜底＝无需操作、自动生效」**只在生效 base URL 为 `127.0.0.1:8790` 时成立**。本机实测 `~/.claude/settings.json` 的 `ANTHROPIC_BASE_URL` 指向官方直连（`https://api.deepseek.com/anthropic`），只有 `~/.claude/settings.local.json` 指向 `:8790`，生效值取决于配置合并优先级——**若是直连，relay 不在路径上，兜底根本不会触发**。本行应读作条件句：「**当**生效 base URL 为 127.0.0.1:8790 时兜底自动生效，否则不会触发」。自检方法见 [[deepseek-400-mitigation-design]] 的「路由自检」。
+
+> [!warning] 模型映射语义（2026-09-13 补，官方 Anthropic 兼容页实取）：`api.deepseek.com/anthropic` **不是纯透传端点**，模型名会被映射——`claude-opus*` → `deepseek-v4-pro`（**按 V4 Pro 价计费**）；`claude-haiku*` / `claude-sonnet*` → `deepseek-flash`；**传入不支持的模型名时后端自动映射为 `deepseek-flash`**。
+> - 实务含义 ①：模型名写错＝**静默降级 / 静默涨价**——relay 的 `modelMap` 与 `ANTHROPIC_MODEL` 需做一致性校验。
+> - 实务含义 ②：兜底改投 OpenRouter 时**必须同时改写 model 名**，否则上游收到未知模型直接 4xx，兜底形同虚设。[来源](https://api-docs.deepseek.com/guides/anthropic_api)
+
 **关键配置**（均在本地，不进仓库）：
 - `~/.cache-relay/config.json` — `defaultUpstream`（DeepSeek）+ `fallback` 块（`upstream`/`modelMap`/`riskKeywords`/`authTokenSource`）
 - `authTokenSource` 指向 `~/.claude/oxalpha-settings.json`，运行时读 OpenRouter key（密钥不落地到 relay 配置）
@@ -49,7 +55,7 @@ Claude Code
 |---|---|---|
 | **预防** | 聊天时不贴裸节点域名/`host:port`/订阅链接，改用文件路径引用 + 伪名 | 已写进全局 `CLAUDE.md` 会话红线，自动生效 |
 | **恢复** | 会话被 400 打死时，跑 `sanitize-session.py` 清毒 → `claude --continue` | 见 §三专用说明 |
-| **兜底** | **无需操作** | 自动生效：命中审核 400 自动改投 GLM，会话不死 |
+| **兜底** | **无需操作** | 自动生效：命中审核 400 自动改投 GLM，会话不死（2026-09-13 限定：**仅在生效 base URL = 127.0.0.1:8790 时成立**；生效值是官方直连则完全不触发——见 §一 状态口径） |
 
 ### cache-relay 运维命令
 
@@ -115,3 +121,12 @@ $PY $SCRIPT --replace-str '<占位>'         # 自定义占位符（默认 [节�
 | 兜底想把某类话题词也脱敏 | 往 `sanitize-extra.txt` 加一行词 |
 | 怀疑 cache-relay 出问题 | `touch ~/.cache-relay/.disabled` 或 `RELAY_FORCE_PROVIDER=passthrough` 逃生 |
 | 彻底停用兜底 | 删 `~/.cache-relay/config.json` 的 `fallback` 块，或 `undeploy` |
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | §一写 cache-relay「常驻 :8790」、§二把兜底写成「无需操作 / 自动生效」，未说明该状态只在本机配置层面成立、且生效路径可能被直连绕过 | 保留原句 + 加「状态口径」块与行内限定：只有当生效 base URL 为 `127.0.0.1:8790` 时兜底才自动生效（实测 settings.json 为官方直连、settings.local.json 为 :8790，生效值取决于合并优先级）；自检指向 [[deepseek-400-mitigation-design]] 的「路由自检」。兜底目标 `z-ai/glm-5.3-flash` 已核实仍在架、26 个端点 |
+| 补疏漏 | §一架构图只写上游 `api.deepseek.com/anthropic`，未说明该端点的模型映射语义 | 新增「模型映射语义」块：`claude-opus*`→`deepseek-v4-pro`（按 Pro 价计费）、`claude-haiku*`/`claude-sonnet*`→`deepseek-flash`、不支持的名字自动落到 `deepseek-flash`；推出两条实务含义（静默降级/涨价需一致性校验；兜底必须同时改写 model 名） |
+
+依据：[DeepSeek Anthropic 兼容页](https://api-docs.deepseek.com/guides/anthropic_api)、[OpenRouter endpoints](https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints)。方法论回链：[[CORRECTIONS]] · [[AGENTS]]。

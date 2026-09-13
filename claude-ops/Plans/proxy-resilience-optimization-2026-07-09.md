@@ -3,13 +3,16 @@ title: Proxy 链路韧性优化方案
 aliases: []
 tags: [ai/ops]
 created: 2026-07-09
-updated: 2026-08-25
+updated: 2026-09-13
 status: deprecated
 ---
 
 # Proxy 链路韧性优化方案
 
 > [!warning] 此文档已废弃，请参考 [[claude-resilience-architecture]]
+
+> [!warning] 路径登记更正（2026-09-13）：本文的**唯一实体位置是本文件** `claude-ops/Plans/proxy-resilience-optimization-2026-07-09.md`。
+> 若在任务清单/索引里看到 `network/proxy-resilience-optimization-2026-07-09.md`，那是**登记错误**：`network/` 下不存在该文件（本次全库核对）。引用请一律使用 `claude-ops/Plans/` 路径。
 
 See also: [[Claude-Ops-KB-Home]] · [[claude-resilience-architecture]] · [[claude-proxy-restart-incident]]
 
@@ -30,6 +33,11 @@ SessionStart → 版本变化 2.1.201→2.1.205
 ```
 
 **核心问题**：proxy 是单点，挂了没有任何检测和恢复机制。
+
+> [!warning] 更正（2026-09-13）：上面的因果链是**推断而非观测**，且端口号与后续勘误冲突（原流程保留于上）。
+> - **推断**：正文 §1 自己写的是「当前 `deploy.sh force` 流程**可能** kill 了 proxy」——即「版本变化 → Monitor → deploy.sh force → proxy 死亡」并非已证实的因果链，引用时须标注为推断。
+> - **端口**：本页通篇按 **8787** 描述 proxy，而 [[2026-07-21-树莓派网络故障与路由器破解完整复盘]] §6.6 的勘误为 **8787 = 旧 Coding Plan 代理、8788 = 新代理**。端口冲突真实存在，排查前先确认当前实际监听端口。
+> - **无可核来源**：`2.1.201→2.1.205` 这两个版本号与「新工具 Monitor」均无外部来源可核（属库内记录），引用时不要当作公开可验证事实。
 
 ---
 
@@ -118,6 +126,9 @@ if (req.url === '/health') {
 {"proxy":{"port":8787,"status":"ok"},"permafrost":{"port":8788,"status":"ok"},"deepseek":"ok","checked":"2026-07-09T12:00:00Z"}
 ```
 
+> [!warning] 更正（2026-09-13）：上例**不能照抄**（原示例保留于上）。
+> ① **端口与勘误冲突**：8787 与 8788 的归属见 [[2026-07-21-树莓派网络故障与路由器破解完整复盘]] §6.6（8787 = 旧 Coding Plan 代理、8788 = 新代理），与本例的 `proxy/permafrost` 分配相反；② **`"deepseek":"ok"` 是静态字面量**，不会随上游真实状态变化，即使上游挂了也会显示 ok——它只能作为文件格式示例，**不能当作健康判据**，真实状态应取 §4 的 `/health` 响应。
+
 SessionStart hook 更新，agent-gate.sh `status` 展示。
 
 ---
@@ -139,3 +150,14 @@ SessionStart hook 更新，agent-gate.sh `status` 展示。
 - 不引入新守护进程（违反 Occam's razor）— 利用现有 SessionStart hook
 - 不修改 Claude Code 内部 auto mode 行为 — hook 无法干预
 - 不在 proxy 内加复杂的健康检查逻辑 — 只加一个 /health 端点
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 任务清单里登记为 `network/proxy-resilience-optimization-2026-07-09.md` | 加「路径登记更正」块：唯一实体在 `claude-ops/Plans/`，`network/` 下无此文件 |
+| 纠错 | 事故还原被当作已证实的因果链，且端口号与勘误冲突 | 保留原流程并加更正块：§1 原文用「可能」属推断；8787/8788 归属见复盘 §6.6；版本号与 Monitor 无外部来源 |
+| 纠错 | §5 状态文件示例的端口分配冲突，且 `"deepseek":"ok"` 为静态字面量 | 保留原示例并加更正块：格式示例不可照抄，健康判据应取 §4 的 `/health` 响应 |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

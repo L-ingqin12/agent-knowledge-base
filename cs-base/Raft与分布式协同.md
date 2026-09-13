@@ -3,7 +3,7 @@ title: Raft与分布式协同
 aliases: [raft, 分布式共识, etcd]
 tags: [cs/system, cs, cs/db]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: Raft 论文(raft.github.io) 与 etcd 文档口径；工程实现差异处标待确认
 fetched_at: 2026-08-26
@@ -39,6 +39,10 @@ See also: [[CS-KB-Home]] · [[Kafka原理与实践]] · [[容器与云原生基�
 
 **选举限制(日志完整性投票规则)**：投票前比较 `lastLogTerm > mine || (== && lastIndex ≥ mine)` ——保证当选者**拥有全部已提交日志**（安全性核心，比 Paxos 易读的关键设计）。
 
+**PreVote 防扰动**：候选者先探询"能否当选"再自增任期，避免分区恢复/网络抖动时 term 暴涨踢掉健康 leader——**Kafka 4.0（KRaft）已引入该机制（KIP-996）**；etcd/TiKV 的默认开关仍需逐版本核对（见 §七①）。
+
+> 来源：https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/
+
 ## 三、日志复制与提交
 
 ```
@@ -73,11 +77,24 @@ leader 收到写: 追加本地日志(未提交) → 并行发给 followers
 | etcd | 原生 Raft + MVCC(B+ 类 btree) | K8s 的事实配置库；watch 机制 |
 | MongoDB 副本集 | Raft 衍生(带 catchup/优先级) | [[MongoDB原理与实践]] §五选举 |
 | Redis Cluster | **非 Raft**：gossip+异步复制故障转移 | 可能丢最近写入——与 Raft 族本质差异 |
-| TiKV/Kafka(KRaft) | Raft per region/per 元数据日志 | multi-raft 分片化 |
+| TiKV | **Multi-Raft**：单节点上管理多个 Raft 组，按 Region 切分（Region 可 split/merge） | multi-raft 分片化 |
+| Kafka(KRaft) | **单一元数据 Raft 组**（controller quorum），**不是** per-region Raft | 4.0 起为唯一模式（ZooKeeper 已移除） |
+
+> [!warning] 更正（2026-09-13）：原表把 TiKV 与 Kafka(KRaft) 塞进同一格、写成"Raft per region/per 元数据日志"，把两种形态混成了一个——TiKV 是 per-Region 的 Multi-Raft（官方 deep-dive 原文「Here Multi-Raft only means we manage multiple Raft consensus groups on one node」）；Kafka 是**单一元数据 controller quorum**，且 4.0 起 KRaft 是唯一模式。（原表述为「TiKV/Kafka(KRaft) \| Raft per region/per 元数据日志 \| multi-raft 分片化」）
+> 来源：https://tikv.org/deep-dive/scalability/multi-raft/ · https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/
 
 ## 七、待确认项
 
-> ① 各生产实现(etcd/tikv)对 PreVote(防扰动 term 暴涨)的默认开关；② witness/learner 角色在三节点变两节点的运维窗口实践；③ FlexiRaft 类变体在云厂商托管的落地情况。
+> ① etcd/tikv 对 PreVote(防扰动 term 暴涨)的默认开关与调优参数（**KRaft 一侧已确定**：Kafka 4.0 起有 Pre-Vote，KIP-996，见 §二）；② witness/learner 角色在三节点变两节点的运维窗口实践；③ FlexiRaft 类变体在云厂商托管的落地情况。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §六 表格把 TiKV 与 Kafka(KRaft) 混成一格、写成"Raft per region/per 元数据日志" | 拆成两行：TiKV = per-Region Multi-Raft；Kafka = 单一元数据 controller quorum（4.0 起唯一模式），保留原表述于更正块；依据 [TiKV Multi-Raft](https://tikv.org/deep-dive/scalability/multi-raft/) / [Kafka 4.0 公告](https://kafka.apache.org/blog/2025/03/18/apache-kafka-4.0.0-release-announcement/) |
+| 补疏漏 | §七① 把 PreVote 整体挂"待确认" | §二 补 PreVote 机制说明并确定 KRaft 一侧（KIP-996，Kafka 4.0）；§七① 收窄为 etcd/TiKV 逐版本核对；依据 Kafka 4.0 公告 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
 
 ## Related
 

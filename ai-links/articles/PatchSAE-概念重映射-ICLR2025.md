@@ -3,11 +3,13 @@ title: "PatchSAE 概念重映射——ICLR 2025"
 aliases: [PatchSAE, 概念重映射, SAE ICLR 2025]
 tags: [ai/learning, reference]
 created: 2024-12-06
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 source: "论文"
 source_urls:
   - "https://arxiv.org/abs/2412.05276"
+  # 官方定位符（2026-09-13 补录；ICLR 官方版与 arXiv 版可能不同）
+  - "https://proceedings.iclr.cc/paper_files/paper/2025/hash/3d5b603d631d595f56bc36b373458b27-Abstract-Conference.html"
 author: "Hyesu Lim, Jinho Choi, Jaegul Choo, Steffen Schneider"
 venue: "ICLR 2025"
 date: "2024-12-06"
@@ -20,6 +22,9 @@ See also: [[AI-Links-KB-Home]] | [[Articles-Index]] | [[SAE-视觉特征单义�
 
 > Sparse autoencoders reveal selective remapping of visual concepts during adaptation
 > Hyesu Lim et al. · ICLR 2025 · [github.com/dynamical-inference/patchsae](https://github.com/dynamical-inference/patchsae)
+> 官方定位符（2026-09-13 补）：[ICLR 2025 proceedings abstract 页](https://proceedings.iclr.cc/paper_files/paper/2025/hash/3d5b603d631d595f56bc36b373458b27-Abstract-Conference.html)（hash `3d5b603d631d595f56bc36b373458b27`，页面另给官方 Paper-Conference.pdf）；标题、作者序列（Hyesu Lim, Jinho Choi, Jaegul Choo, Steffen Schneider）与 venue「ICLR 2025」四项已逐字核对无误。
+
+> [!warning] 未能核验（2026-09-13）：上方的代码仓库链接本轮**无法核验**——github.com 与 api.github.com 直连均失败（属**网络环境限制，不构成链接失效证据**），ICLR 官方 abstract 页也**未列 code 链接**，无法交叉印证。下一轮请用 `api.github.com/repos/dynamical-inference/patchsae` 做存在性与重定向检查。
 
 **角色定位**：把 SAE 当作分析仪器，回答「adaptation 到底改了什么」——而不是把 SAE 本身当作研究对象。
 
@@ -63,6 +68,8 @@ CLIP ViT 残差流输出 z ∈ ℝ^(N+1)×d  (N=576 patches + 1 CLS token，共 
 | 稀疏策略 | L1 正则化 |
 | 损失函数 | MSE (重建) + λ·L1 (稀疏) |
 
+> [!warning] 补（2026-09-13）：「ViT 中间层 attention block 残差流输出」是**模糊指代**（第几层？几层都有？每层一个 SAE 还是共享？），这一点直接决定 §七 局限 3「SAE 训练在单层」能否成立——若其实训了多层，局限 3 就是错的；若只训一层，应写明是哪一层。对照组 NeurIPS 2025 篇把挂载位置写到残差流 CLS token 的 L11/17/22/23 + 最终投影层，可比性要求同样的精度。
+
 ### 2.3 四级分析粒度
 
 | 粒度 | 定义 | 能回答什么 |
@@ -84,6 +91,9 @@ CLIP ViT 残差流输出 z ∈ ℝ^(N+1)×d  (N=576 patches + 1 CLS token，共 
 **可定位**：激活 patch 能准确圈出概念在图片中的物理位置——不是全局模糊判断，是精确到 3×4 个 patch 的空间映射。
 
 **跨数据集泛化**：ImageNet 上训的 PatchSAE 放到 domain-shifted 数据集（细粒度动植物等），概念保持可解释——SAE 学的是 CLIP ViT 内部通用的视觉概念，不是 ImageNet 特供版。
+
+> [!warning] 补（2026-09-13）：官方摘要能**确证**的部分只有三条——PatchSAE 训在 CLIP vision transformer 上、训练数据来自 ImageNet、下游为图像分类并使用 prompt-based adaptation（本文 §5.1 进一步具体化为 MaPLe）。「细粒度动植物等」这种**指代无法复核**：domain-shifted 具体是哪些数据集（DomainNet / CUB / Oxford Flowers？）、评估协议是 few-shot 还是全量线性探针，都需回原文补，否则「跨数据集泛化」只有结论没有依据。
+> - 来源：[ICLR 2025 proceedings abstract 页](https://proceedings.iclr.cc/paper_files/paper/2025/hash/3d5b603d631d595f56bc36b373458b27-Abstract-Conference.html)
 
 ---
 
@@ -152,6 +162,9 @@ PatchSAE (Lim et al.):
 ## 七、局限
 
 1. **只用 L1 稀疏**——未比较 BatchTopK/Matryoshka 等更优策略（NeurIPS 那篇已证明 BatchTopK 比 L1 好）
+
+> [!warning] 更正（2026-09-13）：官方摘要**没有**「BatchTopK 比 L1 好」这种表述，原文是「SAEs trained on VLMs significantly enhance the monosemanticity of individual neurons, **with sparsity and wide latents being the most influential factors**」——决定单义性的是**稀疏度与隐层宽度**两个因子，BatchTopK vs L1 属实现选择的下游，引用时应改用官方口径。另经核对，本文通篇未给 PatchSAE 的扩展因子 ε 与隐层宽度（§2.2 训练配置表无这两项），而对照组 NeurIPS 篇明确 ε ∈ {1,2,4,8,16,64}（见该文 §2.3），故这条「未比较更优策略」的局限**无法自证**。
+> - 来源：[ICLR 2025 proceedings abstract 页](https://proceedings.iclr.cc/paper_files/paper/2025/hash/3d5b603d631d595f56bc36b373458b27-Abstract-Conference.html) · [NeurIPS 2025 poster 页](https://neurips.cc/virtual/2025/loc/san-diego/poster/119210)
 2. **只在分类任务上分析 adaptation**——未涉及 captioning/VQA/对话等多模态任务
 3. **SAE 训练在单层**——未系统性比较多层的信息差异（NeurIPS 覆盖了 L11/17/22/23/last 五层）
 4. **只分析了 MaPLe**——CoOp/CoCoOp 等其他 prompt-based 方法的内部机制可能不同
@@ -164,3 +177,15 @@ PatchSAE (Lim et al.):
 > PatchSAE 让我们能看到：adaptation 不是教会模型看新东西，而是告诉它「做这道题时，看你本来就认识的那些东西里的这几个。」
 
 > CLS 能告诉你「有狗」，patch token 能告诉你「狗在哪」——SAE 挂在 CLS 上能拆语义，挂在 patch 上还能拆空间。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | frontmatter 只有 arXiv 一条，缺官方定位符 | 补 ICLR 2025 proceedings abstract 页（hash `3d5b603…`，含官方 PDF）；标题、4 位作者、venue 三项已逐字核对无误 |
+| 补疏漏 | 代码仓库链接无法判断是否失效 | 标注「本轮未能核验」，并说明 github.com / api.github.com 直连失败属**环境限制、不构成失效证据**，下一轮用 API 复核 |
+| 补疏漏 | §三「跨数据集泛化（细粒度动植物等）」只有结论 | 标注官方摘要只能确证三条（CLIP ViT 上训练 / ImageNet 数据 / 分类 + prompt-based adaptation），数据集与评估协议需回原文补；依据 ICLR 官方摘要页 |
+| 纠错 | §七 局限 1 称「NeurIPS 那篇已证明 BatchTopK 比 L1 好」 | 改用官方口径「sparsity and wide latents being the most influential factors」；并指出本文未给 ε 与隐层宽度，该局限无法自证；依据 ICLR 与 NeurIPS 两个官方页 |
+| 补疏漏 | §2.2 钩子层写「ViT 中间层」过于模糊，直接影响局限 3 | 标注需写明第几层 / 每层是否各一个 SAE，并给出对照组的内存粒度（L11/17/22/23 + 投影层）作为可比性要求 |
+
+- 回链：[[CORRECTIONS]]｜[[AGENTS]]

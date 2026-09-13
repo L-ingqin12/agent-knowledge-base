@@ -3,7 +3,7 @@ title: 终端崩溃改进方案 — 实施计划
 aliases: []
 tags: [ai/ops]
 created: 2026-07-03
-updated: 2026-08-25
+updated: 2026-09-13
 status: deprecated
 ---
 
@@ -28,6 +28,16 @@ See also: [[Claude-Ops-KB-Home]] · [[subagent-resource-architecture-2026-07-03]
 | B: Agent 资源耗尽 | 43% (3起) | fan out subagents 无并发限制、孤儿进程堆积、OOM | 进程/内存 |
 
 详见 crash-analysis-2026-07-03（⚠️ 原记忆文档未随迁移入库，本库无等价文件，见 [[MEMORY-INDEX]]）
+
+> [!warning] 补（2026-09-13）：上表的原始归类依据未入库，无法复核
+> 百分比算术**无误**（4/7 = 57.1%、3/7 = 42.9%），但「哪 7 起、各自归哪一类、按什么判据归类」没有任何可复核材料（L30 已自曝原记忆文档未入库）。补一张**最小证据表**，否则后续事故无法沿用同一分类口径：
+>
+> | 日期 | 症状 | 关键日志片段 | 归类 | 判据（为什么算 A 而不是 B） |
+> |------|------|--------------|------|------------------------------|
+> | 待补 | 待补 | 待补 | A | 待补 |
+> | …（共 7 行：A 类 4 行、B 类 3 行） | | | | |
+>
+> 填表纪律：**判据列不能空**——「A 是代理层单点故障、B 是资源耗尽」这条分界线只有写成可判定的条件（例如「崩溃点在 proxy.js 进程内 / 崩溃点为内核 OOM killer」），换个人才能得到同样的归类。
 
 ---
 
@@ -86,6 +96,17 @@ See also: [[Claude-Ops-KB-Home]] · [[subagent-resource-architecture-2026-07-03]
   - `count` — 计数运行中 claude 进程（默认上限 5）
   - `memcheck` — 读取 `/proc/meminfo`（默认门槛 1GB 可用）
   - `check` — 组合：cleanup → count → memcheck，返回 OK/DENY
+
+> [!warning] 补（2026-09-13）：`cleanup` 是**破坏性操作**，缺审计与演练设计
+> 现方案的风险缓解只有「年龄过滤 >5min + PID 排除当前 session」两条，不够。按本库「部署四规则」的「日志可审计」，补三项：
+> ①**`--dry-run`**：只列出「将杀哪些进程」及各自的命令行 / 启动时间 / 内存占用，人工确认后再真杀；
+> ②**杀前日志**：把 PID / 命令 / 开始时间 / 内存落盘（可回查「当时为什么杀它」）；
+> ③**多 session 排除清单**：只排除「当前 session」不够——fan-out 时**其它 session 的子代理**同样可能被 reparent 成 PPID=1 且已运行 >5min，会被误杀。排除清单应基于进程树/会话标识，而不是单看 PPID。
+> 配套：`cleanup` 需要一条演练用例（起若干假孤儿 → dry-run 命中数 = 实际杀数）。
+
+> [!warning] 补（2026-09-13）：`count` 的「默认上限 5」与 `memcheck` 的「默认门槛 1GB」都没有推导过程
+> 需要补：①**设备规格**（Termux / PRoot 下可用内存总量是多少）；②**单个 subagent 峰值 RSS 实测**；③上限 5 的来历（例如 `5 × 峰值 RSS ≈ 可用内存 × 安全系数`，把安全系数写出来）；④阈值触发的**实测输出**（起 5+ 进程后 `check` 返回 `DENY` 的原文）。
+> 没有这四项，这两个默认值换台机器就会失准，而失准的方向是**OOM**（门槛过高）或**误拒正常作业**（门槛过低）。
 
 ### 2.2 SessionStart 孤儿清理
 
@@ -151,6 +172,10 @@ See also: [[Claude-Ops-KB-Home]] · [[subagent-resource-architecture-2026-07-03]
 | agent-gate cleanup | 误杀进程 | 年龄过滤 >5min + PID 排除当前 session |
 | 并发检查 | spawn 时竞态窗口 | 非硬锁，checkpoint 式检查，窗口 <100ms |
 
+> [!warning] 补（2026-09-13）：竞态窗口只给了量级，没给后果与兜底
+> 补三项：①**窗口量级的来源**（`<100ms` 是怎么测出来的：两次 check 间隔的实测分布？还是估的？）；②**最坏情况的后果**（该窗口内最多可能超发几个进程——由 spawn 速率 × 窗口长度推算）；③**超发时的自动降级动作**（spawn 后自检发现超限 → 主动退出并记录，而不是等 OOM）与对应的日志字段。
+> 没有第 ③ 项时，「窗口 <100ms」等于承认门禁可以被绕过而不留痕。
+
 ### 回滚策略
 
 | 组件 | 回滚命令 |
@@ -160,6 +185,12 @@ See also: [[Claude-Ops-KB-Home]] · [[subagent-resource-architecture-2026-07-03]
 | Phase 3 (Kanban) | `rm /root/claude-kanban-helper.sh /root/.claude/task-routing-guide.md` |
 
 每阶段独立回滚，无跨阶段依赖。
+
+> [!warning] 补（2026-09-13）：Phase 2 / 3 只有手工 `rm`，缺脚本、基线与验证方法
+> Phase 1 有 `rollback.sh`，Phase 2 / 3 却只有一行 `rm` + 「移除 hook」，而「移除 hook」还要人工编辑 `settings.local.json`——这正是最容易改坏、最需要脚本的地方。按「部署四规则」的**逃生机制（rollback）**补齐：
+> ①新增 `rollback-agent-gate.sh`（Phase 2）与 `rollback-kanban-helper.sh`（Phase 3），与 Phase 1 同级；
+> ②`settings.local.json` **改前备份 + 改后 diff 校验**（回滚时按备份还原，而不是凭记忆删键）；
+> ③**「怎么确认回滚成功」**：回滚后 `agent-gate.sh check` 不再被 session 调用、session 启动耗时回到基线（基线值需先记录）、`settings.local.json` 与备份 `diff` 为空。
 
 ---
 
@@ -198,3 +229,15 @@ See also: [[Claude-Ops-KB-Home]] · [[subagent-resource-architecture-2026-07-03]
 - [[hermes-parallel-task-report]] — delegate_task vs Kanban 能力边界
 - [[interactive-aware-subagent-plan-2026-07-03]] — Phase 2b: 交互感知动态资源分配（PreToolUse/Stop hook 状态机）
 - [[resource-class-scheduling-plan-2026-07-03]] — Phase 2d: 资源类别感知调度（cpu/io/net/mem 文件锁 + wrapper 脚本）
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 补疏漏 | 「7 起事故分两类 57%(4起)/43%(3起)」的原始归类依据未入库，无法复核 | 百分比算术核对无误（4/7=57.1%、3/7=42.9%）；「背景」节补最小证据表模板（日期｜症状｜关键日志片段｜归类｜判据），并写明「判据列不能空」的填表纪律 |
+| 补疏漏 | `cleanup`（PPID=1 且 >5min）作为破坏性操作缺审计与演练设计 | §2.1 补三项：`--dry-run` 只列不杀、杀前日志（PID/命令/开始时间/内存落盘）、多 session 排除清单（fan-out 时其它 session 子代理会被 reparent 误杀），并配演练用例 |
+| 加厚 | `count` 默认上限 5、`memcheck` 默认门槛 1GB 没有推导过程 | §2.1 补四项：设备可用内存规格、单 subagent 峰值 RSS 实测、上限 5 的算式（含安全系数）、阈值触发的实测 DENY 原文 |
+| 加厚 | 风险评估承认 spawn 竞态窗口 `<100ms` 却不给后果与兜底 | 「风险评估」表后补三项：窗口量级的测量来源、最坏情况最大超发数、超发时的自动降级动作（spawn 后自检超限即主动退出并记录）与日志字段 |
+| 补疏漏 | 回滚策略表 Phase 2/3 只有手工 `rm`（Phase 1 有 `rollback.sh`），「移除 hook」需人工编辑 `settings.local.json`，无脚本、基线与验证方法 | 「回滚策略」后补三项：新增 Phase 2/3 rollback 脚本、`settings.local.json` 改前备份 + 改后 diff 校验、回滚成功的验证方法（check 不再被调用 / 启动耗时回基线 / diff 为空） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

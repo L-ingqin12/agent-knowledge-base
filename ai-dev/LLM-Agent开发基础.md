@@ -3,7 +3,7 @@ title: LLM-Agent开发基础
 aliases: [Agent开发基础, ReAct手写实战, 智能体四组件]
 tags: [ai, ai/agent]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -30,7 +30,7 @@ status: review
 
 | 组件 | 英文 | 职责 | 常见实现 |
 |------|------|------|----------|
-| 大脑 | LLM Brain | 理解任务、推理、决策 | DeepSeek-V3 / GPT-4o / Claude |
+| 大脑 | LLM Brain | 理解任务、推理、决策 | DeepSeek-V3 / GPT-4o / Claude（更正 2026-09-13：示例已过时，见下方「模型版本更正」） |
 | 记忆 | Memory | 存储历史与知识 | 上下文窗口、向量库（RAG）、对话摘要 |
 | 工具 | Tools | 对外执行动作 | Function Calling、MCP 工具、代码执行器 |
 | 规划 | Planning | 拆解任务、选择路径 | ReAct、Plan-and-Execute、Reflection |
@@ -57,11 +57,17 @@ status: review
 
 > [!tip] 落地结论：推理模型显著增强了 Agent 的 Planning 能力，但不必全程使用——"快模型执行 + 慢模型规划"是 2025 年主流组合。R1 的思维链内容不应透出给终端用户，注意区分 reasoning_content 与 content。
 
+> [!warning] 更正（2026-09-13）：模型版本更正（DeepSeek）
+> 本节与本文其他处使用的模型名（原表述为「快思考模型（V3 等）」「推理模型（o1 / DeepSeek-R1）」、架构表「DeepSeek-V3 + R1」、Demo 的 `model="deepseek-chat"`）**均已失效**。
+> 官方计费页当前只列两行：`deepseek-flash`（MODEL VERSION `DeepSeek-V4.1-Flash`）与 `deepseek-v4-pro`（MODEL VERSION `DeepSeek-V4-Pro-0813`），并注明「Use `deepseek-flash` as the model name」；旧名 `deepseek-v4-flash` 对应的模型已退役。
+> 时间线（措辞依据）：DeepSeek **V4 于 2026-04-24 上线**，官方 Change Log 同时明确 `deepseek-chat` / `deepseek-reasoner`「will be discontinued in three months（2026-07-24）」——两个日期都**早于本文 created 2026-08-25**，即**本文写法在写作时已失效**，并非事后才过时。但 `deepseek-flash`（V4.1）发布于 **2026-09-10**，晚于本文写作日，故不宜反推为「写作时就该知道 deepseek-flash」——写作时应使用的是 `deepseek-v4-pro` 等 V4 系列名。
+> 来源：<https://api-docs.deepseek.com/quick_start/pricing>、<https://api-docs.deepseek.com/updates>、<https://api-docs.deepseek.com/>
+
 ### Agent 架构设计落地方案
 
 | 分层 | 职责 | 技术选型示例 |
 |------|------|--------------|
-| 模型层 | 快/慢模型双池，按任务路由 | DeepSeek-V3 + R1 |
+| 模型层 | 快/慢模型双池，按任务路由 | DeepSeek-V3 + R1（更正 2026-09-13：模型名已过时，见「模型版本更正」） |
 | 工具层 | 标准化工具接入与权限控制 | MCP Server、Function Calling |
 | 编排层 | 循环、状态机、失败重试 | 手写循环 / LangGraph |
 | 应用层 | 面向场景的产品外壳 | 客服、编码、办公助手 |
@@ -91,10 +97,24 @@ while step < max_iterations:
     if reply 含 Final Answer: 返回答案
     action = 解析(reply)               # 正则提取工具名与参数
     observation = 执行(action)         # 调用工具，得到环境反馈
-    messages += [reply, observation]   # 拼回上下文，进入下一轮
+    messages += [reply, observation]   # 拼回上下文，进入下一轮(全量回填, 成本随轮数增长, 见下节)
 ```
 
 推理模型（o1/R1）对循环的改造：把 Planning 环节从"模型边想边做"升级为"先想后做"——R1 类的模型在一次生成中自带长思维链，可以直接产出完整计划，主循环退化为"执行计划 + 偏差时重规划"。代价是延迟与成本上升，因此常见做法是**快模型跑 ReAct 循环、慢模型只在开局做规划或在卡壳时做反思**。
+
+### 上下文的成本面：Observation 回填、预算与压缩（加厚 2026-09-13）
+
+上面伪代码里 `messages += [reply, observation]` 是全文最容易低估的一行：**Observation 是全量回填的**，上下文长度随轮数近似线性增长，token 成本与延迟随之上升。长任务里的"上下文溢出"往往不是被某一条超大结果压垮，而是被几十轮小结果堆垮的。
+
+| 控制点 | 做法 | 判据 / 阈值（示意，按模型窗口折算） |
+|--------|------|-------------------------------------|
+| 预算上限 | 显式设定单任务的 token 与轮数预算 | 轮数已有 `max_iterations`（本文 Demo 取 5）；**token 预算需另设**，原文只写了"真实系统还要叠加超时与预算"，未给数值 |
+| 压缩阈值 | 到达窗口占用比例后触发摘要压缩 | 常见起点为窗口占用 70%~80% |
+| 状态外置 | **压缩前**先把结论写进结构化状态（任务清单 / 已知事实 / 待办） | 压缩后仍能凭外置状态续跑 |
+| 可观测 | 每轮记录上下文占用与轮次编号 | 没有预算数值与触发阈值 = 线上不可控、不可复现 |
+
+> 关键顺序：**先外置、后压缩**。反过来做，摘要一压模型就丢了"已经确认过什么"，于是重复调用工具或中途改口——这正是下方「失效模式速查表」中"错误传播"与"上下文污染"两条的成因。
+> 依据：<https://react-lm.github.io/>（ReAct 项目主页：reason-only 基线"suffers from misinformation as it is not grounded to external environments"）、<https://api.semanticscholar.org/graph/v1/paper/arXiv:2210.03629?fields=title,abstract,year,authors>
 
 ### 多智能体 Supervisor 编排
 
@@ -171,7 +191,7 @@ def run_react(question: str, max_iterations: int = 5) -> str:
                 {"role": "user", "content": question}]
     for step in range(max_iterations):          # 迭代上限防死循环
         resp = client.chat.completions.create(
-            model="deepseek-chat", messages=messages, temperature=0.1)
+            model="deepseek-chat", messages=messages, temperature=0.1)  # 该名已于 2026-07-24 停用，见「模型版本更正」
         reply = resp.choices[0].message.content  # 模型输出，含 Thought 与 Action
         print(f"--- 第 {step+1} 轮 ---\n{reply}\n")
 
@@ -249,6 +269,13 @@ if __name__ == "__main__":
 | 工具幻觉 | 调用不存在的工具/参数 | 工具注册表白名单 + 解析后校验 |
 | 上下文溢出 | 长任务 Observation 堆积超窗口 | 对话摘要压缩、滑动窗口、转 RAG |
 | 半途而废 | 长任务中途停下 | 检查点记录 + 断点续跑 |
+| 错误传播 / 上下文污染（补疏漏 2026-09-13） | 一轮错误结论被后续轮次当真，越推越偏；失败尝试混在历史里导致反复走错路 | 关键结论设校验步骤；已确认事实外置为结构化状态；失败轮次标注原因与已排除路径 |
+| 检索退化 / 工具空转（补疏漏 2026-09-13） | 工具反复返回空或近似结果，模型原地打转不换策略 | 监控「同工具同参数重复调用」，命中即切换策略或降级人工接管 |
+| 终止条件误判（补疏漏 2026-09-13） | 未给出 Final Answer 就停，或已可作答却不停 | 显式终止判据（终态字段 / 结构化输出）+ 兜底提示词 |
+
+> [!note] 补疏漏依据（2026-09-13）
+> 原表 5 条（死循环、格式漂移、工具幻觉、上下文溢出、半途而废）缺的三类并非凭空添加：ReAct 论文摘要原文即把 hallucination 与 **error propagation** 列为 chain-of-thought 的固有问题（"ReAct overcomes issues of hallucination and error propagation prevalent in chain-of-thought reasoning"），项目主页亦标注 reason-only 基线"suffers from misinformation as it is not grounded to external environments"——错误传播与上下文污染正是"不接地"的后果。
+> 来源：<https://react-lm.github.io/>、<https://api.semanticscholar.org/graph/v1/paper/arXiv:2210.03629?fields=title,abstract,year,authors>
 
 > [!warning] 生产化第一课：Agent 是"会犯错的软件"。韧性设计（重试、降级、熔断、人工接管）比提示词技巧更决定上线成败，系统性方案见 [[Agent韧性架构分析-微信转载]]。
 
@@ -276,5 +303,24 @@ if __name__ == "__main__":
 
 - ReAct 论文原文（Yao et al., 2022，原始 Thought/Act/Obs 提示词格式）：<https://arxiv.org/abs/2210.03629>
 - Prompt Engineering Guide — ReAct Prompting（论文示例与格式拆解）：<https://www.promptingguide.ai/techniques/react>
-- DeepSeek API 官方文档（deepseek-chat 模型与 base_url 用法）：<https://api-docs.deepseek.com/>
+- DeepSeek API 官方文档（deepseek-chat 模型与 base_url 用法）：<https://api-docs.deepseek.com/>（更正 2026-09-13：`deepseek-chat` 已于 2026-07-24 停用，现役模型名见 <https://api-docs.deepseek.com/quick_start/pricing>）
 - OpenAI Python SDK（DeepSeek 兼容的 chat.completions 调用方式）：<https://github.com/openai/openai-python>
+
+**版本复核来源（2026-09-13 回写补入）**：
+
+- DeepSeek API 计费与模型列表（现役 `deepseek-flash` / `deepseek-v4-pro` 与 MODEL VERSION）：<https://api-docs.deepseek.com/quick_start/pricing>
+- DeepSeek API 更新日志（V4 于 2026-04-24 上线；`deepseek-chat` / `deepseek-reasoner` 于 2026-07-24 停用）：<https://api-docs.deepseek.com/updates>
+- ReAct 官方项目主页（论文身份、提示词结构、reason-only 基线局限）：<https://react-lm.github.io/>
+- ReAct 论文元数据（Semantic Scholar，arXiv:2210.03629，替代不可达的 arxiv.org 直连）：<https://api.semanticscholar.org/graph/v1/paper/arXiv:2210.03629?fields=title,abstract,year,authors>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 四组件表「DeepSeek-V3 / GPT-4o / Claude」、架构表「DeepSeek-V3 + R1」、Demo `model="deepseek-chat"` | 三处就地加注 + 集中更正块：官方计费页现只列 `deepseek-flash`（DeepSeek-V4.1-Flash）与 `deepseek-v4-pro`（DeepSeek-V4-Pro-0813）；`deepseek-chat` / `deepseek-reasoner` 于 2026-07-24 停用。措辞按复核结论写为「本文写法在写作时已失效」，未反推「写作时就该知道 deepseek-flash」（该模型 2026-09-10 才发布） |
+| 加厚 | 手写循环伪代码 `messages += [reply, observation]` 未交代成本面 | 新增「上下文的成本面：Observation 回填、预算与压缩」小节（预算上限 / 压缩阈值 / 状态外置 / 可观测四行表），并强调「先外置、后压缩」的次序；伪代码该行加注释指向本节 |
+| 补疏漏 | 失效模式速查表只有 5 条，缺错误传播、上下文污染、检索退化、终止条件误判 | 表扩到 8 行（新增 3 条并合并错误传播/上下文污染），附「补疏漏依据」说明：三类缺口与 ReAct 论文摘要的 error propagation 论述及项目主页对 reason-only 基线的批评直接对应 |
+
+> 未改动项（已核实、不属纠错）：「论文原格式 vs 现代变体」提示经复核**无事实错误**——论文身份与结构成立（ReAct: Synergizing Reasoning and Acting in Language Models，Shunyu Yao 等，2022，arXiv:2210.03629）。但 `Thought N:` / `Act N:` / `Obs N:` 与 `Search[]` / `Lookup[]` / `Finish[]` 的**逐字格式**本轮未能重新取证（arxiv.org 在复核环境不可达），故原文**保持不动**，待人工再核一次。
+
+> 回链：[[CORRECTIONS]] · [[AGENTS]]

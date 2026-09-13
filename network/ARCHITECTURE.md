@@ -3,7 +3,7 @@ title: 架构设计文档
 aliases: [Architecture, 架构]
 tags: [network/architecture, network/proxy, network]
 created: 2026-07-28
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 # 网络优化架构设计文档
@@ -97,6 +97,9 @@ v2rayN 写入 config.json
 > **选择**: 所有 VLESS+Vision 出站 `mux: false`。
 > **原因**: VLESS XTLS-Vision 依赖精确的包时序进行 TLS 伪装。Mux 多路复用会交错不同流的数据包，破坏 Vision 的流顺序，导致队头阻塞。实测：开启 Mux → Telegram 视频卡住。
 
+> [!warning] 更正（2026-09-13）：「不兼容」是**推断而非上游结论**（原表述为「Mux 与 Vision 不兼容」，决策本身不变——仍然全关 Mux）。
+> 复核上游两处：① Xray 出站文档对 Mux 的定性是**性能取舍**——「Mux 是为了减少 TCP 的握手延迟而设计，而非提高连接的吞吐量。使用 Mux 看视频、下载或者测速通常都有反效果」，并未声称与 XTLS-Vision 协议层不兼容；② commit `4f601530`（RPRX，2023-04-14，*Allow multiple XUDP in Mux when using XTLS Vision (client side)*）**已删除** Vision 出站对 Mux 的 `doesn't support Mux` 警告，即当前上游允许该组合、只是不推荐。保留原决策的依据是**库内实测**（开 Mux → Telegram 视频卡住），引用时应写作「实测组合劣化/不推荐」，而不是「协议不兼容」。来源：<https://xtls.github.io/config/outbound.html>、<https://github.com/XTLS/Xray-core/commit/4f601530fabf045b0dc08e5526426ba7331c1133>
+
 ### 决策 3: DNS 走固定代理
 
 **选择**: DNS 模块路由到原始代理 (`proxy` tag)，不使用 balancer。
@@ -112,6 +115,9 @@ v2rayN 写入 config.json
 **选择**: 路由规则中引用 balancer 时用 `balancerTag` 字段。
 **原因**: xray 的路由分发器对 `outboundTag` 只在出站列表中查找，对 `balancerTag` 在 balancers 列表中查找。用错字段 → `non existing outTag` 错误。
 
+> [!check] 已核验（2026-09-13）：本条**结论与方向均正确**，无需改动。
+> 上游路由文档原文：「转发至它所指定的 outboundTag 或 balancerTag」「**balancerTag 和 outboundTag 须二选一。当同时指定时，outboundTag 生效**」「此负载均衡器的标识，用于匹配 RuleObject 中的 balancerTag」；分发器侧对查不到的 outTag 打印 `non existing outTag: ` 并 `Close`/`Interrupt`，不回落默认出站。来源：<https://xtls.github.io/config/routing.html>、<https://raw.githubusercontent.com/XTLS/Xray-core/main/app/dispatcher/default.go>
+
 > [!bug] 2026-08-09 实测：v2rayN 7.19.5 GUI 均衡组自己也生成 `outboundTag`
 > 在 GUI 配置均衡组后，v2rayN 生成 `{"domain":["geosite:google"],"outboundTag":"balancer"}` 的无效规则 → Google 全挂、其余网站正常。已用 watcher（`fix_balancer_watcher.ps1`）自动改写为 `balancerTag` 并重启 xray。完整事故复盘见 [[v2rayn-balancer-复盘-2026-08-09]]。**注意：本决策此前只防住了外部脚本，没防住 v2rayN 原生生成。**
 
@@ -119,6 +125,9 @@ v2rayN 写入 config.json
 
 **选择**: 候选节点中排除与主代理相同 IP 的节点。
 **原因**: 同一服务器不同端口没有地理多样性价值。不排除的话，39 个订阅节点中 ~25 个是 p1d2 不同端口，选出来的全是同一台机器。
+
+> [!warning] 更正（2026-09-13）：括号内两个数字**与库内数据不符且无统计口径**（原表述为「39 个订阅节点中 ~25 个是 p1d2 不同端口」）。
+> 库内唯一节点清单 `scripts/proxy-nodes.json` 自述为「17 节点, 4 供应商」（实为 ranking 7 + unreachable 6 + slow 4），其中 p1d2 仅 **1** 条；全库亦无 `configTest*.json` 可复算。**决策 6 本身（排除与主代理同 IP 的候选节点）成立**，但引用时应改述为「同一 IP 会重复占用候选位」，不要再引用 39/~25 这两个数。
 
 ### 决策 7: 安全约束
 
@@ -130,6 +139,9 @@ v2rayN 写入 config.json
 > | CN IP 直连 | 保留 `geoip:cn → direct` 和 `geosite:cn → direct` |
 > | UDP 443 阻断 | 保留 `port:443, network:udp → block` 防 QUIC 绕过代理 |
 > | 无开放端口 | 代理仅监听 127.0.0.1:10808，不对局域网开放 |
+
+> [!warning] 补疏漏（2026-09-13）：上表「UDP 443 阻断」只写了 `block` 一种处置，**漏了上游自带的代理 UDP 443 的三档开关**（原表述只给「保留 `port:443, network:udp → block` 防 QUIC 绕过代理」）。
+> Xray 出站文档的 `xudpProxyUDP443` 有三种取值：默认 `reject`（「拒绝流量（一般浏览器会自动回落到 TCP HTTP2）」）、`allow`（「允许走 Mux 连接」）、`skip`（「不使用 Mux 模块承载 UDP 443 流量……VLESS 会使用 UoT」）。即「代理 UDP 443」并非没有上游方案——需要放行 QUIC 时可用 `skip`/UoT，比全局 `block` 更可控。当前选择 `block` 属**保守取舍**，不是唯一解。来源：<https://xtls.github.io/config/outbound.html>
 
 ## 四、文件说明
 
@@ -147,7 +159,27 @@ v2rayN 写入 config.json
 | `proxy-nodes.json` | 参考 | 代理节点速查表 |
 | `network-analysis-2026-07-28.md` | 参考 | 完整网络分析 |
 
+> [!warning] 更正（2026-09-13）：上表 `config.json.bak-20260728` 一行**指向不存在的文件**（原表述记为「备份 | v2rayN 原始配置」）。
+> 全库递归检索 `config.json.bak*` / `*.bak-2026*` **命中 0 个**；表中其余实体均可对上（`xray-config-v2-working.json`、`xray-config-optimized.json`、`xray-config-fixed.json`、`proxy-nodes.json` 均在 `network/scripts/` 下）。该行仅作历史登记保留，**不要据此执行回滚**，替代路径见 [[GUIDE]] 应急回滚一节。
+
 ## 五、未来可能的增强
 1. **下载速度综合评分**: 在 Ping 排序后对 Top 节点做 1MB 下载测试，延迟+速度加权评分（30/70）。当前因临时 xray 实例启动不稳定暂缓。
 2. **Hook 常驻模式**: 将 FileSystemWatcher 方案作为 v2rayN 的透明 hook 启用，订阅更新后全自动处理。当前用户可以按需运行 enhance-config。
 3. **v2rayN 原生多选**: v2rayN 本身支持多选服务器后自动生成 balancer 配置（`GenerateClientMultipleLoadConfig`），如 v2rayN 后续版本在 GUI 中暴露此功能，则可完全替代外部脚本。
+
+> [!warning] 更正（2026-09-13）：上述方法名**在上游源码中不存在**，改用可核对表述（原表述为 `GenerateClientMultipleLoadConfig`）。
+> 复核 v2rayN 源码 `ServiceLib/Handler/ConfigHandler.cs` 全文：检索 `GenerateClientMultipleLoadConfig` **命中 0**，只见 `MultipleLoad = EMultipleLoad.LeastPing`（2 处）；v2rayN `7.19.5` 的 release 说明写作「添加 **一键生成策略组**」。建议改述为：**「策略组配置 `MultipleLoad = LeastPing`（GUI 侧即『一键生成策略组』）」**。来源：<https://raw.githubusercontent.com/2dust/v2rayN/master/v2rayN/ServiceLib/Handler/ConfigHandler.cs>、<https://api.github.com/repos/2dust/v2rayN/releases/tags/7.19.5>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 加厚 | 决策 5「balancerTag 而非 outboundTag」原无来源 | 加「已核验」块并登记上游路由文档与 Xray-core `default.go`（含「同时指定时 outboundTag 生效」） |
+| 纠错 | 决策 2 把「Mux 与 XTLS-Vision」写成协议层不兼容 | 保留原决策与实测结论，加注：上游定性为性能取舍，且 commit `4f601530`（2023-04-14）已移除 `doesn't support Mux` 警告 |
+| 补疏漏 | 安全约束表「UDP 443 阻断」未提上游 `xudpProxyUDP443` 三档 | 加注 `reject`(默认)/`allow`/`skip`(UoT) 三档语义，说明 `block` 是保守取舍而非唯一解 |
+| 纠错 | 决策 6 依据「39 个节点中 ~25 个是 p1d2 端口」无统计口径且与库内 17/1 冲突 | 保留原句并加更正块：决策成立、数字不可引用 |
+| 纠错 | 文件表 `config.json.bak-20260728` 指向不存在文件 | 保留该行并加更正块：全库 0 命中，禁止据此回滚，改见 [[GUIDE]] |
+| 纠错 | 增强项 3 引用不存在的方法名 `GenerateClientMultipleLoadConfig` | 保留原句并加更正块，改述为 `MultipleLoad = LeastPing` / 「一键生成策略组」 |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

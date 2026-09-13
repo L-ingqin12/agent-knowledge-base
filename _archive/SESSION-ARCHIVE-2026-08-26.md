@@ -3,7 +3,7 @@ title: SESSION-ARCHIVE-2026-08-26
 aliases: [会话归档20260826, LogNet-PoC归档]
 tags: [meta, ai/ops]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: stable
 ---
 
@@ -30,6 +30,8 @@ status: stable
 
 ### 交付物（commit `7a7ba14`，23 文件 +1690 行）
 
+> [!warning] 更正（2026-09-13）：`scripts/lognet-poc/` 递归计数为 **22 个文件**（2026-09-13 实测），与 commit 时的 23 文件差 1；可核的硬数字是 27 项 unittest 对应的 `def test_` 函数实测 27 个，与归档一致。`7a7ba14` 属未推送本地历史，2026-09-12 克隆后不可复核。（原表述为 交付物（commit `7a7ba14`，23 文件 +1690 行））
+
 `scripts/lognet-poc/`：解析器注册表（hilog/kmsg 容错正则）、连续重复折叠、SQLite(+FTS5) 单文件 lognet.db（WAL / synchronous=NORMAL / keyset 分页 50k / 批量 executemany）、四类边建图（temporal_next / same_entity 线性链 / causal_hint R1 / co_occurrence R2）、query_logs（FTS MATCH+结构化过滤+引用指针）、get_subgraph（BFS+时间窗剪枝+token 预算闸+环防护）、CLI、合成故障链生成器、27 项 unittest、FTS 基准、一键 run_tests.ps1。部署四规则闭环见 deployment-log 2026-08-26 条目。
 
 ### 调试过程中抓获的 7 个真实缺陷
@@ -50,7 +52,11 @@ status: stable
 - **折叠降量**：kernel.log 100006→99313 行；hilog 200012→192412 行（合成包重复密度所限，真实日志预期一个数量级）
 - **FTS 基准**：P50=12.7ms / P95=348ms @ 29 万折叠行（500ms CI 闸 PASS）。⚠️ 设计目标 P95<100ms 是 **5M 行**口径——本基准仅验证机制，规模外推留真实包 M0 验收（[[lognet-rootcause-multiagent-architecture]] §九.3 假设 1）
 
+> [!note] 2026-09-13 复核回标：仓库内无任何基准/验收输出文件（仅 `tests/bench_fts_p95.py` 脚本本身），故 27/27、折叠降量、P50/P95、`causal_hint w=0.9048` 这些**运行结果均不可复核**；可核的只有 27 个 `def test_` 函数数。上方折叠降量条目里的「真实日志预期一个数量级」是纯外推，而本文档自记缺陷 #7（合成器折叠率恒 0）恰说明合成数据不具代表性，该外推不应被下游文档继承——建议把基准原始输出落盘入库，并把外推标注为假设 + 给出验证判据。
+
 ## 四、git 提交清单（正常节奏）
+
+> [!note] 2026-09-13 复核回标：下表共 **7 个**哈希（含 `c75d5f7`），均属**未推送的本地历史**——2026-09-12 从公开远端重新克隆后的仓库实为 94 个提交（最早 2026-06-29），逐条 `git cat-file` 探测均不存在，唯一命中的是 `f493130`。哈希保留作历史记录，后续复核请改用「文件路径 + 文档名」作锚点，而非 commit 号。
 
 | commit | 内容 |
 |--------|------|
@@ -101,7 +107,7 @@ status: stable
 
 
 
-## 五、未解决问题与风险登记
+## 七、未解决问题与风险登记
 
 1. **调研报告遗留待确认**：OpenCode org 归属（anomalyco vs sst）、skill allowed-tools 是否被执行、MCP 分隔符源码级确认；Pi 的 LiblibPi 名称、精确 star 数、MCP 官方一等支持——均需开放网络环境复核。
 2. **push 前脱敏**：`.claude/settings.local.json` 含本地代理地址（127.0.0.1:10808）；推公网仓库前须处理（AGENTS 五·五）。
@@ -112,3 +118,14 @@ status: stable
 ## Related
 
 [[SESSION-ARCHIVE-2026-08-25]] · [[参考-OpenCode-技术调研报告]] · [[参考-Pi-Agent-技术调研报告]] · [[lognet-rootcause-multiagent-architecture]] · [[opencode-pi-base-development-analysis]] · [[main-subagent-realtime-interaction]] · [[agent-memory-context-knowledge-design]] · [[agent-harness-anatomy]] · [[agent-evals-observability]] · [[Anthropic多智能体研究系统拆解]] · [[参考-COM组件框架-Windows集成]] · [[参考-CPP-CPO定制点与std-execution]] · [[Claude-Ops-KB-Home]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §三交付物记「commit `7a7ba14`，23 文件 +1690 行」 | 递归计数实为 22 个文件（2026-09-13 `Get-ChildItem -Recurse` 实测）；27 项 unittest 的 `def test_` 实测 27 个、与原记录一致；该 commit 属未推送本地历史，不可复核 |
+| 纠错 | §四 7 个 commit 哈希被当作可核事实 | 现仓库 94 个提交（最早 2026-06-29），逐条 `git cat-file` 均不存在（唯一命中 `f493130`）；保留哈希并标注「未推送本地历史」，复核锚点改用文件路径 + 文档名 |
+| 补疏漏 | §三验收数据（27/27、折叠降量、P50/P95、`w=0.9048`）无落盘证据链 | 仓库内无基准/验收输出文件，运行结果不可复核；「真实日志预期一个数量级」为纯外推，且自记缺陷 #7（合成器折叠率恒 0）说明合成数据不具代表性，需落盘原始输出并把外推标注为假设 |
+| 加厚 | 标题编号重复：第二个「## 五、未解决问题与风险登记」排在「## 六」之后 | 按复核建议重编号为「## 七、未解决问题与风险登记」，使编号单调递增（五·五 / 六 / 七）；正文内容未改动 |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]

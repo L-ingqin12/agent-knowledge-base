@@ -3,7 +3,7 @@ title: Hermes 飞书助手全面瘫痪事故复盘
 aliases: []
 tags: [ai/ops, incident]
 created: 2026-06-24
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 
@@ -65,6 +65,12 @@ N 个并发工具调用 × 3 次重试 × 15s 超时 → 数百个死连接
 ```
 
 ### 第 3 层: 连接表饱和 (临界点)
+
+> [!warning] 更正（2026-09-13）：本层是**推断**，未取到任何路由器侧计数（原表述把「conntrack/NAT 表饱和 → 新连接被丢弃」写成已定位根因）
+> 现有证据都是反推：全子网 22 端口 `Connection closed` + DNS 失败 + 重启即恢复；文中没有一处路由器观测数据。
+> 内核文档确认两个可读量：`nf_conntrack_count` 为 *INTEGER (read-only)*，`nf_conntrack_max` 为 *Maximum number of allowed connection tracking entries*（默认等于 `nf_conntrack_buckets`），另有 `nf_conntrack_tcp_timeout_time_wait` 默认 120 s（与原文「默认 120 s 量级」一致）。
+> 下次取证判据：路由器上 `cat /proc/sys/net/netfilter/nf_conntrack_count` 与 `nf_conntrack_max`（或 `conntrack -C`）、`dmesg | grep -i conntrack`；取不到就降级为**疑似**。
+> 来源：https://docs.kernel.org/networking/nf_conntrack-sysctl.html
 
 路由器 `[IP已脱敏]` 维护 conntrack/NAT 表, 跟踪所有内网→外网连接。连接堆积导致:
 
@@ -251,6 +257,10 @@ sudo sysctl -p /etc/sysctl.d/90-hermes-tcp.conf
 - `tcp_keepalive_time`: 7200s (2 小时) 才能发现死连接 → 120s (2 分钟)。代理 TLS 断后, 120s 后内核发送 keepalive 探测, 发现对端不可达, 关闭连接释放资源。
 - `tcp_fin_timeout`: FIN_WAIT2 状态的最大时间从 60s → 30s, 加速连接释放。
 
+> [!note] 补疏漏（2026-09-13）：基线数字正确，可补合计式
+> `ip-sysctl` / `man 7 tcp` 逐条确认原文的「原 7200s」「原 60s」：`tcp_keepalive_time` *Default: 2hours*、`tcp_keepalive_probes` 默认 9、`tcp_keepalive_intvl` 默认 75 sec、`tcp_fin_timeout` *Default: 60 seconds*（man 页另注 *the connection will be aborted after ~11 minutes of retries*）。改后最坏判死 ≈ `120 + 3×15 = 165 s`，加速释放有了可核对指标。
+> 来源：https://docs.kernel.org/networking/ip-sysctl.html ｜ https://man7.org/linux/man-pages/man7/tcp.7.html
+
 #### 3. DNS 静态绑定
 
 ```bash
@@ -258,6 +268,11 @@ echo "[IP已脱敏] open.feishu.cn" | sudo tee -a /etc/hosts
 ```
 
 **原理**: 飞书 WebSocket 连接需要解析 `open.feishu.cn`。将此主机名写入 `/etc/hosts` 绕过路由器 DNS, 即使路由器 DNS 挂掉也不影响飞书重连。⚠️ 飞书 IP 可能会变, 需定期 (每周) 更新。
+
+> [!warning] 补疏漏（2026-09-13）：hosts 定点钉住只是临时措施，缺独立于路由器的备用解析
+> 本次故障打断的是**整条解析路径**（§二第 4 层：路由器同时也是 DNS 服务器），钉一个域名覆盖不了其它解析需求。systemd 文档确认 `FallbackDNS=` 的语义：*A space-separated list of IPv4 and IPv6 addresses to use as the fallback DNS servers … If this option is not given, a compiled-in list of DNS servers is used instead*，且 `/etc/systemd/resolved.conf.d/` 可放 drop-in。
+> 应补：① 备用解析（`FallbackDNS=` 或 `/etc/resolv.conf` 多 `nameserver`）与 hosts 的取舍——hosts 定点、立即生效但不随 CDN 轮换，FallbackDNS 覆盖全量域名但依赖 resolver 配置；② 验收——断开路由器 DNS 后 `resolvectl query open.feishu.cn` 仍成功、飞书 WS 2 分钟内重连。
+> 来源：https://www.freedesktop.org/software/systemd/man/latest/resolved.conf.html
 
 #### 4. Feishu 白名单修复
 
@@ -294,6 +309,10 @@ sed -i 's/FEISHU_ALLOW_ALL_USERS=false/FEISHU_ALLOW_ALL_USERS=true/' \
 | P5 工具循环 | tool_call 堆积 | agent.log 中 tool/response 比率 |
 | P6 会话数 | 会话泄漏 | `ls /home/pi/.hermes/sessions/*.json | wc -l` |
 
+> [!warning] 补疏漏（2026-09-13）：P4 的第三路（API ping）在事故后并未真正启用
+> §九 第 6 条写「填写 `~/.hermes-guardian-secrets.sh` 以启用端到端飞书响应检测」——即 P4 表格里的「API ping」仍是待配置项。而 §3.2 的「假活」恰恰只有这一路能端到端发现（P1 看进程、P2 看本地健康、P3 看 GitHub 可达性，都不覆盖飞书链路）。
+> 应补：① 写清 P4 当前实际生效的子判据（哪几路真在跑）；② 未启用项与补齐步骤（secrets 文件最小内容与 `600` 权限）；③ 给「P4 通过」下定义——如 5 分钟窗口内 `inbound > 0` 且 `outbound/inbound` 达阈值，或 API ping 往返成功。
+
 **5 级恢复**:
 | 级别 | 触发条件 | 动作 |
 |:----:|------|------|
@@ -302,6 +321,10 @@ sed -i 's/FEISHU_ALLOW_ALL_USERS=false/FEISHU_ALLOW_ALL_USERS=true/' \
 | L3 | 单个探针 critical | 重启 gateway |
 | L4 | 多个 critical 或 L3 失败 | 清会话 + 重启 gateway + router |
 | L5 | 3+ 探针 critical | 全栈重启 (xray+router+gateway) + 通知 |
+
+> [!warning] 补疏漏（2026-09-13）：L5「全栈重启（含 router）」与 §八「物理重启是唯一恢复手段｜低（有了 guardian）」互相矛盾
+> 本次事故的结论是路由器 conntrack 满只能物理重启或断电；而 guardian 跑在 Pi 上，文档从未说明它用**什么通道**重启路由器（SSH / ubus / 智能插座）、**凭据从哪来**、失败如何降级。
+> 处置（二选一，并让 §八 那一行与之一致）：① 写出 L5 的可执行实现（通道 + 凭据来源 + 失败降级）；② 把 L5 明确降级为「通知人工介入」。任何「能自动恢复」的声明都要附一次演练证据。
 
 #### 7. 代理守护联动
 
@@ -445,6 +468,11 @@ with open('/home/pi/.hermes/config.yaml','w') as f: yaml.dump(cfg, f)
 | guardian 自身故障 | 低 | systemd Restart=on-failure |
 | 物理重启是唯一恢复手段 | 低 (有了 guardian) | guardian L5 全栈重启 |
 
+> [!warning] 补疏漏（2026-09-13）：已部署项全部作用于 Pi 侧，没有一项改到路由器 conntrack 表本身（原表述把该风险标为已被缓解）
+> §五 的 7 项已部署措施（重试降频、TCP 调优、hosts、白名单、排水时间、guardian、代理守护联动）**全部作用于 Pi 侧**（其中只有 TCP keepalive 一项是内核网络参数），而 conntrack 监控要到 §九 才列为「建议」——「重试已降 67%」只降低了压力，没有改变路由器侧的表容量。
+> 应补路由器侧的表容量与超时（`nf_conntrack_max`、`nf_conntrack_tcp_timeout_time_wait` 默认 120 s）与使用率阈值（如 `count/max > 70%` 告警），并注明需按固件实测哪些项可改。
+> 来源：https://docs.kernel.org/networking/nf_conntrack-sysctl.html
+
 ## 九、后续优化建议
 
 1. **路由器静态 DHCP**: 为 Pi MAC 地址绑定固定 IP, 防重启后 IP 变化
@@ -453,3 +481,18 @@ with open('/home/pi/.hermes/config.yaml','w') as f: yaml.dump(cfg, f)
 4. **代理 IPv6**: 如果 ISP 支持 IPv6, 在 Pi 上启用 IPv6 可解锁 23 个 IPv6 节点
 5. **双代理冗余**: 配置两个不同供应商的代理节点作为 fallback
 6. **飞书 API 心跳恢复**: 填写 `~/.hermes-guardian-secrets.sh` 启用端到端飞书响应检测
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §二 第 3 层把「conntrack/NAT 表饱和 → 新连接被丢弃」写成已定位根因 | 保留原表述并加更正：标为**推断**（全文无路由器侧观测），补 `nf_conntrack_count` / `nf_conntrack_max` / `tcp_timeout_time_wait` 默认 120 s 与 `dmesg` / `conntrack -C` 取证判据 |
+| 补疏漏 | §五 已部署 7 项全在 Pi 侧，§八 却把「conntrack 再饱和」标为已缓解 | 指出无一项作用于路由器 conntrack 表；补路由器侧容量 / 超时与 `count/max > 70%` 告警阈值（可改项需按固件实测） |
+| 加厚 | §五 第 2 项 keepalive 只有单值（数字本身经核对正确） | 补内核默认值（7200 s / 75 s / 9 probes / fin 60 s）与最坏判死合计式 `120 + 3×15 = 165 s` 及官方出处 |
+| 加厚 | §五 第 3 项 DNS 只有 `/etc/hosts` 钉一个域名 + 每周更新提示 | 补 `FallbackDNS=`（或 `/etc/resolv.conf` 多 `nameserver`）独立备用解析、与 hosts 的取舍、`resolvectl query` 成功 + WS 2 分钟内重连的验收 |
+| 纠错 | §五 L5「全栈重启（含 router）」与 §八「物理重启是唯一恢复手段」冲突 | 保留原表述并加更正：guardian 缺重启路由器的通道与凭据说明；要求补可执行实现或降级为人工通知，并让 §八 一致、附演练证据 |
+| 纠错 | §五 第 6 项 P4「WS + 日志 + API ping」与 §九 第 6 条「填写 secrets 以启用」互相矛盾 | 保留原表述并加更正：API ping 路未真正启用，而假活只有它能端到端发现；补当前生效子判据、secrets 权限步骤与「P4 通过」定义 |
+
+依据与索引：[[CORRECTIONS]] · [[AGENTS]]

@@ -3,7 +3,7 @@ title: v2rayN Balancer 生成 Bug 故障复盘
 aliases: [v2rayN balancer bug, Google 无法访问 2026-08-09, balancerTag 修复, outboundTag balancer]
 tags: [incident, network/proxy, network/analysis]
 created: 2026-08-09
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 # v2rayN Balancer 生成 Bug — Google 无法访问完整复盘
@@ -87,6 +87,10 @@ v2rayN 7.19.5 的 GUI 均衡组（多选服务器生成 balancer）产出的路�
 
 > [!warning] 机制
 > xray 路由分发器对 `outboundTag` **只在 outbounds 列表查找**，找不到 `balancer` 标签 → 该规则匹配到的所有流量（全部 google 域名）被**直接拒绝**。catch-all 规则用的是 `balancerTag`，所以其余境外流量正常。这与 [[ARCHITECTURE#决策-5-balancertag-而非-outboundtag]] 记录的机制一致 —— 但 v2rayN 自己生成时**也会犯同样的错**。
+
+> [!check] 已核验（2026-09-13）：根因与机制**完全成立**，无需改动。
+> 上游两处均已核对：① 路由文档确认「**balancerTag 和 outboundTag 须二选一。当同时指定时，outboundTag 生效**」；② Xray-core `default.go` 对查不到的 outTag 打印 `non existing outTag: ` 后 `Close`/`Interrupt`，源码注释明确**禁止回落默认出站**——这正是「命中该规则的域名全挂、其余正常」的原因。
+> 来源：<https://xtls.github.io/config/routing.html>、<https://raw.githubusercontent.com/XTLS/Xray-core/main/app/dispatcher/default.go>
 
 **为什么之前没发现**：此前 [[ARCHITECTURE]] 的增强脚本（Phase 4）只增量添加出站，不碰 v2rayN 原生路由；而本次在 GUI 里配置了均衡组，v2rayN 生成路由时把 bug 带进来了。
 
@@ -179,6 +183,11 @@ v2rayN 的 balancer 路由在多个版本间反复回归（[[ARCHITECTURE]] Phas
 - GitHub PR **#9727** — Revert "Fix"（修复被回退）
 - 最新版 7.24.6（2026-08-08）—— 未验证是否修复
 
+> [!warning] 更正（2026-09-13）：上列 #8849 **是 PR 不是 issue**；且「最新版 7.24.6」已过期、该版本身也是预发布（原表述保留于上）。
+> - **#8849 是 Pull Request**：API 返回 `title: "Fix balancer routing"`、`merged: true`、`merged_at 2026-02-27`，`html_url` 为 `.../pull/8849`。同页下文把 #9727 正确写成 PR，说明本可区分——请统一为「PR #8849」。
+> - **版本已漂移**：`7.24.6` 的 `prerelease=true`（published 2026-08-08），其 release body 为 Avalonia 12 / 内置下载器 MITM 安全修复 / HappyEyeballs 等，**确无 balancer 修复条目**；此后 `7.25.1`（published **2026-09-10**，同为预发布）成为最新，**仍未验证是否修复 balancer**。结论（不可依赖升级、watcher 兜底）不变。
+> 来源：<https://github.com/2dust/v2rayN/pull/8849>、<https://api.github.com/repos/2dust/v2rayN/releases/tags/7.24.6>、<https://api.github.com/repos/2dust/v2rayN/releases?per_page=5>
+
 > [!tip] 结论
 > 此功能版本间反复横跳，升级 v2rayN 不能依赖，watcher 是当前最稳妥的兜底。
 
@@ -210,3 +219,14 @@ v2rayN 的 balancer 路由在多个版本间反复回归（[[ARCHITECTURE]] Phas
 
 > [!note] 测试要点
 > Windows schannel 本地 CRL 检查被墙报 `CRYPT_E_REVOCATION_OFFLINE`，curl 测试一律加 `--ssl-no-revoke`。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 加厚 | 根因与机制章节原无上游来源 | 加「已核验」块：路由文档「二选一、同时指定 outboundTag 生效」+ Xray-core `default.go` 的 `non existing outTag` 分支（结论无需改动） |
+| 纠错 | 上游信息把 PR #8849 写成 issue | 保留原列表并加更正块：#8849 为 PR（merged 2026-02-27），与同页 #9727 的写法保持一致 |
+| 纠错 | 「最新版 7.24.6（2026-08-08）」已过期且未标注预发布 | 保留原句并加更正块：7.24.6 prerelease=true 且 release body 无 balancer 修复；最新为 7.25.1（2026-09-10，同为预发布），仍未验证是否修复 |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

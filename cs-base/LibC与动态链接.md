@@ -3,7 +3,7 @@ title: LibC与动态链接
 aliases: [musl, glibc, 链接加载]
 tags: [cs/toolchain, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: glibc/musl 官方文档与源码结构、System V ABI/gABI、LDS 论述共识；版本行为差异标待确认
 fetched_at: 2026-08-26
@@ -22,6 +22,7 @@ See also: [[CS-KB-Home]] · [[计算机组成原理]] · [[操作系统八股]] 
 |------|-----------|----------|
 | 授权 | LGPL(动态友好/静态有义务) | MIT(静态随意) |
 | 体量 | 大(几十 MB 级组件) | 极小(~MB)，静态链接友好 |
+| 库形态 | **2.34 起合并为单一 libc.so.6**：libpthread / libdl / libutil / libanl 的功能全部并入 libc，新程序不再需要 `-lpthread`/`-ldl`/`-lutil`/`-lanl`（为兼容仍提供**空的** .a 静态库；按 2.33 及更早链接的程序仍会加载这些现已为空的 .so，preload `libpthread.so.0` 时弱引用可能走意外路径） | 一直是单一 libc.so |
 | 线程 | NPTL | 自研 pthread 直映 Linux syscall |
 | malloc | ptmalloc(arena 多锁分区) | **mallocng**(1.2.1+) 换代：抗碎片优先、元数据紧凑；吞吐弱于 jemalloc 系 |
 | locale | 全量国际化数据库 | C/UTF-8 精简实现 |
@@ -75,12 +76,15 @@ $ objdump -d libdemo.so
 - `static`/`-fvisibility=hidden` 收敛导出面；`-Bsymbolic` 让库内引用自绑定(有副作用慎用)
 - rpath vs runpath：runpath 不传递给依赖的依赖(现代默认)；`$ORIGIN` 相对可执行定位
 - 版本符号(`GLIBC_2.x`)：二进制绑定编译期符号版本 → **新 glibc 编译的程序不能跑在旧 glibc**（向前不向后），容器镜像纠纷之王
+- **2.34+ 的常见案发形态**：用 glibc 2.34 之后构建、带 `GLIBC_2.34` 符号的二进制丢到 2.31/2.28 老镜像 → 直接 `version 'GLIBC_2.34' not found`——库合并后符号版本要求反而更容易撞上老基座
+
+> 来源：https://sourceware.org/pipermail/glibc-cvs/2021q3/073885.html
 
 ## 四、缓解措施链（链接期决定）
 
 | 缓解 | 链接/编译开关 | 作用 |
 |------|--------------|------|
-| PIE/ASLR | `-fPIE -pie` | 随机基址；需 RELATIVE 重定位 |
+| PIE/ASLR | `-fPIE -pie`（动态）/ `-static-pie`（静态：无需动态链接器即可加载到任意地址；需与 `-fpie`/`-fPIE` 同用才有可预期结果） | 随机基址；需 RELATIVE 重定位 |
 | RELRO | `-Wl,-z,relro,-z,now` | GOT 只读化 |
 | stack canary | `-fstack-protector-strong` | 栈溢出哨兵 |
 | CET/IBT | `-fcf-protection` | 间接分支白名单(硬件配合) |
@@ -89,8 +93,10 @@ $ objdump -d libdemo.so
 
 - ✅ 单文件分发、无依赖地狱、冷启动快(musl+Go/Rust 常客)
 - ⚠️ 真实代价清单：
-  ① C++ 异常+dlopen 在全静态下失效/受限；② 安全公告不再随系统 libc 更新兜底（镜像重建责任转移）；③ musl DNS 行为差异(§一)在 k8s 服务发现场景的经典故障；④ glibc 静态链接触发 NSS 告警与部分功能退化——官方不推荐
+  ① C++ 异常+dlopen 在全静态下失效/受限；② 安全公告不再随系统 libc 更新兜底（镜像重建责任转移）；③ musl DNS 行为差异(§一)在 k8s 服务发现场景的经典故障；④ glibc 静态链接触发 NSS 告警与部分功能退化——官方不推荐；⑤ **静态 PIE**(`-static-pie`)保住随机基址，代价是启动自重定位的固定开销，且工具链/glibc 组合的支持度需实测
 - 结论：**musl 静态配简单网络服务是甜点区；重型运行时(JVM/CUDA/复杂 PAM)留在 glibc 动态世界**
+
+> 来源：https://gcc.gnu.org/onlinedocs/gcc/Link-Options.html
 
 ## 六、malloc 实现对照（性能调优延伸）
 
@@ -104,7 +110,19 @@ $ objdump -d libdemo.so
 
 ## 七、待确认项
 
-> ① musl 1.2.4+ 时间64位化对 2038 问题覆盖面；② glibc csa/rtld 早加载优化(hurd 之外主线 rtld 共享缓存策略)演进；③ CUDA/JAX 各版本官方支持的最低 glibc 矩阵。
+> ① ~~musl 1.2.4+ 时间64位化对 2038 问题覆盖面~~ → 分界点是 **1.2.0**（不是 1.2.4）：musl 1.2.0 起所有架构的 `time_t` 与派生类型一律改为 64 位；主要风险不是覆盖面而是**混用新旧 time_t 的第三方库 ABI 错配**（time32↔time64 翻译）；② glibc csa/rtld 早加载优化(hurd 之外主线 rtld 共享缓存策略)演进；③ CUDA/JAX 各版本官方支持的最低 glibc 矩阵。
+
+> 来源：https://musl.libc.org/time64.html
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 补疏漏 | §一 双雄谱系未提 glibc 2.34 的库合并 | 表增"库形态"一行（2.34 起单一 libc.so.6、空的 .a 兼容库、旧链接程序仍加载空 .so），§三 补 `GLIBC_2.34` 符号在老镜像报 `version not found` 的案发形态；依据 [glibc NEWS（glibc-cvs 2021q3/073885）](https://sourceware.org/pipermail/glibc-cvs/2021q3/073885.html) |
+| 纠错 | §七① 把 musl time64 分界点写成 1.2.4 | 改为 **1.2.0** 并点出真实风险（新旧 time_t ABI 错配），保留原表述于删除线内；依据 [musl time64 说明](https://musl.libc.org/time64.html) |
+| 补疏漏 | §四 PIE 只写 `-fPIE -pie`，§五 静态链接账单未含静态 PIE | §四 拆成动态/静态两形态（`-static-pie` 需与 `-fpie`/`-fPIE` 同用），§五 账单增第⑤条（保住随机基址但需付启动自重定位与支持度实测成本）；依据 [GCC Link Options](https://gcc.gnu.org/onlinedocs/gcc/Link-Options.html) |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
 
 ## Related
 

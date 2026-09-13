@@ -3,7 +3,7 @@ title: Claude Code 无人值守 — 分析链路与推导方法论
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -300,4 +300,33 @@ claude-code-knowledge/
 └── claude-resilience-proxy.py                   # 方案实例 6（代码）
 ```
 
+> [!warning] 更正（2026-09-13）：仓库名与文件路径按库内真实结构更正
+> 上面的树把仓库名写成 `claude-code-knowledge/`（原表述），并把六个方案实例的文件名都挂在仓库根目录。实际仓库已改名 **agent-knowledge-base**，方案实例位于 `claude-ops/运维方案与设计/`，代理脚本在 `scripts/claude-ops-deployments/root-scripts/`；**方案实例共 6 个**。
+> 库内真实结构（按文件实际位置核对）：
+
+```
+agent-knowledge-base/
+├── README.md                                             # 索引
+├── claude-ops/运维方案与设计/
+│   ├── claude-unattended-methodology.md                  # 本文：推导链路与方法论
+│   ├── claude-unattended-operation-plan.md               # 方案实例 1
+│   ├── claude-unattended-cross-platform-guide.md         # 方案实例 2
+│   ├── claude-interruption-resilience-guide.md           # 方案实例 3
+│   ├── claude-context-continuity-guide.md                # 方案实例 4
+│   └── claude-socket-error-elimination-guide.md          # 方案实例 5
+└── scripts/claude-ops-deployments/root-scripts/
+    └── claude-resilience-proxy.py                        # 方案实例 6（代码）
+```
+
+> 改名依据：库内 `README.md` 标题为 `# agent-knowledge-base`、克隆地址为 `https://github.com/L-ingqin12/agent-knowledge-base.git`；旧地址 `https://github.com/L-ingqin12/claude-code-knowledge` 实测返回 **HTTP 301** 跳转到新地址。
+> 依据：https://github.com/L-ingqin12/agent-knowledge-base（核验于 2026-09-13）
+
 本文是所有方案实例的"元文档"——记录这些方案**为什么是这样，怎么推导出来的**。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §6 文档树把仓库名写成 `claude-code-knowledge`，并把方案实例文件名都挂在仓库根目录 | 保留原树并补更正块：仓库已改名 **agent-knowledge-base**，实例真实路径为 `claude-ops/运维方案与设计/…` 与 `scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py`；实例为 **6** 个（README 标题与克隆地址 + 旧地址 301 实测） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

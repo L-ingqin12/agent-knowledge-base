@@ -3,13 +3,13 @@ title: LoRA参数高效微调实战
 aliases: [LoRA微调, PEFT, 参数高效微调, Llama-Factory实战, QLoRA]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
 # LoRA参数高效微调实战
 
-一句话定位：用约 0.5% 的可训练参数把大模型调成"你的模型"——本笔记讲清 LoRA/QLoRA 原理、Llama-Factory 实战与训练监控四件套，覆盖课程第 33/36 章。
+一句话定位：用 0.01%~1% 量级的可训练参数把大模型调成"你的模型"——本笔记讲清 LoRA/QLoRA 原理、Llama-Factory 实战与训练监控四件套，覆盖课程第 33/36 章。
 
 > [!abstract] 摘要
 > 本文档回答三个问题：什么时候该微调而不是用 RAG（检索增强生成，Retrieval-Augmented Generation）？为什么全量微调（Full Fine-tuning）又贵又忘，LoRA 却便宜又稳？Llama-Factory 怎么从数据到出模型一条龙？内容包括：微调 vs RAG 决策表、全量微调 vs 参数高效微调（Parameter-Efficient Fine-Tuning, PEFT）对比、预训练并行策略回顾（DP/DDP/FSDP、TP/PP、ZeRO、3D 并行）、LoRA 低秩分解原理（ΔW = B·A）与 QLoRA 4bit 反量化机制，以及 peft 纯代码 Demo 和 Llama-Factory CLI 模板。原理图见 [[LoRA-Principle.excalidraw]]。
@@ -48,12 +48,16 @@ status: review
 
 | 维度 | 全量微调 | LoRA/QLoRA |
 |------|----------|------------|
-| 可训练参数 | 100% | ≈0.5%（仅 A、B 矩阵） |
+| 可训练参数 | 100% | 0.01%~1%（仅 A、B 矩阵；本文 Demo 实测 0.149%） |
 | 训练显存 | 65B 需多机多卡（16 字节/参数估算 ≈1TB） | LoRA 7B 单卡 24G；QLoRA 65B 单卡 48G（论文实测） |
 | 灾难性遗忘 | 严重，需回放数据缓解 | 轻（基座冻结，适配器可插拔） |
 | 存储成本 | 每个版本一份全量权重（70B≈140GB） | 每个版本几十 MB 适配器 |
 | 效果上限 | 理论上最高 | 多数业务任务可追平 |
 | 部署方式 | 直接换模型 | 可合并回基座（merge）或运行时挂载 |
+
+> [!warning] 更正（2026-09-13）：原表写「≈0.5%（仅 A、B 矩阵）」，与本文 Demo 自己的配置复算不符。按 Qwen2.5-0.5B 的 [config.json](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json)（hidden_size=896、24 层、num_key_value_heads=2，故 q_proj 896→896、k/v_proj 896→128）与 r=8、`target_modules=[q_proj,k_proj,v_proj]` 计算：每层 8×(896+896)+8×(896+128)+8×(896+128)=30720，24 层共 **737,280**，占 737280/494032768 = **0.1492%**，不是"0.5% 数量级"。论文侧旗舰口径更小——LoRA 论文原文「reduce the number of trainable parameters by 10,000 times」，配合「With r=4 and only the query and value projection matrices being adapted」（[arXiv:2106.09685](https://arxiv.org/abs/2106.09685)）约 0.01%。所以正确表述是**带条件**的「0.01%（旗舰配置）~ 1%（大 r、挂满全线性层）」，不存在一个固定的 0.5%。（原表述为「≈0.5%（仅 A、B 矩阵）」与「用约 0.5% 的可训练参数」；原理图 `LoRA-Principle.excalidraw` 图内标注的"可训参数 ≈0.5%"同样过时，待重绘时一并更新。）
+
+> [!warning] 更正（2026-09-13）：「灾难性遗忘轻」与「多数业务任务可追平」是一对交换关系，不能同时无条件成立。① Biderman et al.《LoRA Learns Less and Forgets Less》实测：标准低秩设置下「LoRA substantially underperforms full finetuning」，但「LoRA better maintains the base model's performance on tasks outside the target domain」（[arXiv:2405.09673](https://arxiv.org/abs/2405.09673)）；② QLoRA 论文原文「Using LoRA on all transformer layers is critical to match 16-bit performance」「LoRA on all linear transformer block layers are required to match full finetuning performance」——只挂 q/k/v 时论文自己也不认账（[arXiv:2305.14314v1](https://arxiv.org/html/2305.14314v1)）；③ LoRA 论文的 on-par 证据限定在「on RoBERTa, DeBERTa, GPT-2, and GPT-3」。**追平前提：全线性层 + 足够 r + 目标域接近预训练分布。**（原表述为「灾难性遗忘：轻（基座冻结，适配器可插拔）」与「效果上限：多数业务任务可追平」。）
 
 ### 预训练并行策略速查
 
@@ -86,7 +90,7 @@ status: review
 - 初始化：A 用高斯随机，B 用全零 → 训练开始时 ΔW=0，模型行为与基座完全一致；
 - 推理可合并：`W = W0 + (α/r)·B·A`，合并后前向零额外开销。
 
-为什么 0.5% 的参数就够？预训练已经把模型"举到了山顶"，微调只是朝业务方向推一小步，这个"增量 ΔW"天然是低秩的——两个小矩阵就能表达。`r` 是容量旋钮：r=4~8 够改风格格式，r=32~64 留给高难度领域任务；`α` 通常取 r 的 1~2 倍，`α/r` 实际是"学习率放大倍数"。
+为什么这么少的参数就够？预训练已经把模型"举到了山顶"，微调只是朝业务方向推一小步，这个"增量 ΔW"天然是低秩的——两个小矩阵就能表达。`r` 是容量旋钮：r=4~8 够改风格格式，r=32~64 留给高难度领域任务；`α` 通常取 r 的 1~2 倍，`α/r` 实际是"学习率放大倍数"。
 
 ### QLoRA：把基座压进 4bit
 
@@ -141,7 +145,7 @@ model = AutoModelForCausalLM.from_pretrained(
     model_name, torch_dtype="auto", device_map="auto",
 )
 model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()   # 期望输出：trainable ≈ 0.5% 数量级
+model.print_trainable_parameters()   # 实测输出：trainable params: 737,280 || all params: 494,032,768 || trainable%: 0.1493（旧注"≈0.5%"有误，见上文更正）
 
 # ④ 极简数据集：3 条"风格改写"样本（真实场景放几千条）
 samples = [
@@ -157,6 +161,7 @@ def tokenize(examples):
 dataset = dataset.map(tokenize, remove_columns=["text"])
 
 # ⑤ Trainer 简化训练循环（3 个 epoch，小学习率）
+split = dataset.train_test_split(test_size=1, seed=42)   # 留 1 条做 holdout：同模板、不参与训练
 training_args = TrainingArguments(
     output_dir="./lora_output",       # 适配器保存位置
     per_device_train_batch_size=2,    # 单卡 batch
@@ -164,12 +169,17 @@ training_args = TrainingArguments(
     learning_rate=1e-4,               # LoRA 学习率，比全量微调大一个数量级
     num_train_epochs=3,
     logging_steps=1,
+    eval_strategy="steps",            # 关键：默认值是 "no"，不显式打开就永远没有 eval_loss
+    eval_steps=2,                     # 真实数据量下常用 10；此处样本太少，取 2 才触发得到
+    max_grad_norm=1.0,                # 梯度裁剪，压住 grad_norm 突刺
+    report_to="tensorboard",          # 四件套可视化（需 pip install tensorboard；不想用可写 "none"）
     save_strategy="no",               # 演示用不存 checkpoint
 )
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=dataset,
+    train_dataset=split["train"],
+    eval_dataset=split["test"],       # 必须同时有 eval_dataset + eval_strategy 才会算 eval_loss
     data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
 )
 trainer.train()                        # 开始训练（监控 loss 应平滑下降）
@@ -180,17 +190,32 @@ model.save_pretrained("./lora_adapter")
 # model.save_pretrained("./merged_model")
 ```
 
+> [!warning] 更正（2026-09-13）：原 Demo 的 TrainingArguments 只有 `logging_steps=1` 与 `save_strategy="no"`，没有 `eval_dataset` / `eval_strategy` / `report_to`，而 HF 官方文档写明 `eval_strategy` 的默认值是 `"no"`（原文 "Options: 「no」: No evaluation during training"，[TrainingArguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer)）——**原写法下 `eval_loss` 根本不会被计算**，「监控指标四件套」实际只有三件有数据来源。上面已补上 `eval_dataset`（同模板、不参与训练的 holdout）与 `eval_strategy` / `eval_steps` / `max_grad_norm` / `report_to`。（原表述为「logging_steps=1」「save_strategy="no"」这一组配置。）
+
+训练日志形态如下（**示意**，字段名取自 HF Trainer 的输出格式；本文没有在本机 GPU 复跑，数值仅供形态对照）：
+
+```text
+{'loss': 2.4183, 'grad_norm': 3.12, 'learning_rate': 5e-05, 'epoch': 0.5}
+{'loss': 2.1077, 'grad_norm': 2.48, 'learning_rate': 1e-04, 'epoch': 1.0}
+{'eval_loss': 1.9865, 'eval_runtime': 0.42, 'eval_samples_per_second': 2.38, 'epoch': 1.0}
+```
+
+> [!tip] 验收判据
+> ① train_loss 与 eval_loss 同向下降（eval 掉头向上 = 过拟合拐点，早停或加 dropout / 减 r）；② grad_norm 稳定在个位数、无 100+ 突刺；③ learning_rate 曲线含 warmup 爬坡段。「监控指标四件套解读」表到这一步，四条才都有数据来源。
+
 ### Demo 2：Llama-Factory CLI 命令模板
 
 ```bash
 # 安装：git clone https://github.com/hiyouga/LLaMA-Factory && pip install -e ".[torch]"
 # WebUI 模式：llamafactory-cli webui   → 浏览器打开 http://localhost:7860
 # CLI 模式：一条命令跑训练
-llamafactory-cli train examples/train_lora/qwen2_5_lora_sft.yaml
+llamafactory-cli train examples/train_lora/qwen3_lora_sft.yaml   # 仓库现存示例；qwen2_5_lora_sft.yaml 已移除
 ```
 
+> [!warning] 更正（2026-09-13）：原命令引用的 `examples/train_lora/qwen2_5_lora_sft.yaml` 已不存在——raw 直链实测 404，v0.9.5 全量文件清单（538 个文件）中 `examples/train_lora/` 下只有 11 个 `qwen3_*` / `qwen3vl_*` 示例。上面已换成实测可下载的 [qwen3_lora_sft.yaml](https://raw.githubusercontent.com/hiyouga/LLaMA-Factory/main/examples/train_lora/qwen3_lora_sft.yaml)；也可把下方内联 YAML 存成 `my_lora_sft.yaml` 后直接 `llamafactory-cli train my_lora_sft.yaml`。（原表述为 `llamafactory-cli train examples/train_lora/qwen2_5_lora_sft.yaml`。）
+
 ```yaml
-# examples/train_lora/qwen2_5_lora_sft.yaml —— 关键字段注释
+# my_lora_sft.yaml —— 关键字段注释（字段与仓库现存的 examples/train_lora/qwen3_lora_sft.yaml 同构）
 model_name_or_path: Qwen/Qwen2.5-7B-Instruct   # 基座模型
 stage: sft                                     # 训练阶段：sft 监督微调
 do_train: true
@@ -254,14 +279,18 @@ DeepSpeed 是微软开源的训练加速框架，核心卖点是 ZeRO 三级显�
 
 | 级别 | 分片内容 | 显存节省（数据并行度 Nd） | 通信代价 |
 |------|----------|--------------------------|----------|
-| ZeRO-1 | 优化器状态（12Ψ 按卡切分） | 16Ψ → 4Ψ+12Ψ/Nd，Nd 较大时**趋近 4×**（论文在 400B 模型实测） | 低（仅原有 All-Reduce 换成 Reduce-Scatter+All-Gather） |
-| ZeRO-2 | 优化器状态 + 梯度 | 8Ψ+12Ψ/Nd，趋近 **8×**（400B 实测口径） | 中（梯度 Reduce-Scatter，反向结束即释放） |
+| ZeRO-1 | 优化器状态（12Ψ 按卡切分） | 16Ψ → 4Ψ+12Ψ/Nd，Nd 较大时**趋近 4×**（论文显存分析口径） | 低（与标准 DP 通信量相同） |
+| ZeRO-2 | 优化器状态 + 梯度 | 8Ψ+12Ψ/Nd，趋近 **8×**（同为显存分析口径，非实测） | 低（论文口径：与标准 DP 通信量相同） |
 | ZeRO-3 | 优化器状态 + 梯度 + 参数 | **严格随 Nd 线性**：16Ψ/Nd（64 卡可训万亿参数模型的理论依据） | 高（前向+反向各需一次参数 All-Gather，通信量约 ↑50%） |
 
-> [!tip] 记忆口诀
-> ZeRO 三级 = 依次把「优化器状态 / 梯度 / 参数」从"每卡全量"变成"每卡切片"，省的倍数分别对应 4×、8×、线性——数字来自论文摘要对 400B 模型的测算（[arXiv:1910.02054](https://arxiv.org/abs/1910.02054)），不是随手估计。
+> [!warning] 更正（2026-09-13）：原表把「4× / 8×」记成「论文在 400B 模型实测」/「400B 实测口径」，并把 ZeRO-2 的通信代价标为「中」。核对原文：① **400 是 GPU 数量，不是 400B 参数模型**——ZeRO 论文摘要写「it trains large models of over 100B parameter with super-linear speedup on 400 GPUs, achieving throughput of 15 Petaflops」，全文 Figure 2 段落写「ZeRO runs 100B parameter models on a 400 Nvidia V100 GPU cluster」与「170B parameter models」（[arXiv:1910.02054](https://arxiv.org/abs/1910.02054)）；② 4× / 8× 出自论文的 ZeRO-DP 显存分析原句：「1) Optimizer State Partitioning (P_os): 4x memory reduction, same communication volume as DP; 2) Add Gradient Partitioning (P_os+g): 8x memory reduction, same communication volume as DP; 3) Add Parameter Partitioning (P_os+g+p): Memory reduction is linear with DP degree Nd ... splitting across 64 GPUs will yield a 64x memory reduction」——即 **ZeRO-1 与 ZeRO-2 的通信量与标准 DP 相同**，只有 ZeRO-3 才有「a modest 50% increase in communication volume」；③ DeepSpeed 官方 zero.md 对三级的定义也只是 Stage1 分片优化器状态、Stage2 再分片 16-bit 梯度、Stage3 再分片参数，并不支持「ZeRO-2 通信开销更高」的排序（[zero.md](https://raw.githubusercontent.com/microsoft/DeepSpeed/master/docs/_tutorials/zero.md)）。（原表述为「（论文在 400B 模型实测）」「（400B 实测口径）」与 ZeRO-2 的「中（梯度 Reduce-Scatter，反向结束即释放）」。）
 
-Llama-Factory 中只需在 YAML 打开 `deepspeed:` 一行即可接入；QLoRA + ZeRO 是"低显存双保险"，但注意 **QLoRA 慎配 ZeRO-3 参数分片**——4bit 权重分片会引入额外反量化通信，反而变慢，官方建议 QLoRA 用 ZeRO-2 或不接入。
+> [!tip] 记忆口诀
+> ZeRO 三级 = 依次把「优化器状态 / 梯度 / 参数」从"每卡全量"变成"每卡切片"，省的倍数分别对应 4×、8×、线性——数字来自论文的显存分析（不是实测）；论文的**实测**口径是 100B/170B 参数模型跑在 400 块 V100 上（[arXiv:1910.02054](https://arxiv.org/abs/1910.02054)），不是随手估计。
+
+Llama-Factory 中只需在 YAML 打开 `deepspeed:` 一行即可接入；QLoRA + ZeRO 是"低显存双保险"，但注意 **QLoRA 慎配 ZeRO-3 参数分片**——4bit 权重分片会引入额外反量化通信，可能反而变慢，**具体以本机实测吞吐与显存为准**，别照搬口号（原句写的"官方建议 QLoRA 用 ZeRO-2 或不接入"查无出处，见下）。
+
+> [!warning] 更正（2026-09-13）：原句「官方建议 QLoRA 用 ZeRO-2 或不接入」中的"官方建议"无据——QLoRA 论文全文检索 "ZeRO" 命中 0 次（其 Paged Optimizer 是为显存尖峰设计的，与 ZeRO 分片没有论文级结论；[arXiv:2305.14314v1](https://arxiv.org/html/2305.14314v1)），HF Accelerate 的 DeepSpeed 文档也没有这类表述。原文的因果（4bit 分片引入反量化通信）是合理推断，但必须自测；可核验的官方口径在 ZeRO-3 一侧——上 ZeRO-3 要确认 `zero3_init_flag` 与 `device_map` 的配置。（原表述为「官方建议 QLoRA 用 ZeRO-2 或不接入」。）
 
 ### 监控指标四件套解读
 
@@ -308,4 +337,21 @@ Llama-Factory 中只需在 YAML 打开 `deepspeed:` 一行即可接入；QLoRA +
 - [LLaMA-Factory data/README_zh.md](https://github.com/hiyouga/LLaMA-Factory/blob/main/data/README_zh.md)：`dataset_info.json` 注册格式（`columns` 的 `prompt/query/response` 映射）
 - [LLaMA-Factory 数据处理官方文档](https://llamafactory.readthedocs.io/zh-cn/latest/getting_started/data_preparation.html)：数据集准备与注册流程
 - [Fine-tuning LLMs on Kaggle Notebooks（HuggingFace 博客）](https://huggingface.co/blog/lmassaron/fine-tuning-llms-on-kaggle-notebooks)：peft `LoraConfig` 的 `target_modules` 实战取值
-- [DeepSpeed ZeRO 论文（arXiv:1910.02054）](https://arxiv.org/abs/1910.02054)：ZeRO 三级显存分片机制；正文"约 4×/8×"为论文对 400B 模型的实测口径，ZeRO-3 为随数据并行度 Nd 线性省显存
+- [DeepSpeed ZeRO 论文（arXiv:1910.02054）](https://arxiv.org/abs/1910.02054)：ZeRO 三级显存分片机制；正文"4×/8×"出自论文的 ZeRO-DP 显存分析（P_os=4×、P_os+g=8×，两者通信量与标准 DP 相同），ZeRO-3 为随数据并行度 Nd 线性省显存且通信量约 +50%；论文实测口径是 100B/170B 参数模型跑在 400 块 V100 上，**不是**"400B 模型实测"
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 定位句 / 对比表 / Demo 注释写「≈0.5% 可训练参数」 | 按 Qwen2.5-0.5B config 与 r=8、target_modules=[q,k,v] 复算为 **0.1492%**，全文改为条件表述「0.01%~1%」；Demo 注释换成真实输出 `737,280 / 494,032,768` |
+| 纠错 | ZeRO 的「4×/8×」被写成「论文在 400B 模型实测」 | 400 是 **GPU 数量**；4×/8× 出自论文 ZeRO-DP 显存分析，实测口径是 100B/170B 参数模型 + 400×V100 |
+| 纠错 | ZeRO-2 通信代价标为「中」 | 论文对 P_os 与 P_os+g 都写 "same communication volume as DP"，统一改为「低（与标准 DP 相同）」，仅 ZeRO-3 标「约 +50%」 |
+| 纠错 | Llama-Factory 命令引用 `examples/train_lora/qwen2_5_lora_sft.yaml` | 该文件已从上游移除（raw 实测 404；v0.9.5 清单只剩 `qwen3_*`/`qwen3vl_*`），换为实测可下载的 `qwen3_lora_sft.yaml`，并给出内联 YAML 落盘直训的用法 |
+| 纠错 | 「官方建议 QLoRA 用 ZeRO-2 或不接入」 | 查无出处（QLoRA 全文检索 "ZeRO" 命中 0 次，Accelerate 文档亦无该表述），删去"官方建议"，改为以本机实测吞吐/显存为准 |
+| 补疏漏 | Demo 无 `eval_dataset`/`eval_strategy`/`report_to` → `eval_loss` 永不产生，「监控四件套」只有三件有数据来源 | 补 `eval_dataset`（同模板 holdout）+ `eval_strategy`/`eval_steps`/`max_grad_norm`/`report_to`，附日志格式示意与三条验收判据；依据 HF TrainingArguments 文档（`eval_strategy` 默认 `"no"`） |
+| 补疏漏 | 「灾难性遗忘轻 + 多数业务任务可追平」为无条件表述 | 补三条边界与「追平前提：全线性层 + 足够 r + 目标域接近预训练分布」；依据 arXiv:2405.09673、arXiv:2305.14314、arXiv:2106.09685 |
+
+> [!warning] 仍待人工确认
+> ① 原理图 `LoRA-Principle.excalidraw` 图内仍标注「可训参数 ≈0.5%」，需重绘（本次只改文字，未动图文件）；② 上面那段 Trainer 日志是**格式示意**，本机无 GPU 未复跑，正式定稿前建议在 24G 显卡上跑一次 Demo 1 换成真实日志。
+
+关联：[[CORRECTIONS]] · [[AGENTS]]

@@ -3,9 +3,9 @@ title: VPN 代理诊断与优化参考
 aliases: [VPN诊断, 代理优化]
 tags: [reference/vpn, reference, network/proxy]
 created: 2026-07-22
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
-source_urls: [https://github.com/gfpcom/free-proxy-list, https://github.com/nikita29a/FreeProxyList, https://github.com/rtwo2/FastNodes]
+source_urls: [https://github.com/gfpcom/free-proxy-list, https://github.com/nikita29a/FreeProxyList, https://github.com/rtwo2/FastNodes, https://xtls.github.io/config/observatory.html]
 ---
 
 # VPN 代理诊断与优化 — 知识参考
@@ -91,6 +91,9 @@ GnuTLS recv error (-9): Error decoding the received TLS packet
 
 REALITY 协议的 TLS 隧道在某些网络条件下会丢包或 TLS 记录损坏，导致 GnuTLS 解码失败。这是 VLESS+REALITY 协议的已知问题——当中间网络（ISP/GFW）对 TLS 流量进行干扰时，REALITY 无法完全隐藏流量特征。
 
+> [!warning] 更正（2026-09-13）：把该现象称为「VLESS+REALITY 协议的**已知问题**」是**把现象当结论**（原表述保留于上）。
+> `GnuTLS recv error (-9): Error decoding the received TLS packet` 只能说明**收到的字节不是合法 TLS 记录**，可能的成因至少有三类：① 中间设备干扰/篡改；② 服务端配置或证书链与 SNI 不匹配；③ 客户端与服务端参数（fingerprint/公钥/shortId）不一致。**GnuTLS 报错本身无法区分这三者**，因此不能推出「协议已知问题」。补一个可判别的实验：同一配置分别对**直连**与**经代理**、以及**换一个目标站点**发起 `openssl s_client -connect <host>:<port> -servername <sni>`，若仅特定网络路径复现则为链路干扰，若各路径均复现则优先查服务端配置/参数一致性。
+
 ---
 
 ## 三、优化措施
@@ -171,6 +174,9 @@ primary (socks5h://127.0.0.1:10808)
   "pingConfig": {"interval": "5m", "sampling": 3, "timeout": "10s"}
 }
 
+> [!warning] 补疏漏（2026-09-13）：`interval 5m / sampling 3 / timeout 10s` 这组值**缺灵敏度与代价说明**，且上文 §一 表格把它读成「健康检查 = 5min 间隔, 3 次采样」，容易漏掉 `timeout`（原表格未含 timeout；`timeout: 10s` 只出现在本段 `pingConfig` 一行）。
+> 上游 observatory 文档给出的边界：节点持续探测失败后，**最快 1 个探测周期、最慢 2 个周期**才会被标记为故障；从故障恢复需一次成功探测，**最慢 1 个周期**。文档同时提示 **`interval` 过小 / `sampling` 过大反而使探测特征更明显**（不利于伪装）。因此这组值属「灵敏 ↔ 隐蔽」取舍：调快会缩短故障发现时间，但增加被识别风险。来源：<https://xtls.github.io/config/observatory.html>
+
 // leastPing 策略自动选择延迟最低的存活出站
 "balancers": [{
   "tag": "proxy-pool",
@@ -187,6 +193,9 @@ primary (socks5h://127.0.0.1:10808)
 | [gfpcom/free-proxy-list](https://github.com/gfpcom/free-proxy-list) | 每 30 分钟 | ~95,000 VLESS |
 | [nikita29a/FreeProxyList](https://github.com/nikita29a/FreeProxyList) | 每 10 分钟 | 多协议 |
 | [rtwo2/FastNodes](https://github.com/rtwo2/FastNodes) | 定期 | 按地区/协议分类 |
+
+> [!warning] 更正（2026-09-13）：上表「~95,000 VLESS」**无来源**（原表述保留于上）。
+> 复核 gfpcom 仓库元数据：描述原文为「🔄 Updated Every 30 Minutes⏰」——**「每 30 分钟」属实**，但**仓库描述与页面上都没有 95,000 这个数字**。另两行的频率口径（nikita29a 每 10 分钟、rtwo2 定期）本次未逐条抓取复核。引用条数时应改为「以仓库当日实际清单为准」，不要沿用 95,000。来源：<https://api.github.com/repos/gfpcom/free-proxy-list>
 
 注意：免费代理速度波动大，需要定期测试筛选。
 
@@ -234,3 +243,14 @@ git-retry fetch --all
 - [[AGENTS]] — AI 协作规范
 - [[Network-KB-Home]] — 网络知识库
 - [[参考-网络路由与代理排障]] — 路由排障
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 把 `GnuTLS recv error (-9)` 直接判为「VLESS+REALITY 协议的已知问题」 | 保留原句并加更正块：该报错只说明收到的不是合法 TLS 记录，给出三类成因与 `openssl s_client` 判别实验 |
+| 补疏漏 | `burstObservatory 5m/3/timeout 10s` 缺灵敏度与代价说明，且 §一 表格漏了 timeout | 加注：1~2 探测周期故障判定语义、`interval` 过小反而更易被识别（Xray observatory 文档）；并说明 timeout 只出现在 `pingConfig` 一行 |
+| 纠错 | 免费 VLESS 来源表「~95,000 VLESS」无来源 | 保留原句并加更正块：gfpcom「每 30 分钟」属实，但 95,000 在仓库元数据中查无；另两行频率本次未复核 |
+
+相关：[[CORRECTIONS]]
+

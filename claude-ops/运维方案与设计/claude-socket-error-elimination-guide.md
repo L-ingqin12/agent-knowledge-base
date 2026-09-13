@@ -3,7 +3,7 @@ title: Socket 错误根源分析与消除方案
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -115,6 +115,10 @@ sysctl -w net.ipv4.tcp_keepalive_probes=3
 之后: 连接空闲 60s → 应用层 keepalive 探测（setKeepAlive）→ NAT 收到包刷新超时 → 连接保持
      如果探测无响应 → 10s后重试 → 3次失败 → 内核关闭 socket → Node.js 立即感知
 ```
+
+> [!warning] 更正（2026-09-13）：探测间隔必须**严格小于**最小空闲超时。上面的 60000ms（60s）大于 §1.1 实测的 ~40s 运营商 NAT 空闲超时，连接在第 40s 就已被回收，60s 的探测包发不出去，达不到「刷新 NAT 超时、保持连接」的效果（原表述为「之后: 连接空闲 60s → 应用层 keepalive 探测（setKeepAlive）→ NAT 收到包刷新超时 → 连接保持」）。建议改为 20-30s，例如 `socket.setKeepAlive(true, 20000)`。
+> 同一 60s 口径还出现在 §2.3 / §4.2 / §六 的内核 sysctl 块（`tcp_keepalive_time=60`）与参考实现 `claude-resilience-proxy.py:190-191` 的 `TCP_KEEPIDLE=60`；若维持 ~40s 的前提，这些值同样都应低于 40s。现行部署 `claude-resilience-proxy.js:119` 也是 `sock.setKeepAlive(true, 60000)`，需同步修改。
+> §3.2 内嵌实现的注释「每 45s 发一次心跳，低于 NAT 的 60s 超时」与 §1.1 的 ~40s 是同一处冲突（45s > 40s），一并按 40s 口径订正。
 
 **但这还不够** —— 内核 keepalive 只对 socket 层面生效。Node.js 如果用新连接（keepAlive=false），每个请求都是独立 socket，keepalive 帮不到"正在用的连接"。
 
@@ -419,6 +423,13 @@ if __name__ == '__main__':
         server.shutdown()
 ```
 
+> [!warning] 更正（2026-09-13）：本节的 Python 实现是**历史参考实现**（库内 `scripts/claude-ops-deployments/root-scripts/claude-resilience-proxy.py`），不是现行部署。现行部署是 Node 版 `/root/claude-resilience-proxy.js`（`claude-resilience-deploy.sh` 以 `node` 启动），两者能力并不相同：
+> - **心跳不是保活**：`select.select([], [self._conn], [self._conn], 0)`（`.py:219`）的写集合只反映**本地发送缓冲是否可写**，不发送任何字节，因此不会刷新 NAT/中间设备的空闲计时；它至多能在本地判定连接已不可用时把它关掉。要真正保活需主动发数据（HTTP/1.1 keep-alive 连接上的空行/HEAD，或 HTTP/2 PING）。（原表述为「定期发送心跳保持连接活跃」「发送一个无害的字节序列来刷新连接」「最简单：检查连接是否还活着」）
+> - **现行 .js 没有心跳**：只有 `server.on('connection', sock => sock.setKeepAlive(true, 60000))` 这一处 socket 级 keepalive，且间隔同为 60s（见 §2.1 更正）。
+> - **重试预算不同**：现行 `.js` 默认 `PROXY_RETRIES=1`、`PROXY_BACKOFF_MS=1000`、单请求超时 90000ms（`.js:20-21/31`），与本节的「3 次 / 1-3-8s」不一致，§4.3 已就地订正。
+> 归属与实现依据：`claude-resilience-deploy.sh:6/21`（以 `node` 启动 `.js`）、`claude-resilience-proxy.py:219`、`claude-resilience-proxy.js:119`（核验于 2026-09-13）。
+> 心跳语义依据：https://docs.python.org/3/library/select.html（`select` 的 write 集合只反映本地发送缓冲可写性，核验于 2026-09-13）。
+
 ---
 
 ## 四、整合方案：Socket 错误防御栈
@@ -500,7 +511,7 @@ fi
 echo "[3/3] Claude exited. Proxy still running (PID $PROXY_PID)."
 ```
 
-### 4.3 效果矩阵
+### 4.3 效果矩阵（设计假设，未验证）
 
 | 断连场景 | 之前 | 之后 |
 |----------|------|------|
@@ -512,6 +523,13 @@ echo "[3/3] Claude exited. Proxy still running (PID $PROXY_PID)."
 | 服务器返回 5xx | ❌ 可能被解读为 socket 错误 | ✅ 代理区分协议错误和网络错误，前者透传 |
 | 代理 3 次重试后仍失败 | — | ❌ 返回 502 + 保存上下文 → 守护脚本检测 → 自动恢复 |
 
+> [!warning] 更正（2026-09-13）：上表「之后」列是**设计假设，未验证**（原文以逐行「✅ …」的确定语气给出），其中至少四处与实现或现行链路不符：
+> - 「Keepalive 每 60s 刷新 NAT」：60s 大于 §1.1 的 ~40s NAT 空闲超时，见 §2.1 更正。
+> - 「重试(最长 1+3+8=12s 恢复)」：参考实现 `.py` 的退避表是 `[1.0, 3.0, 8.0]`，但循环在 `attempt == MAX_RETRIES - 1`（第 3 次）时先 `break`（`.py:399`），实际只等待 1s+3s=**4s**，8s 从不执行；现行 `.js` 默认只重试 **1** 次、间隔 1000ms（`.js:20-21`）。所谓「代理 3 次重试」在现行部署里是 1 次。
+> - 末行「守护脚本检测 → 自动恢复」：库内 `claude-network-guardian.sh` / `claude-full-guardian.sh`（本文写作 claude-guardian.sh）均已标注「⚠️ 归档」，[[claude-network-resilience-v2]] 亦判定守护脚本「不需要」；502 之后需要人工保存状态再恢复。
+> - 「代理心跳保持活跃」「代理检测死连接」同 §3.2 更正：现行 `.js` 没有应用层心跳。
+> 依据（内部）：`claude-resilience-proxy.py:399-403`、`claude-resilience-proxy.js:20-21`、`claude-network-guardian.sh:3-4`（核验于 2026-09-13）。
+
 ### 4.4 开销分析
 
 ```
@@ -522,6 +540,10 @@ echo "[3/3] Claude exited. Proxy still running (PID $PROXY_PID)."
 
 总体: 零性能损失，连接建立反而更快
 ```
+
+> [!warning] 更正（2026-09-13）：本条前提不成立。「连接池复用，跳过 TLS 握手」所依据的连接池在参考实现 `.py` 里是**死代码**——`ConnectionPool.get_connection()`（`.py:172`）全文没有调用点，请求路径每次新建连接（`urllib.request.urlopen`，`.py:357`），连接池只在失败时被 `_pool.invalidate()`（`.py:405`）触碰；**现行部署的 `.js` 根本没有连接池**。因此 ~1.1s 的连接建立收益只有在连接池被真正接入后才成立，当前应记为 0。（原表述为「连接建立: 节省 ~1.1s (连接池复用，跳过 TLS 握手)」「总体: 零性能损失，连接建立反而更快」）
+> 同一问题的上游表述：§3.1 流程图「连接池 + keepalive + 心跳」、§4.1 与 §七 的「Connection pool + heartbeat: 45s」，均应按「无连接池、无应用层心跳」订正。
+> 另：「代理内存: ~20MB (Python 进程)」指历史参考实现；现行 Node 代理的内存占用未记录，采集方式见 `ps -o rss= -p <proxy_pid>`。
 
 ---
 
@@ -540,6 +562,10 @@ export NODE_OPTIONS="--http-parser=legacy"
 # 或
 export UV_THREADPOOL_SIZE=4
 ```
+
+> [!warning] 更正（2026-09-13）：`--http-parser=legacy` 已不在 Node 的 CLI 文档中（现行只保留 `--insecure-http-parser`）；本机 Node v18.16.1 实测 `node --help` 无该开关、经 `NODE_OPTIONS` 传入时被静默忽略，既不会切换解析器，也不会强制 HTTP/1.1（原表述为「尝试通过环境变量强制 HTTP/1.1 … export NODE_OPTIONS="--http-parser=legacy"」）。`UV_THREADPOOL_SIZE=4` 只调整 libuv 线程池大小，与 HTTP 协议版本、连接复用无关，同样达不到目的。
+> 可核验的替代：① 代理层收口（本文 §三 / §四 方案，唯一可控且可观测）；② 若必须在客户端侧控制协议版本、超时与连接复用，需在 SDK/Agent 层显式配置，Node 没有对应的环境变量开关。
+> 依据：https://nodejs.org/api/cli.html（核验于 2026-09-13）
 
 这种方式不可靠，因为无法保证 Claude Code 的 fetch 实现会遵循这些设置。**代理方案是唯一 100% 可控的方案。**
 
@@ -614,10 +640,30 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**四层防御**：
+**四层防御**（设计假设，未验证）：
 | 层 | 职责 | 失败概率 | 恢复代价 |
 |----|------|----------|----------|
 | L0 内核 TCP | 防止 NAT 空闲超时断开 | 5%（物理链路中断无法防止） | 0 |
 | L1 透明代理 | 自动重试 socket 错误 | 1%（3次重试全部失败） | 1-12s 延迟 |
 | L2 外部大脑 | 保存思维状态 + 精确恢复 | 0% | ~300 tokens |
 | L3 守护脚本 | 自动检测 + 拉起 + 注入 prompt | 0% | 0（用户无感） |
+
+> [!warning] 更正（2026-09-13）：表中百分比无来源、无样本量，应视为**设计假设（未验证）**，且有两处内部矛盾：
+> - L2/L3 的「0%」与本文 §4.3 自己的失败行（「代理 3 次重试后仍失败 → 返回 502」）冲突：代理失败后恢复流程是否成功并不是零概率（原表述为「| L2 外部大脑 | 保存思维状态 + 精确恢复 | 0% |」「| L3 守护脚本 | 自动检测 + 拉起 + 注入 prompt | 0% | 0（用户无感） |」）。
+> - L1 的「1-12s 延迟」「3次重试全部失败」同 §4.3 更正：参考实现 `.py` 实际只等待 4s（1+3，8s 不执行），现行 `.js` 默认只重试 1 次、间隔 1s；L0 的「5%」是估计值，未记录依据。
+> - L3 的「自动检测 + 拉起 + 注入 prompt」所依赖的守护脚本在库内已归档（见 §4.3 更正）。
+> 依据（内部）：`claude-resilience-proxy.py:399-403`、`claude-resilience-proxy.js:20-21`（核验于 2026-09-13）。
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §2.1 应用层 keepalive 间隔 60s 大于 §1.1 实测的 ~40s NAT 空闲超时，时序上自相矛盾；§3.2 内嵌注释又写「低于 NAT 的 60s 超时」 | 就地标注：探测间隔必须严格小于最小空闲超时（建议 20-30s）；历史 sysctl 60/10/3 与参考实现 `.py` 的 `TCP_KEEPIDLE=60` 同此；现行 `.js:119` 亦为 60s，需同步修改 |
+| 纠错 | §五 `NODE_OPTIONS="--http-parser=legacy"`：该开关已不在 Node CLI 文档中 | 就地标注：该开关被静默忽略，不切换解析器；`UV_THREADPOOL_SIZE` 与协议版本/keepalive 无关；补代理层与 SDK 层替代路径。依据：https://nodejs.org/api/cli.html（核验于 2026-09-13） |
+| 纠错 | §3.2 把 `select.select` 判活当作「心跳保活」，并把 `.py` 参考实现当作现行部署 | 就地标注：写集合只反映本地发送缓冲可写性，不发送数据、不刷新 NAT 计时；现行 `.js` 无应用层心跳；补归属与重试预算差异 |
+| 纠错 | §4.4「连接建立: 节省 ~1.1s (连接池复用，跳过 TLS 握手)」 | 就地标注：`.py` 的 `ConnectionPool.get_connection()` 无调用点（死代码），现行 `.js` 无连接池，该收益当前应记为 0；§3.1 / §4.1 / §七 的「连接池」表述同此 |
+| 纠错 | §4.3 效果矩阵与 §七 概率表（5%/1%/0%/0%、1+3+8=12s）被当作定量结论 | 改标「设计假设，未验证」；12s 订正为 `.py` 实际 4s（1+3，8s 不执行）、现行 `.js` 1 次/1s；标注 L2/L3 的 0% 与 §4.3 失败行自相矛盾、守护脚本已归档 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

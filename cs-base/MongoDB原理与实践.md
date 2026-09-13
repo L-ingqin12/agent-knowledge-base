@@ -3,9 +3,9 @@ title: MongoDB原理与实践
 aliases: [mongo八股, MongoDB进阶]
 tags: [cs/db, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
-source: MongoDB 官方手册（6.x/7.x 口径）；版本相关行为标待确认
+source: MongoDB 官方手册（8.x 口径：LTS 8.0 支持至 2029-10-31，Rapid 8.1/8.2/8.3；6.0 已于 2025-07-31 EOL）；版本相关行为按生效版本标注
 fetched_at: 2026-08-26
 ---
 
@@ -28,8 +28,10 @@ See also: [[CS-KB-Home]] · [[MySQL-InnoDB精要]] · [[Redis原理与实践]] �
 | 机制 | 内容 | 与 InnoDB 差异 |
 |------|------|----------------|
 | MVCC | 快照隔离，写不就地改页而是**COW 新页**，checkpoint 时压实 | InnoDB 原地更新+undo 链；WT 无 undo 段概念 |
-| Journal | 压缩 WAL(snappy)，checkpoint(默认 60s) 落稳定版 | 双"l"语义靠 journal+checkpoint 组合 |
+| Journal | 压缩 WAL(snappy)，checkpoint(默认 60s) 落稳定版；崩溃恢复三步=定位最后 checkpoint → 在 journal 中匹配其标识 → 重放其后操作；journal 单文件约 100MB 滚动，checkpoint 默认上限 2GB | 双"l"语义靠 journal+checkpoint 组合；官方明确磁盘预留不足会让 mongod 崩溃，容量规划要把 journal+checkpoint 一起算 |
 | 压缩 | 块压缩 snappy/zstd + 索引前缀压缩 | 空间友好是 Mongo 实测优势项 |
+
+> 来源：https://raw.githubusercontent.com/mongodb/docs/master/source/core/journaling.txt （恢复流程、journal ≈100MB、checkpoint 默认 2GB、"the MongoDB server will crash"、默认 snappy 压缩）
 
 - 缓存：WT Cache 默认 ~(RAM-1GB)/2，**与 OS page cache 分工**——容量规划双池并看
 
@@ -41,9 +43,12 @@ See also: [[CS-KB-Home]] · [[MySQL-InnoDB精要]] · [[Redis原理与实践]] �
 
 ## 四、聚合管道要点
 
-- `$match/$sort` 尽量前置吃索引；`$group` 内存上限 100MB 需 `allowDiskUse`
+- `$match/$sort` 尽量前置吃索引；`$group` 内存上限仍是 100MB，但**自 6.0 起 `allowDiskUseByDefault` 默认为 true**——`$group/$sort/$bucket` 等需要更多内存的管道阶段会自动写临时文件；要禁止落盘须显式 `allowDiskUse:false` 或把该参数设为 false（只有此时才报错）。`$search` 在独立进程运行，不受此 100MB 限制
 - `$lookup` 即左外连接——大集合互 join 性能差，属建模失败信号而非调优对象
 - `$facet` 单次多分支输出仪表盘场景利器
+
+> [!warning] 更正（2026-09-13）：原写「`$group` 内存上限 100MB 需 `allowDiskUse`」——100MB 阈值本身仍成立，但「必须手动开 allowDiskUse」自 MongoDB 6.0 起已过期（默认即自动落盘）。
+> 来源：https://raw.githubusercontent.com/mongodb/docs/master/source/includes/fact-agg-memory-limit.rst ；版本支持期 https://endoflife.date/api/mongodb.json
 
 ## 四·补、ESR 与 explain 走读（代码级）
 
@@ -73,14 +78,28 @@ executionTimeMillis + stage 里出现 SORT(内存排序) / COLLSCAN = 立刻加�
 
 ## 五、副本集与分片
 
-- oplog(capped) 增量同步；选举协议 Raft 衍生(v1)：多数派 term+priority；**write concern=majority + read concern majority** 才有跨故障切换的读己之写承诺；retryable writes 幂等重试
+- oplog(capped) 增量同步；选举协议 Raft 衍生(v1)：多数派 term+priority；**write concern=majority + read concern majority** 才有跨故障切换的读己之写承诺
 - 因果一致性会话(causal consistency)：带 cluster time 的会话内单调读
+- **retryable writes 不是「幂等重试」四个字能概括的**（原表述如此），四个边界：① 官方驱动**默认开启**，可用 `retryWrites=false` 关闭；② 只自动重试**一次**，治网络抖动/选主，不解决持续故障、也不覆盖超过 `serverSelectionTimeoutMS` 的故障切换；③ 依赖副本集/分片，**standalone 不支持**，写 `local` 库会直接报写错误（须显式关闭）；④ 官方明确存在同一写被**重复应用**的窗口，业务侧幂等键/去重表仍不可省
 - 分片键三要素：高基数/低频率递增避免单调热点(自增时间戳键=永远写最后一片)；range vs hashed 权衡范围查与均匀散；chunk 迁移由 balancer 后台搬，jumbo chunk 无法迁移需拆分治理
+
+> 来源：https://raw.githubusercontent.com/mongodb/docs/master/source/core/retryable-writes.txt （驱动默认开启、only one retry attempt、standalone 不支持、写 local 库报错、重复应用窗口）
 
 ## 六、事务边界演进（诚实版）
 
 - 单文档原子性原生免费——建模把原子单元放进一个文档是最优解
 - 多文档事务 4.0(副本集)/4.2(分片) 可用但非强项：锁持有与 oplog 压力使其适合短小补偿型操作，长事务回关系型
+
+可验收边界（原表述只给结论，缺这些数字）：
+
+| 边界 | 数值/事实 |
+|------|-----------|
+| 版本门槛 | 副本集 FCV ≥ 4.0、分片 ≥ 4.2；**standalone 不支持事务** |
+| 事务寿命 | 默认 **60 秒**（`transactionLifetimeLimitSeconds`，到期即中止） |
+| oplog 体积 | 事务总量上限已取消，但**每条 oplog 条目仍 ≤16MB**（事务写会跨多条 oplog 条目） |
+| DDL/迁移互等 | 与 chunk 迁移、DDL 的互相等待由 `maxTransactionLockRequestTimeoutMillis` 兜底 |
+
+> 来源：https://raw.githubusercontent.com/mongodb/docs/master/source/core/transactions-production-consideration.txt 、https://raw.githubusercontent.com/mongodb/docs/master/source/core/transactions.txt
 
 ## 七、选型对照（何时不用 Mongo）
 
@@ -98,3 +117,15 @@ executionTimeMillis + stage 里出现 SORT(内存排序) / COLLSCAN = 立刻加�
 ## Related
 
 [[CS-KB-Home]] · [[数据库原理与调优]] · [[Redis原理与实践]] · [[向量数据库与检索]] · [[高并发系统设计]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §四 写「`$group` 内存上限 100MB 需 `allowDiskUse`」——6.0 起该语义已过期 | 改为「100MB 阈值不变；6.0 起 `allowDiskUseByDefault` 默认 true、超限自动落临时文件，`allowDiskUse:false` 才报错；`$search` 不受限」；依据官方 fact-agg-memory-limit include |
+| 纠错 | frontmatter `source` 停在「6.x/7.x 口径」 | 升到 8.x：LTS 8.0（支持至 2029-10-31）+ Rapid 8.1/8.2/8.3，并注明 6.0 已 EOL；依据 8.0 release notes 与 endoflife.date（附注：文档原覆盖到 7.x、现行最新 8.x，属落后一个大版本，非「两个大版本」） |
+| 补疏漏 | §五 把 retryable writes 一句带过成「幂等重试」 | 拆出四条边界（驱动默认开启可关 / 只重试一次 / 依赖副本集且 standalone 不支持 / 仍有重复应用窗口）；依据官方 retryable-writes 文档 |
+| 补疏漏 | §六 多文档事务只有结论、没有可验收边界 | 补边界表（FCV 门槛、默认 60s 事务寿命、单条 oplog 仍 ≤16MB、`maxTransactionLockRequestTimeoutMillis`）；依据官方事务生产考量 |
+| 加厚 | §二 Journal 只写「压缩 WAL + 默认 60s checkpoint」 | 补恢复三步、journal 约 100MB 滚动、checkpoint 默认上限 2GB、磁盘预留不足会崩溃；依据官方 journaling 文档 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

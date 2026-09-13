@@ -3,7 +3,7 @@ title: GraphRAG知识图谱增强实战
 aliases: [GraphRAG实战, 知识图谱RAG, 图谱增强检索, Microsoft GraphRAG]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -46,6 +46,21 @@ status: review
 ### 环境部署与核心参数配置
 
 **安装**：`pip install graphrag`，然后 `graphrag init --root ./ragtest` 生成 `settings.yaml` 等配置骨架；把文档放入 `input/` 后 `graphrag index` 建索引、`graphrag query` 提问。
+
+> [!note] 补疏漏（2026-09-13）：命令本身没错，但缺照抄必踩的前提
+> - **`--root` 默认是 `Path.cwd()`**（`init` / `index` / `query` 三处都是）：在父目录直接跑 `graphrag index` 会去索引空目录；应写 `graphrag index --root ./ragtest`，或先 `cd ./ragtest`。
+> - **Python 版本**：官方 get_started.md 写 Requirements: Python 3.10-3.12；仓库 pyproject 现为 `requires-python >=3.11,<3.14`，两处口径不一致——以官方 get_started 为准并锁版本。
+> - **`graphrag init` 现在会交互提示选择默认 chat / embedding 模型**，并生成 `.env`、`settings.yaml`、`input/` 与 `prompts/`；需填入 `GRAPHRAG_API_KEY`，否则要到索引阶段才报错。
+> - **锁版本**：PyPI 当前版本 3.1.2，建议 `pip install "graphrag==3.1.2"`。
+> - `graphrag init` 后的目录树（文字树，本库禁 Mermaid）：
+> ```
+> ./ragtest/
+> ├── .env              # API key
+> ├── settings.yaml     # 模型与管线配置
+> ├── prompts/          # 可覆盖的抽取/报告提示词
+> └── input/            # 放待索引文档
+> ```
+> 来源：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/get_started.md>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/cli/main.py>、<https://pypi.org/project/graphrag/>
 
 **indexing 相关参数**（控制建索引）：
 
@@ -96,10 +111,43 @@ GraphRAG 分两阶段：**Index（离线建索引）** 把文档语料转成"知
 | 适合问题 | 具体细节："张三参与了哪些项目？" | 宏观总结："这个数据集主要主题是什么？" |
 | 成本 | 低：只动局部 | 高：遍历全量报告，Map-Reduce 多轮 LLM 调用 |
 
+> [!note] 补疏漏（2026-09-13）：官方 Query Engine 不止两种模式，上表只是其中两种
+> 官方 Query Engine 文档列 Local / Global / DRIFT / Basic / Question Generation 五类；CLI `--method` 含 `local`、`global`、`drift`、`basic`（默认 `global`），分派处即 `run_local_search` / `run_global_search` / `run_drift_search` / `run_basic_search` 四支。
+
+| 模式 | 机制 | 适合问题 | 命令示例 |
+|------|------|----------|----------|
+| Local Search | 实体匹配 → 邻居展开 → 社区报告 → 生成 | 具体细节 | `graphrag query --root ./ragtest --method local "张三参与了哪些项目？"` |
+| Global Search | Map-Reduce 遍历社区报告 | 宏观总结 | `graphrag query --root ./ragtest --method global "这个数据集主要讲了什么？"` |
+| DRIFT Search | Dynamic Reasoning and Inference with Flexible Traversal：先把问题与 top-K 社区报告比对（primer）生成初答与 follow-up 问题，再迭代下钻后 reduce —— 定位是「把社区信息注入局部检索」 | 既要全局视角又要具体细节 | `graphrag query --root ./ragtest --method drift "…"` |
+| Basic Search | 纯向量 RAG（`basic_search` 默认 `k=10`），可与 [[RAG检索增强生成实战]] 做对照基线 | 简单单跳问答 | `graphrag query --root ./ragtest --method basic "…"` |
+
+> DRIFT 关键默认参数：`drift_k_followups=20`、`primer_folds=5`、`n_depth=3`。
+> Question Generation 不是查询模式而是「从语料生成候选问题」的辅助能力，用于评估集与预热。
+> 来源：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/query/overview.md>、<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/query/drift_search.md>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/defaults.py>
+
 ### 静态社区 vs 动态社区
 
 - **静态社区（Static Community）**：Index 阶段一次性算好的 Leiden 社区，索引产物固化；查询时直接使用，零额外计算，但知识库更新需重建索引才能反映新结构。
 - **动态社区（Dynamic Community）**：查询时围绕问题相关实体**临时**做社区发现（如局部 Leiden/谱聚类），能适配实时变化的图谱与个性化问题，代价是每次查询都要付一次图算法开销。GraphRAG 默认走静态社区，增量更新场景可考虑动态方案。
+
+> [!warning] 更正（2026-09-13）：「动态社区 = 查询时围绕问题相关实体临时做社区发现（如局部 Leiden/谱聚类）」在官方实现里**没有对应物**（原表述即上一条 bullet 的后半句），应视为非官方做法。
+> GraphRAG 官方的 dynamic community selection **不重跑聚类、也不改图**，源码注释明确该段为 configurations for dynamic community selection，五个参数即机制本体（已逐个核对官方描述）：
+> | 参数 | 官方含义 |
+> |---|---|
+> | `dynamic_search_threshold` | Rating threshold to include a community report |
+> | `dynamic_search_keep_parent` | Keep parent community if any of the child communities are relevant |
+> | `dynamic_search_num_repeats` | Number of times to rate the same community report |
+> | `dynamic_search_use_summary` | 是否用社区报告摘要参与打分 |
+> | `dynamic_search_max_level` | 在已处理社区都不相关时考虑的最大层级 |
+> 流程：从社区层级根部开始，用 LLM 给社区报告打相关性分 → 不相关就剪掉该子树，相关则下钻 → 只把保留的报告送进 map-reduce。
+> 另注：CLI 的 `--dynamic-community-selection` 默认为关（其帮助文本即 Use global search with dynamic community selection），所以下文「GraphRAG 默认走静态社区」这句仍然成立，两者不冲突。
+> 来源：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/models/global_search_config.py>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/cli/main.py>、<https://www.microsoft.com/en-us/research/blog/graphrag-improving-global-search-via-dynamic-community-selection/>
+
+> [!warning] 更正（2026-09-13）：「静态社区……知识库更新需重建索引才能反映新结构」是绝对化表述（原表述即上一条 bullet 的末句）。
+> 当前 CLI 的 `@app.command` 列表为 `init / index / update / prompt-tune / query`，存在增量入口：`graphrag update --root ./ragtest`，`defaults.py` 定义 `DEFAULT_UPDATE_OUTPUT_BASE_DIR = update_output`，用于把新文档增量并入而非全量重跑。
+> **待验证**：增量合入后社区层级是否重算，本次未能从官方文档核实——本库标注为待验证，不凭推断写死。
+> 时效性对照：向量 RAG 入库即生效（见 [[RAG检索增强生成实战]]），GraphRAG 需 `index` / `update` 建图后才反映新结构。
+> 来源：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/cli/main.py>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/defaults.py>
 
 ## 最小可运行 Demo
 
@@ -154,6 +202,19 @@ WHERE e.id CONTAINS "张三" OR e.description CONTAINS "工程师"
 RETURN e;
 ```
 
+> [!warning] 更正（2026-09-13）：第 10 条注释把 `CONTAINS` 子串匹配说成了「模糊/全文检索」（原表述为 `// 10. 模糊/全文检索实体`）。
+> Neo4j 官方原文：Unlike range and text indexes, which can only perform limited STRING matching (exact, prefix, substring, or suffix matches), full-text indexes stores individual words in any given STRING property… Full-text indexes also return a score of proximity… powered by Apache Lucene。要真做全文检索得建 full-text 索引：
+> ```cypher
+> // 10b. 全文索引：建一次，之后用 queryNodes 检索
+> CREATE FULLTEXT INDEX entity_ft IF NOT EXISTS FOR (e:Entity) ON EACH [e.id, e.description];
+>
+> CALL db.index.fulltext.queryNodes('entity_ft', '张三 OR 工程师') YIELD node, score
+> RETURN node.id, score ORDER BY score DESC;   -- 期望输出：命中的实体 + Lucene 相关性分数
+> ```
+> - 拼写容错（「张三」写错一个字仍要命中）需要 Lucene 模糊语法或 `apoc.text.levenshteinSimilarity`，`CONTAINS` 做不到。
+> - 注意它与第 236 行 `CREATE INDEX entity_id FOR (e:Entity) ON (e.id)`（range 索引，服务等值/前缀查询）是**两类不同索引，不能互相替代**。
+> 来源：<https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/full-text-indexes/>
+
 ### ② networkx 迷你 GraphRAG（约 60 行）
 
 ```python
@@ -198,7 +259,7 @@ G = nx.Graph()
 for h, r, t in triples:
     G.add_edge(h, t, relation=r)
 
-# 4. 社区发现：Louvain 简化版（对应 GraphRAG 的 Leiden 分层聚类）
+# 4. 社区发现：Louvain 教学替代（与 GraphRAG 的 Leiden 分层聚类有实质差异，见下方更正块）
 communities = nx.community.louvain_communities(G, seed=42)
 for i, c in enumerate(communities):
     print(f"社区{i}: {sorted(c)}")
@@ -226,6 +287,21 @@ print("局部证据:", local_search(G, matched[0]))
 # 6. 收尾（生产做法）：把 evidence 拼进 Prompt 交给 LLM 生成答案
 ```
 
+> [!warning] 更正（2026-09-13）：「Louvain 简化版（对应 GraphRAG 的 Leiden 分层聚类）」里的「对应」掩盖了两处实质差异（原表述即上方第 4 步注释与 `nx.community.louvain_communities`）。
+> - ① **算法差异**：Leiden 论文《From Louvain to Leiden: guaranteeing well-connected communities》(arXiv:1810.08473) 摘要原文 We prove that the Leiden algorithm yields communities that are guaranteed to be connected——Louvain 不保证社区内部连通，不能当作同一算法的简化版。
+> - ② **结构差异**：GraphRAG 用的是 `graphrag.graphs.hierarchical_leiden.hierarchical_leiden`（`cluster_graph.py` 的 docstring：Return Leiden root communities and their hierarchy mapping），pyproject 亦锁 `graspologic-native>=1.2,<1.3`（注释：Hold on the 1.2.x line: graspologic-native 1.3.x changes Leiden clustering output (community counts/levels)）；而 `nx.community.louvain_communities` 只给**单层**划分、没有层级，无法对应「逐层社区报告」这一全局检索前提。
+> - 补救：用 `resolution` 跑 2~3 档，或改用 `leidenalg` / `igraph` 拼社区树。层级形状示意（文字树，本库禁 Mermaid）：
+> ```
+> L0: {全部节点}
+> ├── L1-C0: {张三, 数据智能组}
+> │   ├── L2-C0: {张三}
+> │   └── L2-C1: {数据智能组}
+> └── L1-C1: {GraphRAG, 微软, 李四, 向量检索}
+>     └── L2-C2: {GraphRAG, 微软}
+> ```
+> - 验收判据：每层社区数**严格递增**、每个子社区**恰有一个**父社区。
+> 来源：<https://arxiv.org/abs/1810.08473>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/index/operations/cluster_graph.py>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/pyproject.toml>
+
 ## 进阶实践与常见坑
 
 ### 图数据库篇：Neo4j 落地要点
@@ -239,12 +315,23 @@ print("局部证据:", local_search(G, matched[0]))
 
 | 坑 | 症状 | 对策 |
 |----|------|------|
-| 抽取成本失控 | 全量语料索引跑数小时、token 账单惊人 | 先小语料试跑校准提示词；分层抽取（先标题后正文）；用 LightRAG 降本 |
+| 抽取成本失控 | 全量语料索引跑数小时、token 账单惊人 | 先小语料试跑校准提示词；分层抽取（先标题后正文）；**优先用官方 FastGraphRAG 降本（见下表）**，再考虑换 LightRAG |
 | 实体爆炸/粒度混乱 | "张三"和"张三先生"被当两个实体 | 提示词限定实体类型清单 + 合并步骤去重；必要时加实体消歧 |
 | 社区报告空泛 | 报告千篇一律，回答没增量信息 | 调 community_detection 的 resolution/max_cluster_size，报告提示词要求量化细节 |
 | 把 GraphRAG 当默认方案 | 简单单跳问答反而更贵更慢 | 先 RAG 后 GraphRAG：单跳用向量检索，多跳/全局问题再上图谱 |
 | Local Search 证据不足 | 邻居展开为空，答案退化成通用回复 | 实体匹配加模糊/别名召回；降低 community_level 用更大社区报告兜底 |
 | 索引与查询模型不一致 | 实体匹配向量与索引向量来自不同模型 | 全链路锁定同一 embedding 模型与版本（同 RAG 坑） |
+
+> [!note] 补疏漏（2026-09-13）：降本应先看第一方方案——GraphRAG 官方内置两种索引方法
+> `graphrag index --root ./ragtest --method standard`（默认）与 `--method fast`（FastGraphRAG）。methods.md 原文要点：FastGraphRAG 把部分 LLM 推理换成本地 NLP（默认 NLTK + 正则抽名词短语，可选 spaCy），实体/关系**没有描述**、直接引用源 text unit；官方估算图抽取约占索引成本 75%（We estimate graph extraction to constitute roughly 75% of indexing cost）；官方明确：若用例主要是 global search 的摘要类问题，推荐用它。
+
+| 方案 | 成本 | 图质量 | 适用问题 |
+|------|------|--------|----------|
+| Standard（默认，`--method standard`） | 高（抽取是大头） | 实体/关系带描述，图可探索 | 需要多跳推理、图探索 |
+| FastGraphRAG（官方内置，`--method fast`） | 明显更低 | 更噪、无实体/关系描述 | 官方推荐用于「主要跑 global search 摘要类问题」 |
+| LightRAG（第三方） | 低 | 简化双粒度图 | 中小项目快速落地 |
+
+> 来源：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/index/methods.md>、<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/defaults.py>
 
 ## 相关文档
 
@@ -268,3 +355,33 @@ print("局部证据:", local_search(G, matched[0]))
 - Neo4j 官方教程 — 用 Cypher 导入 CSV：<https://neo4j.ac.cn/graphgists/importing-csv-files-with-cypher/>
 - Neo4j graphgist — 数据导入实践：<https://neo4j.com/graphgists/0123-importing-data/>
 - networkx 官方文档 — louvain_communities 函数：<https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.community.louvain.louvain_communities.html>
+
+### 2026-09-13 复核新增来源
+
+- GraphRAG 官方 Query 总览（Local / Global / DRIFT / Basic / Question Generation 五类）：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/query/overview.md>
+- GraphRAG 官方 DRIFT Search 文档：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/query/drift_search.md>
+- GraphRAG 官方索引方法对比（Standard vs FastGraphRAG）：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/index/methods.md>
+- GraphRAG 默认配置源码（chunk 1200/100、DRIFT 默认参数、update_output）：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/defaults.py>
+- GraphRAG CLI 源码（--root 默认 cwd、init 交互选模型、update 子命令、--method 分派）：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/cli/main.py>
+- GraphRAG dynamic community selection 配置模型（五个参数即机制本体）：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/models/global_search_config.py>
+- GraphRAG 层级 Leiden 调用处（hierarchical_leiden）：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/index/operations/cluster_graph.py>
+- GraphRAG pyproject（graspologic-native 锁版本说明）：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/pyproject.toml>
+- GraphRAG 官方入门文档（Requirements: Python 3.10-3.12）：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/get_started.md>
+- graphrag PyPI 版本页（当前 3.1.2）：<https://pypi.org/project/graphrag/>
+- Microsoft Research 博文 — Improving Global Search via Dynamic Community Selection：<https://www.microsoft.com/en-us/research/blog/graphrag-improving-global-search-via-dynamic-community-selection/>
+- Neo4j Cypher 手册 — 全文索引（full-text index / Lucene）：<https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/full-text-indexes/>
+- Leiden 论文《From Louvain to Leiden: guaranteeing well-connected communities》：<https://arxiv.org/abs/1810.08473>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 纠错 | 「动态社区 = 查询时围绕问题相关实体临时做社区发现（如局部 Leiden/谱聚类）」 | 保留原句，加更正块：官方 dynamic community selection 不重跑聚类，而是按 LLM 相关性打分剪枝/下钻，五个参数逐个列出；并说明 CLI 开关默认关闭。依据：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/config/models/global_search_config.py> |
+| 纠错 | 「知识库更新需重建索引才能反映新结构」（绝对化） | 保留原句，补 `graphrag update` 增量入口与 `update_output` 产物位置；社区层级是否重算标注为**待验证**。依据：<https://raw.githubusercontent.com/microsoft/graphrag/main/packages/graphrag/graphrag/cli/main.py> |
+| 纠错 | Cypher 第 10 条把 `CONTAINS` 说成「模糊/全文检索」 | 保留原语句，补 full-text 索引创建与 `db.index.fulltext.queryNodes` 查询、模糊语法与 Lucene 说明，并区分 range 索引。依据：<https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/full-text-indexes/> |
+| 纠错 | 「Louvain 简化版（对应 GraphRAG 的 Leiden 分层聚类）」 | 保留原注释语义并改写为「教学替代」，补两处实质差异（Leiden 保证连通 / louvain_communities 无层级）+ 文字树 + 验收判据。依据：<https://arxiv.org/abs/1810.08473> |
+| 补疏漏 | Query 表只写了 Local / Global 两种模式 | 补 DRIFT 与 Basic（含 CLI 命令示例与 DRIFT 默认参数），并说明 Question Generation 的定位。依据：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/query/overview.md> |
+| 补疏漏 | 抽取成本对策直接跳到第三方 LightRAG | 补官方 Standard vs FastGraphRAG vs LightRAG 三方对照与官方 75% 成本口径。依据：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/index/methods.md> |
+| 加厚 | 安装说明缺 `--root` 默认值、Python 版本口径、init 交互与锁版本 | 补五条前提 + init 后目录树（文字树）。依据：<https://raw.githubusercontent.com/microsoft/graphrag/main/docs/get_started.md> |
+
+详见 [[CORRECTIONS]] 的登记流程与 [[AGENTS]] 的编辑纪律。

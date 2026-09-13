@@ -3,7 +3,7 @@ title: 推送门禁与 CI 说明
 aliases: [推送门禁, CI 说明, kb-gates, prepush-gates]
 tags: [meta, ai/ops]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
@@ -87,6 +87,13 @@ See also: [[AGENTS]] | [[CORRECTIONS]] | [[HOME]] | [[repo-merge-2026-09-12]]
 > git push git@github.com:L-ingqin12/agent-knowledge-base.git main
 > ```
 > 另注：Contents API 同样无法创建 workflow（同一 scope 限制）。
+>
+> **更正（2026-09-13）**：解法不应**只有** SSH，首选是补齐 scope。官方 scopes 文档确认 `workflow` scope *Grants the ability to add and update GitHub Actions workflow files*，并给出**唯一例外**（同一文件、同一路径、同一内容已存在于其他分支时可无该 scope 提交）。因此：
+> 1. **首选**：给 token 补 scope —— `gh auth refresh -s workflow`，或换用带该 scope 的 token；
+> 2. **SSH 只是绕过**：后续若改用 HTTPS + 同一 token 做自动化，会再撞同一堵墙；
+> 3. 上一条「Contents API 同样无法创建 workflow」应改写为「**缺 `workflow` scope 时**该 API 无法写入 `.github/workflows/*`；补齐 scope 后可写入」。
+>
+> 来源：<https://raw.githubusercontent.com/github/docs/main/content/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps.md>
 
 > [!danger] 坑 2：`kb-push.sh` 不推送 `.github/`
 > 它的变更集只含显式指定的文件，且默认流程不覆盖 `.github/`。
@@ -106,6 +113,13 @@ See also: [[AGENTS]] | [[CORRECTIONS]] | [[HOME]] | [[repo-merge-2026-09-12]]
 > blob 上传全部成功、小 payload（1–2 条目）的 tree 创建也成功，但 18 条目的 payload 持续 404。
 > 现象稳定、原因未定。**可靠替代是 Contents API 逐文件 PUT**（自动建目录，代价是多次提交）。
 > 另：**不要复用上一次会话创建的 blob SHA**——未被引用的对象会被回收，引用它会 404。
+>
+> **更正 / 补疏漏（2026-09-13）**：本坑属**不可外部核验的本机观察**（已尝试对照官方 REST 文档，本环境只返回导航壳、读不到正文，故「官方未规定条目数上限」这半句标为**未复核**）。「现象稳定」这种暗示普遍性的措辞应收窄为「在本机该 payload 形状上可重复复现」。可补的排查动作：
+> 1. 打印被拒请求的**完整 body 与响应体原文**——404 的 `message` 通常直接指出缺失的 `base_tree` 或无效 sha；
+> 2. 核对每个条目的 sha 是否来自**同一仓库且未被回收**（与上句同一线索）；
+> 3. 对照上文提到的 Contents API 逐文件 PUT——并明确**这是 workaround，不是修复**。
+>
+> 来源：<https://docs.github.com/en/rest/git/trees>（正文未取到，仅登记）
 
 ---
 
@@ -129,6 +143,16 @@ git push --no-verify
 
 **退出码**：`prepush-selfscan.sh` 0=通过 1=命中；`validate-kb.py` 0=通过 1=有 ERROR。
 
+> [!warning] 补疏漏（2026-09-13）：两道本地闸的运行依赖，以及「依赖缺失即放行」
+> §一 把本地闸标为**阻断**，但读实现（`scripts/install-hooks.sh`、`scripts/validate-kb.py`）可见落差：
+> - `validate-kb.py` **只用标准库**（`argparse`/`json`/`os`/`re`/`pathlib`），不存在 pip 依赖；
+> - 真正的依赖是**解释器**：`$KB_PYTHON` → `/d/ProgramData/miniconda3/python.exe` → PATH 上的 `python3`/`python`，每个候选都要通过 `-c 'import sys'` 探测（与上文坑 3 一致）；
+> - **失败方向是 fail-open**：生成的 pre-push 钩子在找不到可用 Python 时**只打印一行**「未找到可用 Python，跳过格式校验（可设 `KB_PYTHON` 指定）」并继续 ⇒ 会出现「以为有闸、其实没闸」。
+>
+> 建议（本次未改代码，仅登记）：① 钩子改 **fail-closed**（异常或缺解释器一律阻断）；② 端到端验收——故意引入死链与假密码，断言两次 push 分别被拦下并贴出退出码；③ 依赖自检：`python scripts/validate-kb.py && bash scripts/prepush-selfscan.sh --self-test`。
+>
+> 来源：仓库内实现（`scripts/install-hooks.sh`、`scripts/validate-kb.py`）
+
 ---
 
 ## 五、已知残余风险
@@ -139,3 +163,23 @@ git push --no-verify
 | `link-check.yml` 不阻断 | 外链会限流/宕机/地域不可达，硬门禁会被噪声淹没；改为每周巡检 + 报告 |
 | 历史扫描只看 tip+全历史模式 | 不做相似度检测，变形/编码后的凭据可能漏过 |
 | 本地未脱敏副本 | `*.local-unredacted-*` 由 `.gitignore` 排除，CI 有一条断言防误入库；但仍靠 gitignore 生效 |
+| 定时工作流可能被自动禁用 / 丢跑 | 公开仓库**60 天无活动**时 scheduled workflow 会被 GitHub **自动禁用**，且高峰期定时任务会延迟 ⇒ 「每周巡检」可能根本没跑 |
+
+> [!warning] 补疏漏（2026-09-13）：「不阻断」与「不运行」是两件事
+> §一 把 `link-check.yml` 定为「仅报告：每周巡检」，§五 的理由（外链会限流/宕机/地域不可达，硬门禁会被噪声淹没）成立，但漏了 **scheduled workflow 的制度性风险**：官方原文——*In a public repository, scheduled workflows are automatically disabled when no repository activity has occurred in 60 days*，且该节带 schedule-delay 提示（高峰期会延迟）。本库 `.github/workflows/link-check.yml` 正是 `cron '0 2 * * 1'` 的 scheduled workflow、仓库公开 ⇒ 这条闸**可能静默停止**，而本页的设计前提恰是「不能靠人记得检查」。
+> 可验证自检（建议补进仓库）：① 每次成功运行把**时间戳**写入 artifact 或分支；② 超过 N 天（建议 10 天）无新时间戳即视为失效并告警；③ 把「不阻断」与「不运行」分成两种状态分别上报。
+>
+> 来源：<https://raw.githubusercontent.com/github/docs/main/content/actions/reference/workflows-and-actions/events-that-trigger-workflows.md>
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | 坑 1 把「SSH 推送」当作唯一解，未给补 `workflow` scope 的官方正解 | 保留原解法并补：`gh auth refresh -s workflow` 为首选、SSH 只是绕过、Contents API 的表述改为「缺 scope 时不可写入」（GitHub scopes 官方文档） |
+| 补疏漏 | §一/§五 只说 link-check「仅报告」，未考虑 scheduled workflow 会被静默禁用 | 补 §五 风险行与自检方案（时间戳回写 + 超期告警），并区分「不阻断」与「不运行」（GitHub Actions 触发事件官方文档） |
+| 纠错 | 坑 5 的「现象稳定」暗示普遍性，且未给排查动作 | 收窄为「本机该 payload 形状可重复复现」，标注官方 REST 页未取到正文（未复核），补三条排查动作并明确 Contents API 是 workaround |
+| 加厚 | §四 未写两道闸的运行依赖，也未说明依赖缺失时的失败方向 | 补依赖清单（仅标准库 + 解释器探测链）与 **fail-open 实测行为**，给出 fail-closed 与端到端验收建议（仓库内实现为据） |
+
+回链：本文 See also 已含 [[CORRECTIONS]] 与 [[AGENTS]]，未重复添加。

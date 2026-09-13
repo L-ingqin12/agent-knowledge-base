@@ -3,12 +3,15 @@ title: "SAE 视觉特征单义性——NeurIPS 2025"
 aliases: [SAE单义性, SAE NeurIPS 2025, 稀疏自编码器单义特征]
 tags: [ai/learning, reference]
 created: 2025-04-03
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 source: "论文 + 微信公众号解读"
 source_urls:
   - "https://arxiv.org/abs/2504.02821"
   - "https://mp.weixin.qq.com/s/A_JvAATI7tSkfYAhuUXMTQ"
+  # 官方定位符（2026-09-13 补录；可唯一锁定文献）
+  - "https://neurips.cc/virtual/2025/loc/san-diego/poster/119210"
+  - "https://www.eml-munich.de/publication/sae-for-vlm"
 author: "Mateusz Pach, Shyamgopal Karthik, Quentin Bouniot, Serge Belongie, Zeynep Akata"
 venue: "NeurIPS 2025"
 date: "2025-04-03"
@@ -21,6 +24,7 @@ See also: [[AI-Links-KB-Home]] | [[Articles-Index]] | [[PatchSAE-概念重映射
 
 > Sparse Autoencoders Learn Monosemantic Features in Vision-Language Models
 > Mateusz Pach et al. · NeurIPS 2025 · [github.com/ExplainableML/sae-for-vlm](https://github.com/ExplainableML/sae-for-vlm)
+> 官方定位符（2026-09-13 补，逐项与官方页核对无误）：NeurIPS 2025 [poster 119210](https://neurips.cc/virtual/2025/loc/san-diego/poster/119210)（San Diego 会场，另有 Mexico City 会场）· OpenReview `DaNnkQJSQf` · [EML Munich 出版页](https://www.eml-munich.de/publication/sae-for-vlm)（作者序列与 frontmatter 完全一致）
 
 ---
 
@@ -133,6 +137,9 @@ LLaVA-1.5 的视觉管道：图片 → CLIP ViT-L/14 → 576 个 patch token（�
 
 关键含义：MS 指标和人类感知高度对齐。MS 说单义的特征，人类看了也觉得单义。不是统计幻觉。
 
+> [!warning] 未能核验（2026-09-13）：上表 5 个数字（71 人 / 1000 次 / 82.8% / 56.6% / 100%）**本库未能核验**——两个可打开的官方页（NeurIPS poster 摘要只说「we propose a benchmark derived from a large-scale user study」；EML Munich 摘要只提 hierarchical representations 与 iNaturalist taxonomy）均未给出人数、比较次数与一致率；arXiv 全文与 OpenReview 在本轮不可达 / 需验证。引用时请注明「数字取自原文，核验日 2026-09-13；全文当前不可达」。
+> 可作为真值确证的相邻结论：官方摘要「with sparsity and wide latents being the most influential factors」——它直接支撑本文 §2.2 的「稀疏性 + 宽隐层是两个最强因子」。
+
 ### 4.3 裁判模型鲁棒性
 
 用 DINOv2 ViT-B 和 CLIP ViT-B 分别做裁判，结果一致性很高——MS 不依赖某个特定裁判模型的怪癖。
@@ -191,7 +198,7 @@ SAE 重建不是无损的。残差里有结构化信息，不是噪声——是 
 
 ### 6.2 CLS token 的限制
 
-大部分单义性量化分析在 CLS token（全局汇总向量）上做。但 LLaVA 的 LLM 吃的是 576 个 patch token，不是 CLS。CLS 有全局语义但丢失空间分辨率和定位能力——PatchSAE（ICLR 2025, arXiv:2412.05276）在 patch 级表征上补了这个方向。
+大部分单义性量化分析在 CLS token（全局汇总向量）上做。但 LLaVA 的 LLM 吃的是 576 个 patch token，不是 CLS（2026-09-13 补注：**576 = (336/14)²**，即 CLIP ViT-L/14-**336px** 的分辨率除以 patch 尺寸再平方；换 224px 输入即 16×16 = 256，另加 1 个 CLS token —— 576 不是与分辨率无关的常数，与 §1.1 的表述对齐）。CLS 有全局语义但丢失空间分辨率和定位能力——PatchSAE（ICLR 2025, arXiv:2412.05276）在 patch 级表征上补了这个方向。
 
 ### 6.3 仅覆盖视觉侧
 
@@ -240,9 +247,13 @@ MS 量化指标 → 人类对齐（MTurk）→ 因果干预（改特征改输出
 | PatchSAE (arXiv:2412.05276) | ICLR 2025 | Patch 级 SAE，覆盖多粒度概念 + 空间定位 |
 | saev (arXiv:2502.06755) | — | SAE 开源工具包 + 完整复现指南 |
 | Neo et al. (arXiv:2410.07149) | ICLR 2025 | 视觉 token 进入 LLM 后的逐层演化 |
-| CaFE (arXiv:2509.00749) | — | ERF 追溯——SAE 特征的真正信息来源 |
+| CaFE (arXiv:2509.00749)（**编号待核**，2026-09-13） | — | ERF 追溯——SAE 特征的真正信息来源 |
 | Decomposing Dark Matter (arXiv:2410.14670) | — | SAE 重建残差中的结构化未知信息 |
-| DeepStack (203 期引用) | — | ViT 特征多粒度（纹理到语义）的实验事实 |
+| [DeepStack](https://deepstack-vl.github.io/)（Lingchen Meng 等，NeurIPS 2024，arXiv:2406.04334） | NeurIPS 2024 | ViT 特征多粒度（纹理到语义）的实验事实（原表述为「DeepStack (203 期引用)」——「203 期」是某公众号期号，对外部读者零信息量、无法检索） |
+
+> [!warning] 相关论文链的两处标注（2026-09-13）：
+> - **CaFE (arXiv:2509.00749)**：本轮**未能核验**——eXCV Workshop 的该 publication URL 返回 **404**（站点在线，accepted papers 列表中无此条），IEEE Xplore 返回 HTTP 202 空响应，arxiv.org 直连失败。因此「arXiv:2509.00749 = CaFE」既不能证实也不能证伪；**该行只写缩写 + 编号，读者无法据此检索，故标「编号待核」**，应补可解析的标题与作者后再引用。
+> - **DeepStack**：项目页已核，规范引用为《DeepStack: Deeply Stacking Visual Tokens is Surprisingly Simple and Effective for LMMs》（Lingchen Meng 等，NeurIPS 2024，arXiv:2406.04334，BibTeX `booktitle={NeurIPS}, year={2024}`），方向描述「ViT 特征多粒度」成立，可保留。
 
 ---
 
@@ -251,3 +262,15 @@ MS 量化指标 → 人类对齐（MTurk）→ 因果干预（改特征改输出
 > SAE 不是万能翻译器，但它第一次让我们能指着一个神经元说：**这个，代表狗。** ——而且改它，模型就真的看不见狗了。
 
 > 视觉 token 的本质是一张图片的语义骨架——比照片粗糙，比文字丰富，人类看不懂，但 LLM 读得懂。SAE 让我们开始能读懂 LLM 读到的。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | frontmatter 与引言只有 arXiv + 微信两条，缺可唯一锁定文献的官方定位符 | 补 NeurIPS poster 119210（双会场）、OpenReview `DaNnkQJSQf`、EML Munich 出版页；作者序列 5 人已与 frontmatter 逐字核对 |
+| 补疏漏 | §4.2 MTurk 表 5 个数字（71 人 / 1000 次 / 82.8% / 56.6% / 100%）无出处 | 标注**本库未能核验**（两个官方页摘要均未给出这些数字，全文不可达）；同时补一条可确证的相邻结论：官方摘要「with sparsity and wide latents being the most influential factors」支撑 §2.2 |
+| 纠错 | §八 把「DeepStack (203 期引用)」当出处 | 换成规范引用《DeepStack: Deeply Stacking Visual Tokens…》（Lingchen Meng 等，NeurIPS 2024，arXiv:2406.04334），并保留原表述说明「203 期」是公众号期号 |
+| 补疏漏 | §八 CaFE 行只有缩写 + 编号，读者无法据此检索 | 标「**编号待核**」并记录证据状态（eXCV 页 404、IEEE 202 空响应、arxiv 不可达）；审计对邻近工作的描述未获证实，不写入 |
+| 补疏漏 | §6.2「576 个 patch token」被写成与分辨率无关的常数 | 补「576 = (336/14)²，换 224px 即 256（+1 CLS）」；依据 CLIP ViT-L/14-336px 的 patch 数计算 |
+
+- 回链：[[CORRECTIONS]]｜[[AGENTS]]

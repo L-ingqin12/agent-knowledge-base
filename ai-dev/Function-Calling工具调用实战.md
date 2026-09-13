@@ -3,7 +3,7 @@ title: Function-Calling工具调用实战
 aliases: [函数调用实战, Function Calling实战, FC工具调用]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -26,7 +26,7 @@ status: review
 | role:"tool" | 工具结果消息 | 客户端把函数执行结果以该角色回填给模型的消息类型 |
 | finish_reason | 结束原因 | `"tool_calls"`=要求调用工具；`"stop"`=正常结束 |
 | JSON Schema | JSON 模式 | 对函数参数的声明（类型/枚举/描述/必填），模型据此填参数 |
-| tool_choice | 工具选择策略 | `auto`（默认）/`required`（必须调用）/`none`（禁止调用） |
+| tool_choice | 工具选择策略 | `none`（不调工具，直接生成消息）/`auto`（模型自选：出消息或调一个以上工具）/`required`（必须调一个以上工具）/指定函数（`{"type":"function","function":{"name":"get_weather"}}`，强制调它）。**默认值是有条件的**：无 tools 时默认 `none`，有 tools 时默认 `auto` |
 | parallel_tool_calls | 并行工具调用 | 一次返回多个无依赖工具调用，客户端可并发执行 |
 | Executor | 执行器 | 客户端侧真实执行函数的组件，模型永远不亲自执行代码 |
 | 两次模型调用 | Two-pass | 第一轮产出 tool_calls，第二轮消化工具结果产出 Final Answer |
@@ -74,7 +74,7 @@ status: review
 
 - `assistant.tool_calls` 与 `role:"tool"` 消息**必须成对出现**，且逐条按 `tool_call_id` 对应；
 - 每条 `role:"tool"` 消息必须**紧跟**它对应的 assistant 消息之后（第二轮请求前）；
-- 多个工具并行调用时：一条 assistant 消息带 N 个 tool_calls，后跟 N 条 tool 消息，顺序与 tool_calls 列表一致；
+- 多个工具并行调用时：一条 assistant 消息带 N 个 tool_calls，后跟 N 条 tool 消息，顺序与 tool_calls 列表一致；〔**2026-09-13 更正**：官方可确认的硬性配对要求只有「每条 tool 消息以 `tool_call_id` 与某条 tool_call 逐条对应」（规格生成的 SDK 类型与消息结构均只体现 id 配对），本次未找到对多条 tool 消息**先后顺序**的任何规定——因此「顺序一致」不应算进本行首句的「违反即 400」，正确表述是：**API 未规定 tool 消息之间的顺序，按 `tool_calls` 列表顺序回填最稳妥；部分兼容实现与网关会做顺序校验**。真正违反即 400 的是 assistant 的每个 tool_call 都必须有逐条对应、id 配对的 tool 消息。来源：https://github.com/openai/openai-openapi/blob/master/openapi.yaml ，https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/completion_create_params.py 〕
 - 第二轮请求必须携带完整的 messages 历史（user → assistant(tool_calls) → tool），模型才能"回忆起"自己要了什么。
 
 ## 最小可运行 Demo
@@ -102,11 +102,14 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     return json.dumps({"city": city, "temp": temp, "unit": unit, "desc": desc}, ensure_ascii=False)
 
 # ② 手写 tools schema（对照用）：description / 枚举 / 单位都要写清楚
+# 2026-09-13 补：加入 strict 对照示例——strict=True 要求「全字段必填 + additionalProperties: False」，
+#                 故原先"unit 可不填"的默认值写法必须改成 required 全列 + 用 description 说明默认取值。
 HANDWRITTEN_TOOLS = [{
     "type": "function",
     "function": {
         "name": "get_weather",
         "description": "查询指定城市的实时天气",
+        "strict": True,                       # 【2026-09-13 新增】严格 schema 遵循，从源头压制参数幻觉
         "parameters": {
             "type": "object",
             "properties": {
@@ -114,24 +117,41 @@ HANDWRITTEN_TOOLS = [{
                 "unit": {"type": "string", "enum": ["celsius", "fahrenheit"],
                          "description": "温度单位，默认 celsius"},
             },
-            "required": ["city"],
+            "required": ["city", "unit"],     # strict 模式：所有字段都必须进 required
+            "additionalProperties": False,    # strict 模式：不允许额外字段
         },
     },
 }]
 
-# ③ 自动生成 schema：从函数签名 + docstring 提取（参数名/默认值/必填）
+# ③ 自动生成 schema：从函数签名 + docstring 提取（参数名/类型注解/默认值/必填）
+TYPE_MAP = {int: "integer", float: "number", bool: "boolean",
+            str: "string", list: "array", dict: "object"}
+# 【2026-09-13 修复】原实现把 properties[name]["type"] 硬编码为 "string"，
+# 任何 int / bool / array 参数都会生成类型错误的 JSON Schema（比 description 不够精确更致命）。
+
 def auto_schema(func):
     """由 Python 函数自动生成 OpenAI tools JSON Schema。"""
     doc = (func.__doc__ or "").strip()
+    # docstring 约定：首句 = 函数说明；后续按「<参数名> 参数：说明」逐句给参数说明
+    sentences = [s.strip() for s in doc.split("。") if s.strip()]
+    func_desc = sentences[0] if sentences else func.__name__
+    param_desc = {}
+    for s in sentences[1:]:
+        head, sep, tail = s.partition("：")
+        if sep:
+            param_desc[head.replace("参数", "").strip()] = tail.strip()
     params = inspect.signature(func).parameters
     properties, required = {}, []
     for name, p in params.items():
         if p.default is inspect.Parameter.empty:
             required.append(name)               # 无默认值 → 必填参数
-        properties[name] = {"type": "string", "description": f"参数 {name}，函数说明：{doc}"}
+        ann = p.annotation
+        # 【2026-09-13 修复】按类型注解映射 JSON Schema 类型，只有无注解时才回落 "string"
+        jtype = TYPE_MAP.get(ann, "string") if isinstance(ann, type) else "string"
+        properties[name] = {"type": jtype, "description": param_desc.get(name) or f"{name} 参数"}
     return [{"type": "function", "function": {
         "name": func.__name__,
-        "description": doc.split("。")[0] if doc else func.__name__,   # 取 docstring 首句作函数说明
+        "description": func_desc,                                          # 首句作函数说明
         "parameters": {"type": "object", "properties": properties, "required": required},
     }}]
 
@@ -149,11 +169,11 @@ def mock_call(messages, tools):
 
 def call_model(messages, tools):
     """模型调用封装：统一返回 {content, tool_calls, finish_reason} 字典。"""
-    api_key = [已脱敏]("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")      # 【2026-09-13 修复】原为 [已脱敏]("OPENAI_API_KEY")
     if not api_key:
-        [已脱敏] mock_call(messages, tools)
+        return mock_call(messages, tools)      # 【2026-09-13 修复】原为 [已脱敏] mock_call(...)，会语法报错
     from openai import OpenAI                  # pip install openai
-    resp = OpenAI(api_key=[已脱敏]).chat.completions.create(
+    resp = OpenAI(api_key=api_key).chat.completions.create(   # 【2026-09-13 修复】原为 OpenAI(api_key=[已脱敏])
         model="gpt-4o-mini", messages=messages, tools=tools,
         parallel_tool_calls=True,               # 允许一次返回多个工具调用
     )
@@ -189,18 +209,26 @@ if __name__ == "__main__":
 > [!tip] 运行说明
 > ① 直接 `python fc_demo.py` 走 Mock 双轮流程；② 设置 `OPENAI_API_KEY` 后自动切换真实接口（需 `pip install openai`）；③ 手写 schema 与 `auto_schema` 的对照打印，直观展示"自动生成省事、但 description 质量需要人工补强"。
 
+> [!warning] 代码更正与验收判据（2026-09-13）
+> ① **脱敏误伤（同《Prompt-Engineering入门与Demo》Demo 2）**：`call_model` 原第 152/154/156 行为 `[已脱敏]("OPENAI_API_KEY")`、`[已脱敏] mock_call(...)`、`OpenAI(api_key=[已脱敏])`——分别触发 NameError / SyntaxError / NameError，"离线可跑"不成立。已改回可运行形态（`os.getenv`，**不写回任何明文密钥**）；根因属 `scripts/prepush-selfscan.sh` 的脱敏规则误匹配标识符，需改脚本而非文档。
+> ② **`auto_schema` 的硬伤（比 description 更前置）**：原实现把 `properties[name]["type"]` 硬编码为 `"string"`，**完全没有读类型注解**，任何 int / bool / array 参数都会生成类型错误的 Schema——模型照着填就会产出类型错误。验收判据：给 `def add(a: int, b: int)`，旧实现生成 `{"type":"string"}`，模型会填出字符串 `"3"`；改用注解映射后生成 `{"type":"integer"}`，模型填出数字 `3`。
+
 ## 进阶实践与常见坑
 
 ### 四大挑战与解法
 
 | 挑战 | 问题表现 | 解法 |
 |------|----------|------|
-| ① 意图识别问题 | 该调函数时不调，或不该调时乱调（把闲聊也当工具请求） | 提高 JSON Schema 质量：参数 description 写清单位/枚举/示例；用 `tool_choice` 收紧策略 |
+| ① 意图识别问题 | 该调函数时不调，或不该调时乱调（把闲聊也当工具请求） | 提高 JSON Schema 质量：参数 description 写清单位/枚举/示例；**开启 `strict: true`**；用 `tool_choice` 收紧策略 |
 | ② 返回无法精准作答 | 工具返回原始数据，模型直接复述或答非所问 | 两阶段调用优化：先取数据，再让模型精读数据后作答 |
 | ③ 海量函数问题 | 几十个工具塞爆上下文，且模型选错率随数量上升 | 分层设计：按域分组的两级路由，先选类别再选具体函数 |
 | ④ 并行 vs 串行 | 全部串行则时延叠加，乱并行则拿到过期/空结果 | 无依赖并行省时延；有依赖必须串行，等前序结果再发下一轮 |
 
 **① 意图识别 → Schema 质量**：模型判断"该不该调用、参数填什么"的唯一依据是 Schema 文本。参数 `description` 必须写清**单位**（"摄氏度还是华氏度"）、**枚举**（合法取值集合）、**示例**（"如 北京"），并显式声明 `required`。必要时加一条系统消息："只有在需要实时数据时才调用工具，闲聊直接回答。"
+
+**① 的后续手段（2026-09-13 补录）——`strict: true` / Structured Outputs**：比"description 写得更好"和"Executor 侧再校验一遍"更前置的官方修法是开启严格 schema 遵循。规格生成的 SDK 文档中 `FunctionDefinition.strict` 字段描述逐字为："Whether to enable strict schema adherence when generating the function call. If set to true, the model will follow the exact schema defined in the `parameters` field. Only a subset of JSON Schema is supported when `strict` is `true`. Learn more about Structured Outputs in the [function calling guide](https://developers.openai.com/api/docs/guides/function-calling)."（规格中默认 `false`）。
+使用约束：只支持 JSON Schema **子集**，且习惯上要求 `additionalProperties: false`、所有字段都进 `required`（本 Demo 的手写 schema 已按此改造，见上方 ② 处的 `strict` 对照示例）。
+来源：https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/shared_params/function_definition.py ，https://github.com/openai/openai-openapi/blob/master/openapi.yaml
 
 **② 两阶段调用**：第一轮只让工具"把数据取回来"；第二轮让模型"精读数据回答问题"——把"检索"与"生成"分开，模型就不会对着长数据发呆。骨架如下：
 
@@ -219,6 +247,9 @@ answer = call_model(
 
 **③ 分层路由（两级）**：第一级用一个"路由器函数"（`route_tool(domain)`），由模型先选出领域类别（天气/股票/地图…），第二级再暴露该领域的具体工具。每轮请求只携带"类别路由 + 当前域工具"的小 Schema 集合，上下文省一大截，选错率随之下降。此思路在 [[LLM-Agent开发基础]] 中会扩展为完整的工具调度。
 
+【2026-09-13 补】`tool_choice` 的第四种形态正好用在路由级：第一级用 `required` 或**直接指定函数**（`{"type":"function","function":{"name":"route_tool"}}`）强制模型先选类别，第二级再放开 `auto` 让它在域内选具体工具——规格对此形态的描述是 "Specifies a tool the model should use. Use to force the model to call a specific function."。另注意 `none` / `auto` 的默认值是有条件的（无 tools → `none`，有 tools → `auto`），别把 `auto` 当成无条件默认。
+来源：https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/chat_completion_named_tool_choice_param.py ，https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/completion_create_params.py
+
 **④ 并行 vs 串行的判断标准**：只要工具 B 的参数不依赖工具 A 的结果，就放同一轮并行（`parallel_tool_calls=True`）；存在依赖时，第一轮先取 A，把 A 的结果回填后再发起包含 B 的第二轮。
 
 ### 响应太慢问题的三板斧
@@ -231,7 +262,7 @@ answer = call_model(
 
 ### 自动化封装进阶
 
-- **`auto_schema` 的局限与补强**：自动生成的 description 是机械拼接，缺单位/枚举/示例——正是挑战①的病灶。改良方向：约定 docstring 的固定格式（首句=函数说明，后续行=参数说明），让 `auto_schema` 按约定解析，生成质量逼近手写；
+- **`auto_schema` 的局限与补强**：自动生成的 description 是机械拼接，缺单位/枚举/示例——正是挑战①的病灶。〔2026-09-13 更正：本节原先只点了 description 的问题，**漏掉同一段代码里更硬的一个错**——原实现把参数类型硬编码为 `"string"`，完全没有读 type annotation，任何 int / bool / array 参数都会生成类型错误的 JSON Schema。已修：按 `inspect.signature(func).parameters[name].annotation` 映射（int→integer、bool→boolean、list→array、float→number，无注解才回落 string）。〕改良方向：约定 docstring 的固定格式（首句=函数说明，后续按「<参数名> 参数：说明」给参数说明），让 `auto_schema` 按约定解析，生成质量逼近手写；
 - **通用 `run_agent` 扩展**：加 `max_rounds` 防死循环、加超时重试（网络抖动时按 `tool_call_id` 幂等重发）、加结果校验（Executor 返回非 JSON 时包装成合法 JSON 再回填）；
 - **与 MCP 的关系**：FC 是"单应用内"的工具协议，MCP（Model Context Protocol）把工具的定义与执行抽到外部服务，本 Demo 的 `TOOL_REGISTRY` 可以被 MCP 客户端替换，见 [[MCP协议开发实战]]。
 
@@ -241,7 +272,7 @@ answer = call_model(
 |----|------|------|
 | tool_call_id 不配对 | API 报 400 / 模型"失忆"答非所问 | 严格执行消息流配对表，逐条核对 id |
 | 无限循环 | 模型反复调用同一工具不收敛 | 设置 max_rounds 上限，超限抛错转人工 |
-| 参数幻觉 | 模型编造不存在的城市名/枚举值 | Schema 写全枚举 + 示例；Executor 侧校验参数 |
+| 参数幻觉 | 模型编造不存在的城市名/枚举值 | Schema 写全枚举 + 示例 + **`strict: true`**（从源头约束）；Executor 侧校验参数（兜底） |
 | 返回值未格式化 | 工具返回复杂对象，模型解读混乱 | 返回值统一 JSON 字符串，字段名语义化 |
 | 温度过高 | 参数 JSON 偶发畸形 | 工具调用场景 temperature 设 0-0.2 |
 | 并行误用 | 有依赖的工具被并行执行，拿到空结果 | 依赖分析后再决定并行还是串行 |
@@ -258,12 +289,29 @@ answer = call_model(
 
 ## 参考资料
 
-> [!info] 本文关键技术事实经 web_search 交叉核实，以下为实际参考的公开资料（访问日期 2026-08-25）。
+> [!info] 本文关键技术事实经 web_search 交叉核实，以下为实际参考的公开资料（访问日期 2026-08-25）。第 8–10 条为 2026-09-13 回写补录（访问日期 2026-09-13）。
 
-1. [OpenAI Function calling 官方指南](https://platform.openai.com/docs/guides/function-calling) — "模型调用 → 执行工具 → 回传结果"流程与并行函数调用的官方说明；
+1. [OpenAI Function calling 官方指南](https://platform.openai.com/docs/guides/function-calling) — "模型调用 → 执行工具 → 回传结果"流程与并行函数调用的官方说明。〔**2026-09-13 标注**：该地址对本环境返回 403（Cloudflare 拦截），**无法核实它当前是否仍是函数调用指南的规范地址**——疑似反爬、不等于失效；OpenAI 自家规格生成的 SDK 文档内部已把函数调用指南写作 `https://developers.openai.com/api/docs/guides/function-calling`（本次在 openai-python 的 `function_definition.py` 中逐字核对），提示文档地址已迁移，**须人工用浏览器复核后改为当期地址并标注访问日期**。〕
 2. [openai/openai-openapi: openapi.yaml](https://github.com/openai/openai-openapi/blob/423e672461b3d17f9829711e4a858e777252f077/openapi.yaml) — `parallel_tool_calls`（布尔参数，默认 true）与 `tool_calls` 字段结构的权威定义；
 3. [openai/openai-python SDK 仓库](https://github.com/openai/openai-python) — `chat.completions.create(tools=...)` 调用签名与 `ChatCompletionMessageToolCall`（Pydantic 模型）的用法；
 4. [Azure OpenAI REST API reference（messages 消息结构）](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference) — `assistant.tool_calls` 与 `role:"tool"` 消息的字段级定义；
 5. [Portkey Error Library: tool_call_id 配对错误](https://portkey.ai/error-library/tool-call-response-error-6610000) — "assistant 的 tool_calls 之后必须跟随逐条对应的 tool 消息"的报错案例与修复方式；
 6. [OpenAI API Reference: chat/completions](https://platform.openai.com/docs/api-reference/chat/create) — `parallel_tool_calls` 与 `temperature`（默认 1，低值更确定性）的官方参数定义；
 7. [OpenAI Help Center: Function calling in the Chat Playground](https://help.openai.com/en/articles/9492280-function-calling-in-the-chat-playground) — 函数调用双轮交互过程的可视化演示。
+8. [openai-python: function_definition.py](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/shared_params/function_definition.py) — `strict` 字段的官方描述（默认 `false`、只支持 JSON Schema 子集）与 Structured Outputs 指南的当期地址；〔2026-09-13 新增〕
+9. [openai-python: completion_create_params.py](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/completion_create_params.py) — `tool_choice` 四种形态的字段描述与**条件默认值**（无 tools 时 `none`、有 tools 时 `auto`）；〔2026-09-13 新增〕
+10. [openai-python: chat_completion_named_tool_choice_param.py](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/chat/chat_completion_named_tool_choice_param.py) — 「强制指定某一个函数」形态的规格定义，用于分层路由的第一级；〔2026-09-13 新增〕
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 正文代码被推送期脱敏规则误伤：`api_key = [已脱敏]("OPENAI_API_KEY")`、`[已脱敏] mock_call(...)`、`OpenAI(api_key=[已脱敏])`（NameError / SyntaxError / NameError），"离线可跑"不成立 | 三行改回可运行形态（`os.getenv` / `return` / `api_key` 变量），**不写回任何明文密钥**；加更正块说明根因在 `scripts/prepush-selfscan.sh` 的脱敏规则；同款缺陷在 [[Prompt-Engineering入门与Demo]] Demo 2 同步修复 |
+| 纠错 | `auto_schema` 把参数类型硬编码为 `"string"`，完全不读类型注解——任何 int / bool / array 参数都会生成类型错误的 Schema | 按 `inspect.signature(...).annotation` 映射类型（int→integer、bool→boolean、list→array、float→number，无注解才回落 string）；"局限与补强"一节补记该硬伤；给出可验收判据：`def add(a: int, b: int)` 旧实现填 `"3"`、修复后填 `3` |
+| 纠错 | 配对规则把「多条 tool 消息顺序须与 tool_calls 一致」并入「违反即 400」的硬性规则 | 保留原句 + 就地更正：官方只有「每条 tool 消息以 `tool_call_id` 逐条对应」这一硬要求，**顺序无规定**，按列表顺序回填最稳妥（部分兼容实现/网关会校验）；「违反即 400」限定到 id 配对那条。依据：openapi.yaml 与 openai-python 消息结构 |
+| 补疏漏 | 挑战① 与「参数幻觉」只写到「description 写清 + Executor 校验」，全文无 strict / Structured Outputs | 术语、挑战①、参数幻觉行补 `strict: true`（规格描述逐字 + 默认 false + 只支持 JSON Schema 子集、需 `additionalProperties: false` / 全字段 required）；Demo 手写 schema 加 `strict` 对照示例 |
+| 补疏漏 | 术语表 `tool_choice` 取值不全（只列 auto/required/none），且把 auto 写成无条件默认 | 补第四种形态「强制指定某一个函数」，写明**条件默认值**（无 tools → `none`，有 tools → `auto`）；在分层路由处给出用法：路由级用 `required` 或指定函数强制先选类别，再由 `auto` 选具体工具 |
+| 加厚 | 参考资料 1 的 platform.openai.com 链接无法核实 | 保留链接 + 标注 403（疑似反爬、非死链）、文档主域向 `developers.openai.com` 迁移、须人工复核后改当期地址；固定 commit 引用方式本身保留 |
+| 补疏漏 | 缺少 strict / tool_choice 的一手规格出处 | 追加第 8–10 条：`function_definition.py`（strict）、`completion_create_params.py`（tool_choice 条件默认值）、`chat_completion_named_tool_choice_param.py`（指定函数形态） |
+
+回链：[[CORRECTIONS]] | [[AGENTS]]

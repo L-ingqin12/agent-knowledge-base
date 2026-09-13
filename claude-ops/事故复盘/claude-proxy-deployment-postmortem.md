@@ -3,7 +3,7 @@ title: 代理部署事故复盘 — Python→Node.js 迁移
 aliases: []
 tags: [ai/ops, incident]
 created: 2026-06-11
-updated: 2026-08-17
+updated: 2026-09-13
 status: stable
 ---
 
@@ -57,6 +57,11 @@ T+60min Node.js 代理测试: HTTP 200 ✅
 
 **解决**: 在代理应用层为每个 socket 设置 `SO_KEEPALIVE + TCP_KEEPIDLE`。Node.js 版本用 `socket.setKeepAlive(true, 60000)`。
 
+> [!warning] 补疏漏（2026-09-13）：`setKeepAlive(true, 60000)` 只是首个探测的启动延迟
+> 内核默认值（`ip-sysctl` / `man 7 tcp` 逐条核对）：`tcp_keepalive_time` 默认 7200 s（2 hours）、`tcp_keepalive_intvl` 默认 75 s、`tcp_keepalive_probes` 默认 9，man 页另注 *the connection will be aborted after ~11 minutes of retries*。改后最坏判死时间 ≈ `60 + 9×75 = 735 s ≈ 12.3 分钟`——60 s 是首个探测的启动延迟，不是发现死连接的时限。
+> 要更快发现死连接应加**应用层超时**（如 `AbortSignal.timeout`），而不是继续压 keepalive；验收判据：断开上游后 `ss -tnp | grep 8787` 的 established 连接数回落到基线。
+> 来源：https://docs.kernel.org/networking/ip-sysctl.html ｜ https://man7.org/linux/man-pages/man7/tcp.7.html
+
 **教训**: PRoot 环境下内核级网络调优不可用。所有调优必须在应用层完成。
 
 ### 问题 2: Python 代理端到端测试通过但 Claude 无法使用
@@ -71,6 +76,11 @@ T+60min Node.js 代理测试: HTTP 200 ✅
 - Node.js 的 HTTP/2 客户端发送的请求格式 (HPACK header compression, multiplexed streams) Python HTTPServer 无法正确解析
 
 **关键线索**: curl 测试通过是因为 curl 使用的是 HTTP/1.1，恰好与 Python http.server 兼容。但 Claude 用的是完全不同的协议。
+
+> [!warning] 更正（2026-09-13）：这条根因对明文链路不成立（原表述为「Claude Code 使用 Node.js undici `fetch()`, 默认 HTTP/2；Python `http.server` 只支持 HTTP/1.1 → 协议协商失败」）
+> undici 官方文档逐字：`allowH2` 为 *Enables HTTP/2 support when the server assigns it a higher priority through ALPN negotiation*（默认 true），`h2Options.useH2c` 为 *Enforces h2c (HTTP/2 cleartext) for non-HTTPS connections*（默认 **false**），HTTP/2 一节另写 *The server must support HTTP/2 and select it during ALPN negotiation*。本链路是明文 `http://127.0.0.1:8787`——无 TLS 即无 ALPN，`allowH2` 无从生效，实际仍是 HTTP/1.1。故该结论应降级为**未验证假设**，方向不算误判但不足以定根因。
+> 对照实验：用 `curl --http1.1` 与 `curl --http2-prior-knowledge` 各发一次流式请求比对；同时把「`http.server` 不支持流式/SSE」作为先排除的候选机制（Python 官方文档：*http.server is not recommended for production*）。
+> 来源：https://undici.nodejs.org/api/Client ｜ https://docs.python.org/3/library/http.server.html
 
 **解决**: 放弃 Python, 用 Node.js 重写代理。Node.js `http` 模块与 Claude Code 使用相同的底层协议栈。
 
@@ -87,6 +97,10 @@ T+60min Node.js 代理测试: HTTP 200 ✅
 - Node.js 版本的 ANTHROPIC_BASE_URL 改为 `http://127.0.0.1:8787` (无 `/anthropic`) → Claude 发送 `/v1/messages` → 代理未补全路径 → DeepSeek 返回 404
 
 **解决**: 在代理中, 转发前将 `TARGET_URL.pathname` (`/anthropic`) 拼接到 `req.url` 前面。
+
+> [!note] 补疏漏（2026-09-13）：路径结论有官方出处（正文结论不改）
+> DeepSeek 官方文档《Use DeepSeek in Claude Code》逐字给出 `base_url = https://api.deepseek.com/anthropic` 与 `export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`；带 `/anthropic` 的 base URL 使请求落到 `/anthropic/v1/messages`，代理必须把上游 pathname 拼在 `req.url` 前。§6.3 记录的「路径错→404 / 代理活着→认证错误」与该行为自洽。（「Claude 自动加前缀」属通用约定，官方页未逐字写明。）
+> 来源：https://api-docs.deepseek.com/guides/anthropic_api
 
 **教训**: URL 路径拼接是代理开发中最容易出错的环节。必须在设计阶段明确: Claude 发送什么路径、代理转发什么路径、上游期望什么路径。
 
@@ -105,6 +119,11 @@ T+60min Node.js 代理测试: HTTP 200 ✅
 **现象**: `node proxy.js & sleep 2; curl test` 反复超时 (exit 144)
 
 **根因**: shell 管道问题。`timeout 10 curl ... | tail -3` 中, `timeout` 命令的 SIGTERM 会影响管道中的所有进程。在 PRoot/Termux 环境中, 进程组管理行为可能与标准 Linux 有差异。
+
+> [!warning] 更正（2026-09-13）：这条根因缺少机制支持（原表述为「`timeout` 的 SIGTERM 会影响管道中的所有进程」，并以「反复 exit 144」为佐证）
+> GNU coreutils 官方手册逐条：退出码为 124（超时且未用 `--preserve-status`）/125（timeout 自身失败）/126/127/137（KILL，128+9），**144（=128+16）不在其列**，故不能当作被 SIGTERM 杀掉的证据；且 timeout 默认会**新建独立程序组**，只有 `--foreground` 才是 *Don't create a separate background program group*。
+> 处置：标为未验证；记录原始退出码与 `timeout --version`，或改用 `setsid` 启动做对照。§6.4 已自行加了「Termux/PRoot 与标准 Linux 不同」的限定，写成「未验证」比写成根因更准确。
+> 来源：https://www.gnu.org/software/coreutils/manual/html_node/timeout-invocation.html
 
 **解决**: 使用 `run_in_background` 启动代理进程, 然后用独立的 `curl` 测试, 避免管道和进程组干扰。
 
@@ -150,6 +169,11 @@ https://api.deepseek.com/anthropic/v1/messages
 | TCP keepalive (内核) | PRoot 不可用 | 应用层已覆盖, 无计划 |
 | 代理崩溃恢复 | 未守护 | 用户手动重启, 或后续加 systemd/tmux |
 | 流式响应缓冲 | 当前用 pipe (边收边转) | 如果 SSE 流中断, Node.js pipe 会自然传播错误 → 触发重试 |
+
+> [!warning] 补疏漏（2026-09-13）：代理是唯一 API 通路，「未守护」不能一笔带过
+> - **方案对照与取舍**：systemd user unit（`Restart=always`、`RestartSec=2`、`After=network-online.target`；PRoot/Termux 下 systemd 可能不可用）／tmux 会话（简单但不会自愈）／nohup + 看门狗脚本（最可移植，需自写探活）。
+> - **最小验收判据**：`kill -9` 代理后 ≤10 s 内 `ss -tlnp | grep 8787` 重新有监听，且 `curl` 返回预期状态码而非 `000`。
+> - 选定方案应把 unit/脚本落到本库 `scripts/claude-ops-deployments/`，否则下次仍靠人工重启。
 
 ## 六、排查过程（逐步骤记录）
 
@@ -203,7 +227,7 @@ Step 4: 确认当前会话环境变量
         curl 使用 libcurl
   验证: Node.js fetch 默认 HTTP/2, 可能发送不同的请求格式
         Python http.server 只支持 HTTP/1.1
-  → ✅ 这是根因!
+  → ✅ 这是根因!（2026-09-13 更正：此判断对明文链路不成立 —— undici 的 HTTP/2 依赖 TLS ALPN，`http://` 下仍是 HTTP/1.1，详见 §二 问题 2 的更正块）
 
 关键证据: 
   - Python http.server.HTTPServer → 基于 TCPServer → HTTP/1.1 only
@@ -256,6 +280,8 @@ Step 4: 确认当前会话环境变量
       然后独立测试, 避免进程组干扰
 ```
 
+> [!warning] 更正（2026-09-13）：同上 —— 「timeout 向整个进程组发 SIGTERM」缺机制支持；exit 144 不在 coreutils 定义的退出码表（124/125/126/127/137）内，不能作为证据。原始退出码与 `timeout --version` 需补录。
+
 ### 6.5 完整的排查方法论
 
 ```
@@ -300,3 +326,17 @@ Step 4: 确认当前会话环境变量
 4. **路径拼接是代理 bug 的第一来源** — 必须在设计阶段对齐三种路径
 5. **逃生通道必须在部署前就绪** — 用户用回滚脚本几分钟内恢复服务
 6. **Node.js 是同语言代理的最佳选择** — 与 Claude Code 同协议栈, 无兼容性问题
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §二 问题 2 根因「undici 默认 HTTP/2 × Python 只支持 HTTP/1.1 → 协商失败」，§6.2 标注「✅ 这是根因!」 | 保留原表述并加更正：undici `allowH2` 需 TLS ALPN、`useH2c` 默认 false，明文 `http://127.0.0.1:8787` 无 ALPN，实际仍是 HTTP/1.1；降级为未验证假设，补 `curl --http1.1` / `--http2-prior-knowledge` 对照实验与「http.server 不支持流式/SSE」候选机制 |
+| 纠错 | §二 问题 5 / §6.4「`timeout` 的 SIGTERM 波及整个进程组」以 exit 144 为证 | 保留原表述并加更正：coreutils 退出码为 124/125/126/127/137，144（128+16）不在其列；默认新建独立程序组，只有 `--foreground` 才共享；标为未验证，补 `timeout --version` 与原始退出码 |
+| 加厚 | §二 问题 1 只有一句 `socket.setKeepAlive(true, 60000)` | 补内核默认值（7200 s / 75 s / 9 probes）与上界算式 `60+9×75 = 735 s ≈ 12.3 min`；指出 60 s 只是首个探测延迟，更快判死需应用层 `AbortSignal.timeout`；给 established 连接数回落验收判据 |
+| 加厚 | §五「代理崩溃恢复｜未守护」只有一行三列 | 补 systemd user unit / tmux / nohup + 看门狗方案对照与 PRoot 取舍、`kill -9` 后 ≤10 s 重新监听 + curl 非 `000` 的验收判据、`Restart=always` 等 unit 要点 |
+| 补疏漏 | §二 问题 3 的路径结论无官方出处 | 补 DeepSeek 官方 anthropic 接入页（`base_url` 带 `/anthropic` → 请求落到 `/anthropic/v1/messages`），结论不改 |
+
+依据与索引：[[CORRECTIONS]] · [[AGENTS]]

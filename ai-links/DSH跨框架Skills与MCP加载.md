@@ -3,7 +3,7 @@ title: DSH 跨框架 Skills/MCP 加载指南
 aliases: [DSH加载外部技能, dsh-bridges, DSH MCP 配置]
 tags: [ai/agent, ai/skills, ai/links]
 created: 2026-08-17
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 source: "官方仓库 deepseek-ai/deepseek-harness + dsh-bridges 文档（2026-08 快照）"
 source_urls:
@@ -36,6 +36,10 @@ DSH 的 skill 能力族（`dsh-skill` / `dsh-skill-filesystem` / `dsh-tool-skill
 - **格式**：目录包 `<name>/SKILL.md` 或扁平文件 `<name>.md`；名称 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）；不支持嵌套递归 `**/SKILL.md`。
 - **项目根** = 向上最近的含 `.git` 目录；watcher 热更新，改技能无需重启会话。
 - 模型目录里只暴露 `name` + `description`，正文通过 `skill` 工具按需加载。
+
+> [!note] 2026-09-13 复核：rank 表逐项无误
+> 六个 rank（100/200/300/400/500/600）与各自根目录一一对应，复核无误。其中「项目级 agents 约定」另有侧证：上游 `docs/session-format-status.zh.md` 正文即链接 `../.agents/notes/implemented/architecture/*.zh.md`，说明 `.agents` 是仓库级约定目录（`.claude` 本次未独立复核，不列为证据）。
+> 来源：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/session-format-status.zh.md
 
 > [!tip] 含义：遵循 Claude Code 约定的 `.agents/skills` 目录（Codex 风格）在 DSH 里**原生可用**——把技能目录放到项目或用户 agents 根即可，无需任何插件。
 
@@ -87,6 +91,10 @@ dsh web                                               # 或 dsh --profile <profi
 dsh --profile <profile-name> --dump-config            # 应出现 dsh-bridges 行
 ```
 
+> [!warning] `--profile` 的名字随本机安装形态变化（2026-09-13 复核）
+> 「web 或 headless」不是固定集合：本机 2026-09-13 实测的 profiles 是 `desktop` / `dsh-tui` / `headless` / `web` / `tui.retired-20260912`（`node_modules` 另计），而本簇三篇文档对 profile 名单给出过三种答案。安装前先列目录：`dir %USERPROFILE%\.dsh\profiles`（POSIX：`ls "$DSH_HOME/profiles"`）。
+> `--dump-config` 的期望片段是**出现 `# == dsh-bridges` 层标记 + 该行的完整 config**；同时记住它**只证明配置组合、从不 import 模块**（[[DSH插件发布与分发]] §1.5），不能当作"插件装好了"的证据。
+
 headless（一次性 CLI）同样支持：`dsh plugin --profile headless add dsh-bridges` 后在项目目录 `dsh --profile headless "list the skills available in your catalog"`。从仓库安装：`pnpm install && pnpm build && dsh plugin --profile <p> add .`。
 
 ### 3.2 支持矩阵
@@ -102,6 +110,11 @@ headless（一次性 CLI）同样支持：`dsh plugin --profile headless add dsh
 | Pi | ✓ | ✓ | — | — | — |
 | Gemini CLI | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Cursor | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+> [!note] 矩阵的口径（2026-09-13 复核）
+> - **对应版本**：本矩阵对应 `dsh-bridges` **0.2.4**（npm `latest`）；其 description 列出 Claude Code / Codex / opencode / CodeBuddy Code / pi / Gemini CLI / Cursor 七家，与本表七行一致，`repository` = yhlooo/dsh-bridges。来源：https://registry.npmjs.org/dsh-bridges/latest
+> - **`—` 的两种含义要分开**：「上游根本没有这种配置」（如 OpenCode 无 hooks）与「上游有、本桥暂未实现」不是一回事，本表当前把两者写成了同一个符号——按工具逐项核对后应拆开标注。
+> - **32 KiB 记忆预算超限时的可观测性**（§3.5）未记录：裁剪是静默发生还是有告警，本页未核实。
 
 ### 3.3 配置（补丁层覆盖）
 
@@ -147,8 +160,9 @@ dsh --profile web --dump-config | grep -A2 bridges
 
 ## 五、与本机环境的对应
 
-- 本机 profiles：`web`（dsh-base + dsh-web-app）、`tui`（[[DSH-TUI插件使用手册]]）。
-- dsh CLI v0.1.0-rc.6；配套 Node 22.21（`%USERPROFILE%\nodejs-x64\node-v22.21.0-win-x64\`），系统 PATH 里的 node 仍是 v18（TUI 需要 ^22.19，勿混用）。
+- 本机 profiles（2026-09-13 复核）：`web`（dsh-base + dsh-web-app）、`desktop`、`headless`、`dsh-tui`（[[DSH-TUI插件使用手册]]），另有已退役目录 `tui.retired-20260912`。原表述为「`web`（dsh-base + dsh-web-app）、`tui`」——**`tui` 这个名字在本机已不复存在**。
+- dsh CLI **0.1.5-rc.1**（原表述为 v0.1.0-rc.6）；上游 master `apps/cli/package.json` = 0.1.5-rc.2，npm dist-tags = `latest: 0.1.5-rc.1` / `next: 0.1.5-rc.2` / `alpha: 0.1.5-alpha.2`（自查：`npm view @deepseek-ai/dsh dist-tags`）。配套 Node 22.21（`%USERPROFILE%\nodejs-x64\node-v22.21.0-win-x64\`），系统 PATH 里的 node 仍是 v18（TUI 需要 ^22.19，勿混用）。
+  来源：https://registry.npmjs.org/@deepseek-ai/dsh
 - 与 [[2026-08-16-AI链接综述与归档]] 的关联：#1 antigravity-awesome-skills（1900+ 技能聚合）、#6 i-have-adhd（SKILL.md 最小样本）、#14/#15 图表技能，均可在 DSH 中以原生 skill 或 bridges 方式使用。
 
 > [!warning] 时效性
@@ -160,3 +174,16 @@ dsh --profile web --dump-config | grep -A2 bridges
 - [[DSH-TUI插件使用手册]] — 本机 TUI 插件手册
 - [[TYPORA-KB-Home]] — Skills 打包机制对照（typora-activation）
 - [[AGENTS]] — 知识库规范
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §五 写「本机 profiles：`web`、`tui`」且 dsh CLI 为 v0.1.0-rc.6 | 改为现行五个 profile（含 `desktop` / `headless` / `dsh-tui` 与已退役的 `tui.retired-20260912`）与 CLI 0.1.5-rc.1，原表述保留在句内；依据 `$DSH_HOME/profiles` 实测与 npm dist-tags |
+| 加厚 | §3.2 支持矩阵未标 dsh-bridges 版本；`—` 把「上游无此配置」与「本桥未实现」混为一谈；32 KiB 超预算是否可观测未记 | 矩阵后补口径块（对应 0.2.4）与两条待拆项；依据 https://registry.npmjs.org/dsh-bridges/latest |
+| 加厚 | §一 rank 表正确但无复核痕迹 | 补 2026-09-13 复核块，并以官方 `docs/session-format-status.zh.md` 的路径侧证 `.agents` 约定 |
+| 加厚 | §3.1 安装命令把 profile 名写死成「web 或 headless」，且未给 `--dump-config` 的期望输出 | 补 profile 名随安装形态变化的警告、列目录命令与期望片段（含「只证明配置组合」的限定） |
+
+更正与依据登记：[[CORRECTIONS]]

@@ -3,7 +3,7 @@ title: AI Dev KB Home — LLM 应用开发实战专题库
 aliases: [AI开发MOC, LLM应用开发首页, AI-Dev-KB]
 tags: [ai, moc, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -28,7 +28,7 @@ status: review
 
 | # | 专题文档 | 一句话解决的问题 | 配套图 |
 |---|----------|------------------|--------|
-| 1 | [[Prompt-Engineering入门与Demo]] | 如何写出稳定可控的 prompt（few-shot/LtM/CoT/结构化输出） | — |
+| 1 | [[Prompt-Engineering入门与Demo]] | 如何写出稳定可控的 prompt（few-shot/LtM/CoT/结构化输出） | ![[Prompt-Engineering-LtM-Flow.excalidraw]] |
 | 2 | [[Function-Calling工具调用实战]] | 让模型"说→做"：双轮调用与四大进阶挑战 | ![[Function-Calling-Sequence.excalidraw]] |
 | 3 | [[RAG检索增强生成实战]] | 私域知识问答：架构演进/选型/性能优化/评估 | ![[RAG-Pipeline.excalidraw]] |
 | 4 | [[GraphRAG知识图谱增强实战]] | 全局性/多跳问题：实体抽取+社区检测+Local/Global Query | ![[GraphRAG-Flow.excalidraw]] |
@@ -50,11 +50,22 @@ status: review
 
 | 主题 | 一句话要点 | 状态 |
 |---|---|---|
-| Prompt/Context Caching | 前缀缓存可省 75-90% 输入费用；DeepSeek 自动、Anthropic 显式断点 | ✓ 见 [[LLM推理部署与量化]] 缓存节 |
+| Prompt/Context Caching | 前缀缓存可省 75-90% 输入费用；DeepSeek 自动、Anthropic 显式断点 | ⏳ 待专题（现有素材：[[LLM推理部署与量化]] 的 `--enable-prefix-caching` 与「前缀缓存只对共享前缀生效」的坑；**该文件并无独立缓存节**，命中/未命中的计费差与 block 粒度待补） |
 | Structured Outputs | JSON Schema 强约束输出，取代"请输出 JSON"祈祷式提示 | ✓ 见 [[Prompt-Engineering入门与Demo]] |
 | Agent 可观测性 | Langfuse/LangSmith 追踪每次工具调用与 token 流水，评估驱动迭代 | ⏳ 待专题 |
 | Guardrails 与安全护栏 | 注入防御、输出过滤、越权工具调用的白名单治理 | ⏳ 待专题（部分见 [[Agent-Skills技能开发实战]] allowed-tools） |
 | Computer/Browser Use | 截图→定位→点击的 GUI 操作型 Agent，MCP 化浏览器控制 | ⏳ 待专题 |
+
+> [!warning] 补疏漏（2026-09-13）：上表只有「一句话要点 + 状态」两列，缺触发条件与验收判据——读者不知道"补到什么程度算完成"（原表头为「主题 / 一句话要点 / 状态」三列）
+> 逐条补上触发条件与最小验收判据：
+>
+> | 主题 | 触发条件 | 最小验收判据 |
+> |---|---|---|
+> | Prompt/Context Caching | 对外服务开始按 token 计费，或 prompt 前缀重复率高 | 能对一个真实负载算出命中率与省下的费用；能说清命中条件（前缀完全一致 + block 对齐）与 `--enable-prefix-caching` 的显存代价 |
+> | Structured Outputs | 解析模型输出失败率已影响下游 | 用 JSON Schema 强约束跑通一次；非法输出率相对"祈祷式提示"明显下降到 0 |
+> | Agent 可观测性 | 上线对外服务前 | 能追出一次工具调用的完整 span 与 token 流水，并有至少一条离线评估基线；素材见 [[agent-evals-observability]] |
+> | Guardrails 与安全护栏 | 工具具备写操作/外发能力之前 | 红队注入样例 ≥20 条；拦截率与误杀率各出一个数；素材见 [[Agent-Skills技能开发实战]] 的 allowed-tools、[[上下文工程-注意力预算与四层解法]] |
+> | Computer/Browser Use | 需要在没有 API 的界面上操作时 | 一条"截图→定位→点击"的端到端回放可重复成功，失败可归因（定位错 / 超时 / 权限） |
 
 ## 学习路径（建议顺序)
 
@@ -69,6 +80,11 @@ status: review
 ⑨ 大型项目综合演练
 ```
 
+> [!note] 编号口径与新增支线（2026-09-13 补注）
+> 图中**圈码 ②-⑨ = 课程阶段**，**括号里的数字 = 文档地图编号（1-15）**——两套编号同现是本路径易误读之处（如 ④ 与 (5→6→7) 并非同一套序号）。
+> 另：文档 **15 [[LLM架构进阶-从注意力变体到推理引擎]]** 此前未进入本路径，建议挂在阶段 ③ 部署之后（第 9 篇 [[LLM推理部署与量化]] 的机制层补充：MHA/GQA/MLA 演化、RoPE 外推、MoE、连续批处理 / PagedAttention / 投机解码）。
+> 阶段 ⑨「大型项目综合演练」在文档地图 1-15 中没有对应条目，其落点见下方「项目案例地图」。
+
 ## 项目案例地图
 
 | 课程项目 | 综合运用的知识点 | 相关专题 |
@@ -82,12 +98,15 @@ status: review
 
 全部为 Excalidraw 格式，绘图规范见 [[AGENTS#十一、图表与可视化约定]] 与 [[ARROW-CHECKLIST]]：
 
-`Function-Calling-Sequence` · `ReAct-Agent-Loop` · `RAG-Pipeline` · `GraphRAG-Flow` · `MCP-Architecture` · `Multi-Agent-Supervisor` · `LoRA-Principle` · `RLHF-GRPO-Pipeline`
+本子库文档嵌入的图：`Prompt-Engineering-LtM-Flow`（文档 1） · `Function-Calling-Sequence`（2） · `RAG-Pipeline`（3） · `GraphRAG-Flow`（4） · `ReAct-Agent-Loop`（5） · `MCP-Architecture`（6） · `Multi-Agent-Supervisor`（8） · `Training-vs-Inference`（9、12 复用） · `LoRA-Principle`（10） · `RLHF-GRPO-Pipeline`（11）
+
+> [!warning] 补疏漏（2026-09-13）：原清单只列 8 张，漏了文档 1 自己嵌入的 `Prompt-Engineering-LtM-Flow`（原表述为 `Function-Calling-Sequence` · `ReAct-Agent-Loop` · `RAG-Pipeline` · `GraphRAG-Flow` · `MCP-Architecture` · `Multi-Agent-Supervisor` · `LoRA-Principle` · `RLHF-GRPO-Pipeline`）
+> `diagrams/` 目录全量为 **22 张 `.excalidraw.md`**（另有 1 个 `.excalidraw` 与各 1 个含 excalidraw 名的 `.ps1` / `.py`，合计 25 个文件）。本页只维护"子库嵌入了哪些图"，需要全量清单请直接看 `diagrams/` 目录——避免每新增一张图就要改一处易漏清单。
 
 ## 标签索引
 
-- `#ai/learning` — 教程型专题（1,3,4,9,10,11,12,14）
-- `#ai/agent` — Agent/协议类（5,6,7,8,13）
+- `#ai/learning` — 教程型专题（1,2,3,4,9,10,11,12,14,15）〔2026-09-13 更正：原为 1,3,4,9,10,11,12,14，漏了 2 [[Function-Calling工具调用实战]] 与 15 [[LLM架构进阶-从注意力变体到推理引擎]]，两者 tags 均含 ai/learning〕
+- `#ai/agent` — Agent/协议类（5,6,7,8,13,14）〔2026-09-13 更正：原为 5,6,7,8,13，漏了 14 [[多模态Agent平台实战]]〕
 - `#moc` — 本页
 
 ## 关联入口
@@ -95,3 +114,19 @@ status: review
 - [[AI大模型开发]] — 理论根基与本子库的课程映射表（课程知识地图）
 - [[AI-Links-KB-Home]] — AI 链接收藏库（工程方法论综述）
 - [[Claude-Ops-KB-Home]] — Agent 运维实践（Harness Engineering 的真实战例）
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | 第 53 行「Prompt/Context Caching … ✓ 见 [[LLM推理部署与量化]] 缓存节」指向不存在的小节（目标文件无「缓存」标题，只有 `--enable-prefix-caching` 参数与「前缀缓存只对共享前缀生效」的坑） | 状态改回 **⏳ 待专题**，并注明现有素材与缺口（命中/未命中的计费差、block 粒度待补） |
+| 补疏漏 | 标签索引与实际 frontmatter 不一致：`#ai/learning` 漏 2、15；`#ai/agent` 漏 14 | 两行就地更正为 `#ai/learning`（1,2,3,4,9,10,11,12,14,15）与 `#ai/agent`（5,6,7,8,13,14），并在行内留原文以便追溯 |
+| 补疏漏 | 图表索引只列 8 张，漏了文档 1 嵌入的 `Prompt-Engineering-LtM-Flow`；文档地图第 1 行「配套图」仍为「—」 | 索引改为"子库嵌入图清单（10 张，按文档编号）+ 指向 `diagrams/` 全量 22 张 `.excalidraw.md`"两段式；文档地图第 1 行补上该图 |
+| 补疏漏 | 学习路径把圈码（课程阶段）与括号数字（文档地图编号）混用，且文档 15 既不在路径也不在索引 | 路径下补「编号口径与新增支线」注记：圈码=课程阶段、括号=文档编号；文档 15 挂到阶段 ③ 之后；并说明阶段 ⑨ 的落点在项目案例地图 |
+| 补疏漏 | 「课程外增补雷达」5 个主题只有一句话要点 + ✓/⏳，无触发条件与验收判据 | 表下补逐条"触发条件 + 最小验收判据"表（如可观测性要能追出完整 span 与 token 流水、Guardrails 要 ≥20 条注入样例与拦截率/误杀率） |
+| 补疏漏 | frontmatter 的 `updated` 停留在 2026-08-25，正文却含 2026-09-12 合并入库小节与 2026-08-26 新增条目，按时效筛选会漏内容 | `updated` 改为 2026-09-13（本次实质修改日期）；2026-09-12 合并批的来源与核验状态见本页第 16-25 行 |
+
+> 说明：本次审计对「第 22-23 行 L-ingqin12 两个原仓库是否可核验」一条已由复核**驳回**（GitHub API 实测两仓库均 HTTP 200、`"private":false`、公开可见），故本页该处未作改动。
+> 待人工确认：学习路径是否改成「阶段名 + 文档 wikilink 列表」两列式、`diagrams/` 是否加全量清单页——两项属结构调整，本次只做最小安全修改。
+
+回链：[[CORRECTIONS]]（本库更正总表）

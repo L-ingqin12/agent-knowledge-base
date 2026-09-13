@@ -3,7 +3,7 @@ title: 通用多源缓存对齐中继设计（cache-relay）
 aliases: [通用缓存中继, cache alignment relay]
 tags: [ai/ops, ai/agent]
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-13
 status: review
 ---
 
@@ -28,6 +28,15 @@ See also: [[Claude-Ops-KB-Home]] · [[claude-cache-optimization]] · [[tianshu-c
 | **通用 OpenAI 兼容** | 未知/无 | 保守 | 工具排序 + 确定性序列化（安全默认） |
 
 **判源依据**：`baseUrl` host + `model` 名 + `protocol`（OpenAI `chat/completions` vs Anthropic `messages`）。
+
+> [!warning] 补疏漏（2026-09-13）：DeepSeek 缓存的**最小粒度**与**命中保证**
+> 上表把 DeepSeek 命中关键写作「隐式 exact-prefix（byte 0 起逐字节）」（原表述），方向正确，但缺两条硬约束——而 §三「strip cache_control ✅」的结论正依赖它们：
+> - **存储粒度 64 token**：官方原文 *The cache system uses 64 tokens as a storage unit; content less than 64 tokens will not be cached* ⇒ 小于 64 token 的内容**不会被缓存**；
+> - **best-effort，不保证 100% 命中**；未使用条目通常在**数小时到数天**内清除；命中情况由响应里的 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` 暴露。
+>
+> 补充说明：审计由此推出的「分类器请求 <64 token，故不会被缓存、对其做稳定化无收益」**不成立**——§10.1 记分类器请求为 **4KB**（约千级 token），远超 64 token，该推论未采纳。
+>
+> 来源：<https://api-docs.deepseek.com/news/news0802/> · <https://api-docs.deepseek.com/guides/kv_cache>
 
 ## 二、判源与分派（detect → dispatch）
 
@@ -142,6 +151,11 @@ node cache-relay.mjs doctor       # 判源自测：给定 baseUrl/model 打印�
 
 > **现状（2026-09-12）**：命中率已稳定（最近 20 分钟 95.6%，两个会话分别 96.0% / 94.2%），故 `dump` 置 `false` 并清空 `dump.jsonl`，只保留脱敏样例。日后需要再做请求侧观测（如锚点跨会话复用验证、`stabilizeTokens` 单变量 A/B）时把开关改回 `true` 即可，无需重启。
 
+> [!note] 口径说明（2026-09-13 补）
+> 上段「95.6%（96.0% / 94.2%）」应写明口径：**命中率 = hit / (hit + miss)**，取自响应里的 `prompt_cache_hit_tokens` 与 `prompt_cache_miss_tokens`；其**理论上限**受 DeepSeek 的 **64 token 存储粒度**约束（不足一个存储单位的尾部必然计为 miss）。故跨会话比较命中率时必须**同时给出包体大小**，否则小包体天然偏低。
+>
+> 来源：<https://api-docs.deepseek.com/news/news0802/> · <https://api-docs.deepseek.com/guides/kv_cache>
+
 ## 十、性能优化与测试台（2026-09-12）
 
 ### 10.1 度量方法：先拆阶段，再决定优化谁
@@ -216,3 +230,117 @@ Node 启动时已把脚本载入内存，**编辑 `cache-relay.mjs` 不会影响
 ### 10.7 未采用：把 parse/align/stringify 丢进 worker 线程
 
 理论上能让事件循环不被阻塞，但每请求要把 1.5MB 缓冲跨线程搬运（约 1ms 拷贝 + 往返延迟），且徒增复杂度与故障面；在 align 已被压到 0.4~0.9ms 的前提下收益不成立，故不做。
+
+## 十一、诊断探针（P6，2026-09-13）
+
+**动机**：中继此前**只测请求、不测响应**，也没有任何前缀分歧检测 —— 于是「离散重置事件」一个都归不了因，命中率只剩猜。
+
+`config.probe` 开启（**默认关 = 零额外状态**）。两个只读探针：
+
+| 探针 | 落盘 | 作用 |
+|---|---|---|
+| A 前缀分歧 | `prefix-break.jsonl` | 按真实世系比对上一轮，**只在出现分歧时**落盘 |
+| B usage tee | `usage.jsonl` | tee 上游 SSE 取 usage —— **唯一**能看到分类器世系缓存健康度的途径（Claude Code 不把分类器调用写进 transcript） |
+
+**热生效边界**：`config.json` 是**每请求热读**（`readConfig` 带 mtime/size 缓存），但**代码不是** ——
+改 `cache-relay.mjs` 必须**重启进程**（同 §10.6）。两者别混为一谈。
+
+### 11.1 上线后暴露的三个缺陷（静态审查与单测都没抓到）
+
+1. **分类器响应不是 SSE** —— 它是 643B～3KB 的**整段 JSON**，没有 `data:` 行 ⇒ tee 解析不到 usage，
+   而「看清分类器缓存健康度」正是该探针**唯一的存在理由**。修法：SSE 解析失败后退化为整包 `JSON.parse`，
+   并记 `bodyBytes` 以便识别。
+2. **`cache_control` 断点位移** ⇒ 每请求假阳性（实测 10/10 全假，而同期 `cache_read` 单调增长、
+   命中率 98.3% 证明前缀其实稳定）。修法：**消息哈希必须跳过 `cache_control`**（它是缓存断点元数据、
+   **不是 token**，不影响 DeepSeek 的 token 前缀缓存）。
+3. **「末条消息变化」不是前缀重置** —— `firstDiffIdx ≡ prevMsgs-1`，分歧永远落在**上一轮末条**，
+   只让尾部重算（`input_tokens` 仅 2–7K），前面照常命中。修法：只在**早于末条**的分歧落盘，
+   并新增 **`invalidatedMsgs`**（被作废的消息条数）= 「重置有多严重」的直接度量。
+   `gapMs` 保留，但**它测不出空闲型重置** —— 空闲过期不是「分歧」（前缀未变、只是被逐出），
+   该看 `usage.jsonl` 的 `t` 与 `cache_read` 的关系。
+
+另有 `probe.sample` 开关（**默认关**）：开启后「尾部翻动」也落盘，并并列给出前后两个 200 字符片段。
+注意 **`probe: true`（布尔）不开启采样**，必须用对象形式 `probe:{prefix:true,usage:true,sample:true}`。
+
+### 11.2 管道生命周期缺陷（既有，已修复）
+
+**上游中途 `error`/`destroy` 时，Node 的 `pipe` 只 unpipe，不会结束客户端响应** ⇒ 客户端一直挂到自身超时。
+触发源：提供方 RST，或 `forward()` 自己的 180s 不活跃定时器。**两条分支都要收尾** ——
+关掉探针走的是 `stream.pipe(res)` 那一支，故该缺陷与探针无关。
+
+修法：`abortTo()` 显式 `destroy` 上游与 `res`（仅在 `!res.writableFinished` 时）；`!enabled` 分支挂
+`stream.on('error')`，tee 分支挂 `stream.on('error')` + `tap.on('error')`，并补 `res.on('close', finish)`。
+
+**验证用了反证**（关键做法）：把 `abortTo` 中和成空操作、跑同一测试 ⇒ **挂死 5008ms**；
+修复版 ⇒ **63ms 干净关闭**。约 80 倍差异，证明测试**真能区分修复前后**而非只亮绿灯。
+回归测试 `relay-probe-test.mjs` 的 `[9]`（假上游收到 `model: drop-test` 时写半条 SSE 后 `socket.destroy()`）。
+
+### 11.3 实测数据（2026-09-13）
+
+**42 次主会话请求**：`cache_read` 由 **184832 单调增长到 263936、一次未掉**，命中率 **97.6–99.2%**。
+
+| 空闲间隔 | 命中率 |
+|---|---|
+| 168.9s | 98.4% |
+| 163.8s | **99.0%** |
+| 153.2s | 98.9% |
+| 139.5s | **99.1%** |
+| 113.6s | **99.2%** |
+
+⇒ **空闲 ≤3 分钟不触发逐出**；间隔最长者命中率反而最高。
+
+**同时这是窗口修复的直接证据**：该会话 `nMsgs` 187→310、**零次压缩**、上下文达 ~264K 仍平稳运行；
+按修复前的 200K 假设（阈值 ~144K）早该被反复压缩。见 [[claude-context-window-and-model-id]]。
+
+### 11.4 方法论教训
+
+**静态审查抓不到只在真实流量里成形的缺陷。** 上述三个探针缺陷，单元测试与 32-agent 对抗审查**都没抓到** ——
+它们是真实流量的形态（非 SSE 响应、断点位移、末条翻动）。**诊断工具自身也需要「上真流量再验一遍」这道工序**，
+且上线后要立刻核对它的产出是否合理：本次是靠「每请求都落一条」这个**不合理现象**才发现假阳性的。
+
+### 11.5 relocateVolatile 稳定性闸（2026-09-13）
+
+**问题**：`relocateVolatile` 的判据 `looksLikeEnv(text)` 是**块粒度**的，而本 harness 的 system 是一个**巨型块、末尾含 `gitStatus:`** ⇒ 被整块命中，
+**连同前面全部稳定内容一起搬进最后一条消息**。而那段内容自己写着 *a snapshot in time, and will not update during the conversation* ——
+**整个会话都不变**。于是搬迁收益为零，代价是双重的：
+
+1. **整段系统提示（约 10K token）每轮重算**（落在尾部，下一轮客户端重发不带它）；
+2. **把整段系统提示当作 user 轮注进对话** —— 既白烧 token，又产出一个**形似提示注入**的产物（每轮都要先判断"这是中继输出还是用户说的"）。
+   实测该注入在单次会话中反复出现。
+
+**修法（已落地，两易其稿 —— 过程本身比结论更值得记）**：
+
+- **第一稿（错）**：按会话记住**上一轮**的 system 指纹，一致就跳过。**判据选错了。**
+- **第二稿（现行）**：判据改为「**这个指纹以前见过吗**」——按会话保留最近 4 种已知形态，见过的都算稳定 ⇒ 跳过；
+  **只有全新指纹才放行搬迁**。首见只登记不搬。config `relocateVolatileGuard:false` 可退回旧行为。
+
+**为什么第一稿必错**：加了诊断 `reloc-guard.jsonl`（**只记指纹、不记内容**）后拿到决定性数据 ——
+**同一会话的 system 只有两个变体、交替出现**（`prevSig=61ddf174 → sig=70773b86 → 61ddf174`，两块都变）。
+**单槽比较必然把这种有限状态交替误判成「每轮都在变」**，而**两种形态其实都是稳定的**。实测放行次数因此降为 **0**。
+
+> **可复用规则一**：判断「稳定 / 易变」时，**单槽比较会被有限状态交替骗过**，要用「已见集合」。
+> **可复用规则二（更一般）**：**当两个独立字段互相矛盾时，那是仪器在自报故障** —— 此处 `preSysChanged=false`（对齐前 system 未变）
+> 与 `relocFlip=true`（却发生了搬迁）同时为真。**只盯单一字段会把 bug 当成「闸门在工作」。**
+
+**⚠️ 第一版有 bug，且是审查抓过的同一类**：初版闸门键只用 `session-id`，而**分类器带的正是同一个 session-id**（只是没有 agent-id），
+其 system 与主会话完全不同 ⇒ **每轮主/分类器交替都让闸门误判「变了」而反复搬迁**。
+判别证据：`prefix-break.jsonl` 出现 `[relocFlip] relocMoved=1` 而**同一行 `preSysChanged=false`** —— 对齐前 system 稳定却触发了搬迁，说明判据错。
+修法：闸门键补上 cls 维（`<sid>|cls|main`）。**这与 §11.1 缺陷①（`probeKey` 缺 cls 维）是同一个坑，我在新地方原样重犯。**
+> 可复用规则：**凡按「上一轮」做差分判断的键，都必须包含「请求种类」维度。** 分类器与主会话共用 session-id 是本机固有形态，
+> 任何只用 session-id 的历史状态都会在两者之间串味。
+
+**方法论**：这次是 `preSysChanged=false` 与 `relocFlip=true` 的**矛盾**暴露了 bug —— 两个独立字段互斥却同时为真，
+是仪器自检的好信号。**只盯单一字段会把它当成"闸门在工作"。**
+
+Related: [[claude-cache-optimization]]、[[claude-cache-strategy]]、[[CORRECTIONS]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | §一 只写「隐式 exact-prefix、byte 0 起逐字节」，全篇无 DeepSeek 缓存的最小粒度与命中保证 | 补 64 token 存储单位、best-effort 不保证命中、数小时到数天清除、`prompt_cache_*_tokens` 口径（api-docs.deepseek.com news0802 / kv_cache） |
+| 补疏漏 | §九「命中率 95.6%」未写口径，无法跨会话比较 | 补口径定义 hit/(hit+miss)、64 token 粒度对理论上限的约束、比较时须附包体大小 |
+
+> 未采纳：审计由「64 token 粒度」推出「分类器请求不会被缓存、稳定化无收益」——§10.1 记分类器请求为 4KB（约千级 token），前提不成立。
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

@@ -14,7 +14,14 @@ cssclass: agents-manifest
 > 面向模型: Claude Code、Obsidian Copilot、及任何能读取此 Vault 的 AI 系统。
 
 > [!danger] ⛔ 全局铁律 — 模型路由（不可豁免）
-> 全局整体使用 **ox-alpha** 模型：无论是 subagent、workflow 编排还是其他任何任务委派，均必须使用 ox-alpha，**不允许错误路由到 deepseek 系列其他模型**。落实方式：委派时不传任何 provider/model 覆盖参数，严格继承会话默认模型；若编排工具支持 model 指定，必须显式写死 `ox-alpha`。违反此条视为最严重的规范违规。
+> **一切 subagent / workflow / 任务委派一律继承会话默认模型**：委派时不传任何 provider/model 覆盖参数，
+> **也不要在编排脚本里写死任何模型 ID**。违反此条（即**擅自覆盖会话默认模型**）视为最严重的规范违规。
+>
+> **2026-09-13 订正**：原文强制「若编排工具支持 model 指定，必须显式写死 `ox-alpha`」——这与它自己的前半句
+> 「严格继承会话默认模型」**自相矛盾**，而 `ox-alpha` 已于 **2026-09-12 下架**（见 `~/.dsh/settings.yaml` 记录），
+> 于是该条**不可执行**：照做的人反而违规，不照做的人违反成文规则。
+> 现改为只约束「**不得覆盖**」、不再点名模型 —— **把模型 ID 写死进规范，会让规范随模型上下架而失效**，
+> 这本身就是错误的规范写法，与 [[CORRECTIONS]] C-010「把配置字段当作稳定值」同族。
 
 ## 一、Vault 概览
 
@@ -293,7 +300,7 @@ MOC 应包含：概述、文档地图、关系图（**Excalidraw 嵌入或缩进
 6. **Graph 友好** — 新文档至少链接 3 个已有文档
 7. **保持脚本可执行** — `scripts/` 下的代码不变 (除非专门优化)
 8. **敏感信息** — 密码/IP 可以保留在知识库内 (本地 Vault), 但不要复制到外部
-9. **模型铁律** — 一切 subagent / workflow / 任务委派均须使用 `ox-alpha` 模型（继承会话默认，不传 model 覆盖），禁止路由到 deepseek 系列其他模型，见文首全局铁律
+9. **模型铁律** — 一切 subagent / workflow / 任务委派**一律继承会话默认模型**，不传 model 覆盖、不在脚本里写死模型 ID（2026-09-13 订正：原文点名 `ox-alpha`，该模型已于 2026-09-12 下架，规则不可执行），见文首全局铁律
 10. **Python 环境** — 全局解释器固定为 `D:\ProgramData\miniconda3\python.exe`（Python 3.13）；验证文档中 Demo/脚本时一律用此路径，勿假设 `python` 在 PATH
 
 ## 十一、图表与可视化约定
@@ -407,6 +414,20 @@ tags: [excalidraw]
 2. 在 Obsidian 中打开文件 → 插件自动压缩为 `compressed-json`
 3. 之后可以正常编辑/导出
 
+**回读已压缩的图 (2026-09-13 补充)**:
+
+`compressed-json` 段由 `%%` 包裹，read / ripgrep 看不到任何元素字段（`ai-dev/mcp-learn/examples/excalidraw_server.py:89-108` 只认未压缩的 json 围栏，遇到压缩块直接报「无法解析压缩的绘图数据 (需要 LZString 解压)」）。核对图表前先解压：
+
+| 步骤 | 做法 |
+|------|------|
+| 1 取出 | 定位 `compressed-json` 围栏到下一个围栏之间的内容 |
+| 2 去空白 | 拼接时**去掉全部换行与空白**（插件写出的块内会夹空行，带空白直接 base64 解码会失败） |
+| 3 解压 | `LZString.decompressFromBase64()`（Node / Python 均有等价移植），得到未压缩 JSON |
+| 4 统计 | 按 `type` 计数；`isDeleted:true` 是墓碑元素，**不计入**；逐条核对箭头两端 binding 与目标元素回引 |
+| 5 期望值 | 以 Transformer-Architecture 为例：45 元素 = 14 矩形 + 17 文本 + 14 箭头，0 处悬空绑定、3 处缺回引（2026-09-13 实测） |
+
+现状（2026-09-13 实测）：`diagrams/` 22 张图中 **13 张为 `compressed-json`**、**9 张仍是可直接读的未压缩 json**（Function-Calling-Sequence / GraphRAG-Flow / LoRA-Principle / MCP-Architecture / Network-DocGraph / Prompt-Engineering-LtM-Flow / RAG-Pipeline / RLHF-GRPO-Pipeline / Transformer-ResidualConnection）。
+
 **布局关键规则 (🔑 避免格式混乱)**:
 
 | 规则 | 说明 |
@@ -442,6 +463,29 @@ tags: [excalidraw]
 | `focus` | 连接点在边上的位置：0=中心，-1=左/上端，1=右/下端 |
 | `gap` | 箭头端点到矩形边缘的距离，默认 1-5 |
 
+> [!warning] 更正（2026-09-13）：上例的 `focus` / `gap` 是**旧版绑定字段**。库内图像由 obsidian-excalidraw-plugin **2.25.3** 写出（见各图 `source` 字段），实测写的是 Excalidraw 现行的 FixedPointBinding；照上表字面逐项核对，会把合规箭头误判为「`focus` 缺失」（原表述为「❌ `focus` 缺失 → 连接点随机，箭头不居中」）。旧字段保留作兼容说明，新口径如下。
+
+**绑定字段实测口径 (FixedPointBinding，2026-09-13 复核)**:
+
+```json
+{"id":"arrow1","type":"arrow",
+ "startBinding":{"elementId":"源矩形ID","fixedPoint":[0.5,1],"mode":"orbit"},
+ "endBinding":{"elementId":"目标矩形ID","fixedPoint":[0.5,0],"mode":"orbit"},
+ "points":[[0,0],[dx,dy]], ...}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `elementId` | 绑定元素 ID |
+| `fixedPoint` | `[x,y]`，各取 0..1 的比例，指向目标元素包围盒上的相对位置（旧版用 `focus` + `gap` 表达同一意图） |
+| `mode` | `inside` \| `orbit` \| `skip`（`skip` = 该端暂不吸附） |
+
+**验收判据（取代逐字核对 `focus`）**：① 两端 `elementId` 均指向真实存在且未删除的元素；② 目标元素 `boundElements` 回引该箭头 id；③ 箭头 `points` 终点落在目标元素边缘附近。
+
+**旧版兼容现状**：全库 7 张图仍有 108 处 legacy `focus`/`gap` 绑定——Function-Calling-Sequence 12、GraphRAG-Flow 22、LoRA-Principle 16、MCP-Architecture 12、Prompt-Engineering-LtM-Flow 16、RAG-Pipeline 20、RLHF-GRPO-Pipeline 10（2026-09-13 解压实读）。不算错误，重开并保存后由插件升级。
+
+> 来源：Excalidraw 元素类型定义（`BindMode = "inside" | "orbit" | "skip"`、`FixedPointBinding{elementId, fixedPoint, mode}`）→ https://cdn.jsdelivr.net/gh/excalidraw/excalidraw@master/packages/element/src/types.ts ；插件版本页 → https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/tag/2.25.3
+
 **同时矩形也必须声明接收的箭头**：
 ```json
 {"id":"rect","type":"rectangle",
@@ -465,6 +509,8 @@ tags: [excalidraw]
 │   ├── Proxy-Routing-Architecture.excalidraw.md
 │   └── Router-Network-Topology.excalidraw.md
 ```
+
+> [!warning] 更正（2026-09-13）：上面这棵树位于「Excalidraw 命名规范」标题下，是**命名示例**（只列 5 个名字），不是 `diagrams/` 的产物清单——该目录实有 **22** 张图，其中**没有** `Proxy-Routing-Architecture.excalidraw.md` 与 `Router-Network-Topology.excalidraw.md`；这两个名字在全库仅本节出现（原表述为把它们与真实文件并列在同一目录树中，易被后续审计当成现存产物）。`Router-Network-Topology` 想表达的拓扑目前只有文字形态：`network/2026-07-21-树莓派网络故障与路由器破解完整复盘.md` §1 物理拓扑文字树。全量登记见 [[ARROW-CHECKLIST]] §9。
 
 ### 图表创建指引
 
@@ -568,3 +614,14 @@ SORT file.name ASC
 
 > [!tip] 使用方式
 > 将以上任一代码块粘贴到任意笔记中即可看到实时视图。推荐在 `AGENTS.md` 或 MOC 页面中集中展示。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | 第十一节只按 `elementId` / `focus` / `gap` 描述箭头绑定，并把「`focus` 缺失」列为 ❌；实读全库图像写的是 FixedPointBinding | 补新口径（`elementId` + `fixedPoint` + `mode`）与三条验收判据，旧字段保留为兼容说明并写明 7 图 108 处 legacy 绑定（依据：Excalidraw types.ts + 2026-09-13 解压实读） |
+| 补疏漏 | 第十一节只写「应写未压缩 JSON，让插件自动压缩」，未给回读/核验办法；全库唯一涉及 LZString 的脚本遇压缩块直接报错 | 补「回读已压缩的图」五步表与期望输出（Transformer-Architecture 45/14/17/14、0 悬空、3 缺回引），并标出 13 张压缩 / 9 张未压缩的现状 |
+| 纠错 | 命名规范目录树把 `Proxy-Routing-Architecture` / `Router-Network-Topology` 与真实文件并列，二者全库不存在 | 树下加更正块：标注为命名示例而非产物清单，并指向 [[ARROW-CHECKLIST]] §9 全量登记（原表述保留） |
+| 加厚 | 图表章节缺外部来源 | 三条来源已写入正文与 `sources/learning-notes.md`（Annotated Transformer / Excalidraw types.ts / obsidian-excalidraw-plugin 2.25.3） |
+
+> 回链：本文件已在 §六·五 链出 CORRECTIONS、在第十一节链出 [[ARROW-CHECKLIST]]，此处不重复添加。

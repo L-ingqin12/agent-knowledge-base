@@ -3,7 +3,7 @@ title: 强化学习对齐-RLHF到GRPO
 aliases: [RLHF到GRPO, RLHF, GRPO, RL对齐, 强化学习对齐]
 tags: [ai, ai/learning]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -113,7 +113,9 @@ $$\mathcal{J}_{GRPO}(\theta)=\mathbb{E}\Big[\frac{1}{G}\sum_{i=1}^{G}\min\big(\r
 
 其中 ρ_i = π_θ(o_i|q)/π_θold(o_i|q) 是第 i 条回答的新旧策略概率比。工程实现中 KL 散度常用无偏估计量（DeepSeekMath 采用 k3 估计：π_ref/π_θ − log(π_ref/π_θ) − 1）。
 
-GRPO 的收益：**省掉 Critic 网络后，训练时模型从 4 个降到 3 个，显存需求近乎减半**，同样的卡能训更大的模型。DeepSeekMath 与 DeepSeek-R1 均采用 GRPO——R1-Zero 甚至在无 SFT 的情况下直接从基座模型做 GRPO，验证了纯 RL 可以自发涌现推理行为（Aha Moment）。GRPO 已成为社区大规模 RL 训练的主流选择。
+GRPO 的收益：**省掉 Critic 网络后，训练时模型从 4 个降到 3 个，显存需求近乎减半**，同样的卡能训更大的模型。DeepSeekMath 与 DeepSeek-R1 均采用 GRPO——R1-Zero 甚至在无 SFT 的情况下直接从基座模型做 GRPO，验证了纯 RL 可以自发涌现推理行为（Aha Moment）。GRPO 已是社区复现 R1 系工作的默认算法之一：TRL 内置 `GRPOTrainer`、verl 同时支持 PPO/GRPO（[verl](https://github.com/volcengine/verl)）、LLaMA-Factory 的姊妹项目 EasyR1 专做 GRPO 训练（其 README：「[25/02/24] Announcing EasyR1, an efficient, scalable and multi-modality RL training framework for efficient GRPO training」，[README.md](https://raw.githubusercontent.com/hiyouga/LLaMA-Factory/main/README.md)）。
+
+> [!warning] 更正（2026-09-13）：原句「GRPO 已成为社区大规模 RL 训练的主流选择」属社会学论断、没有可核验依据（本库规则要求结论可回溯到来源），已改写为点名工具链的写法。（原表述为「GRPO 已成为社区大规模 RL 训练的主流选择」。）
 
 ### 6. 全景流程：一条流水线看清四种算法
 
@@ -122,9 +124,11 @@ GRPO 的收益：**省掉 Critic 网络后，训练时模型从 4 个降到 3 �
 > [!note] 图解说（图由主会话稍后创建，先嵌入占位）
 > 图从左到右依次为：预训练基座 → SFT 指令微调 → 奖励模型训练 → RL 对齐（此处分支对比 PPO 与 GRPO 两条路线）→ 对齐后模型。读图重点：① DPO 从 SFT 直接跳步到对齐，不走 RM 与在线采样；② PPO 路线在 RL 阶段需要 actor/critic/ref/reward 四个模型；③ GRPO 路线把 critic 删掉，用"同 prompt 一组回答"的组内相对分数替代；④ 无论哪条路线，终点都是同一个"对齐后模型"，只是成本与效果上限不同。
 
-### 7. 为什么 GRPO 必须配合奖励模型微调
+### 7. 为什么奖励信号质量决定 GRPO 的上限（RM 不是必选项）
 
-GRPO 只是优化器，**奖励信号的质量决定对齐效果的上限**。GRPO 的组内优势把"绝对好坏"压缩成"组内相对好坏"——如果 RM 把坏回答打高分（例如只看长度、不看事实），模型就会朝错误方向优化，且这种偏差会随在线训练自我强化（奖励黑客）。因此生产实践中 GRPO 前的 RM 训练不是可选项而是必选项：RM 要在目标领域数据上精调、要与最终应用的评价口径一致，必要时叠加规则奖励（格式校验、合规红线、拒答检测）组成复合奖励函数。
+GRPO 只是优化器，**奖励信号的质量决定对齐效果的上限**。GRPO 的组内优势把"绝对好坏"压缩成"组内相对好坏"——如果奖励把坏回答打高分（例如只看长度、不看事实），模型就会朝错误方向优化，且这种偏差会随在线训练自我强化（奖励黑客）。但 **RM 不是必要条件**，奖励信号有两条来源：规则奖励可以完全独立支撑训练，也可以是"规则 + RM"的混合。DeepSeek-R1 论文 Reward Design 一节原文明确「Notably, we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks. This decision is predicated on our observation that neural reward models are susceptible to reward hacking during large-scale reinforcement learning」，推理侧奖励就是等权的 `Reward_rule = Reward_acc + Reward_format`（[arXiv:2501.12948v2](https://arxiv.org/html/2501.12948v2)）。怎么选：**答案可自动判对错**（数学、代码、格式校验、合规红线）优先用规则奖励，零成本、可解释；**无法自动判对错**（写作、开放问答、对话质量）才训 RM，并让它与最终评价口径一致，必要时叠加规则奖励组成复合奖励函数。
+
+> [!warning] 更正（2026-09-13）：原节标题为「为什么 GRPO 必须配合奖励模型微调」，正文结论是「生产实践中 GRPO 前的 RM 训练不是可选项而是必选项」，选型表也把 GRPO 标为「需 RM ✅（可掺规则）」。这与 R1 论文相反，也与本文自己的结论（下文「规则奖励是 GRPO 的免费午餐」）自相矛盾，故改为「RM 可选（规则奖励亦可）」。（原表述为「不是可选项而是必选项」与「需 RM ✅（可掺规则）」。）
 
 ## 最小可运行 Demo
 
@@ -167,10 +171,12 @@ trainer = DPOTrainer(
     ref_model=None,          # 传 None：TRL 自动复制一份冻结 ref
     args=args,
     train_dataset=train_data,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,   # TRL 1.x 的形参名；旧的 tokenizer= 已移除，写错会直接 TypeError
 )
 trainer.train()              # 全程无需 RM、无需在线采样
 ```
+
+> [!warning] 更正（2026-09-13）：原 Demo 写的是 `DPOTrainer(..., tokenizer=tokenizer)`，在 TRL v0.25.0 与 1.x 下都会直接抛 `TypeError`——两版 `DPOTrainer.__init__` 的形参里都只有 `processing_class`，既没有 `tokenizer` 也没有 `**kwargs`（[v0.25.0 源码](https://raw.githubusercontent.com/huggingface/trl/v0.25.0/trl/trainer/dpo_trainer.py)、[main 源码](https://raw.githubusercontent.com/huggingface/trl/main/trl/trainer/dpo_trainer.py)）。上面已改为 `DPOTrainer(model=model, ref_model=None, args=args, train_dataset=train_data, processing_class=tokenizer)`。（原表述为 `tokenizer=tokenizer,`。）
 
 ### Demo 2：GRPO 组内优势的纯 numpy 实现
 
@@ -203,7 +209,7 @@ print(grpo_advantage(rewards))
 |------|--------|-----------|---------|----------|----------|------|----------|
 | PPO | ✅ | ✅ | ✅ | 在线 | 高（样本可多轮复用） | 最高（4 模型） | InstructGPT、ChatGPT 早期 |
 | DPO | ❌ | ❌ | ✅（仅冻结推理） | 离线偏好对 | 中（数据一次性消费） | 低（2 模型） | Zephyr、NeuralChat |
-| GRPO | ✅（可掺规则） | ❌ | ✅ | 在线组采样 | 高 | 中（3 模型） | DeepSeekMath、DeepSeek-R1 |
+| GRPO | 可选（规则奖励亦可） | ❌ | ✅ | 在线组采样 | 高 | 中（3 模型） | DeepSeekMath、DeepSeek-R1 |
 
 选型经验法则：**数据好、算力紧 → DPO 起步；要冲推理上限、有卡 → GRPO；只在需要严格在线探索且不差钱时才考虑完整 PPO。**
 
@@ -211,10 +217,14 @@ print(grpo_advantage(rewards))
 
 | 框架 | 定位 | 现状要点 |
 |------|------|---------|
-| TRL | Hugging Face 官方 RL 库 | 内置 SFTTrainer / RewardTrainer / DPOTrainer / GRPOTrainer / RLOOTrainer 全套训练器；单机友好、上手最快，适合 7B 级实验与教学；2025 年仍在快速迭代（如 v0.25.0 发布记录所示） |
+| TRL | Hugging Face 官方 RL 库 | 内置 SFTTrainer / RewardTrainer / DPOTrainer / GRPOTrainer / RLOOTrainer 全套训练器；单机友好、上手最快，适合 7B 级实验与教学；版本迭代快——PyPI 最新为 **1.13.0**（2026-09-10 上传），v0.25.0 发布于 2025-11，本文 Demo 按 1.x API 编写（用 `processing_class` 而非 `tokenizer`）（[PyPI trl](https://pypi.org/pypi/trl/json)） |
 | verl | 字节跳动火山引擎开源的大规模 RL 框架 | 专为百 B 级、千卡级 RL 训练设计，hybrid 编程模型（单进程 controller + 分布式 worker rollout），支持 PPO/GRPO 等主流算法，是社区大规模 GRPO 复现的主流选择 |
 
-实践路径：**小规模验证用 TRL（本文 Demo 即 TRL 用法），上规模换 verl**，两者算法概念互通、迁移成本低。DeepSeek-R1 论文未公开其内部训练框架（自研基础设施，训练于 2048 块 H800），不影响社区用 verl/TRL 复现其 GRPO 管线。
+实践路径：**小规模验证用 TRL（本文 Demo 即 TRL 用法），上规模换 verl**，两者算法概念互通、迁移成本低。DeepSeek-R1 论文没有点名具体的内部训练框架（附录 B.1 与图 5 只把其 RL 框架描述为 "decoupled and extensible structure"），但**公开了 RL 侧的硬件、时长与成本**；社区用 verl / TRL / EasyR1 复现其 GRPO 管线不受影响。
+
+> [!warning] 更正（2026-09-13）：原句写 R1「训练于 2048 块 H800」——**2048 块 H800 是 DeepSeek-V3 的预训练集群，不是 R1**。V3 报告 3.1 节原文：「DeepSeek-V3 is trained on a cluster equipped with 2048 NVIDIA H800 GPUs」（[arXiv:2412.19437v2](https://arxiv.org/html/2412.19437v2)）。R1 论文给的 RL 侧口径是：R1-Zero「we employed 64*8 H800 GPUs, and the process required approximately 198 hours」（即 512 块 H800），R1 约 4 天，造 SFT 数据「we utilize the 5K GPU hours」，表 7 总账 147K H800 GPU Hours / $294K（按 $2/GPU 小时），另有 30B 小模型在 A100 上做前置实验（[arXiv:2501.12948v2](https://arxiv.org/html/2501.12948v2)）。**R1 公开的是 RL 硬件与成本，未公开的是框架名。**（原表述为「自研基础设施，训练于 2048 块 H800」。）
+
+> [!warning] 更正（2026-09-13）：TRL 行原写「2025 年仍在快速迭代（如 v0.25.0 发布记录所示）」，描述的是已过期的旧版本——TRL 当前为 1.x 主版本（PyPI JSON 实测 1.13.0 上传于 2026-09-10，v0.25.0 上传于 2025-11），该行与 Demo 1 的 `tokenizer=` 属同一处版本漂移的两个表现。（原表述为「2025 年仍在快速迭代（如 v0.25.0 发布记录所示）」。）
 
 ### 奖励模型选型：RewardBench 排行榜
 
@@ -242,6 +252,21 @@ RewardBench（Lambert et al., 2024）是奖励模型的权威评测集，覆盖 
 > [!info] 复合奖励函数示意
 > r_total = w1·RM 分数 + w2·格式分 + w3·合规分（违规直接 −∞）。规则奖励是 GRPO 的免费午餐：不占显存、可解释、能硬性兜底。
 
+### GRPO 关键超参对照（论文口径）
+
+> [!info] 来源：DeepSeek-R1（推理 RL 实际配置）[arXiv:2501.12948v2](https://arxiv.org/html/2501.12948v2)；DeepSeekMath（GRPO 原始论文）[arXiv:2402.03300v3](https://arxiv.org/html/2402.03300v3)。
+
+| 超参 | DeepSeek-R1 | DeepSeekMath（原始设置） | 说明 |
+|------|-------------|------------------------|------|
+| 组大小 G | **16**（论文写「Each training step consists of 32 unique questions, resulting in a training batch size of 512」，512 ÷ 32 推得，**论文未直接写出 G=16**） | 64 samples/question | 坑清单里的「G 取 8-16」只与 R1 一致；G 是显存/吞吐的直接乘数——组内基线更稳，但 rollout 成本随 G 线性上涨 |
+| 采样与更新 | 「each rollout generates 8,192 outputs, which are randomly split into 16 mini-batches and trained for **only a single inner epoch**」 | 同 prompt 采 64 条 | 一组样本只更新一次策略，这是 GRPO 与 PPO「样本多轮复用」的关键差别 |
+| 最大长度 | 32768 | — | 长 CoT 任务的显存大头，G × 长度共同决定 rollout 峰值 |
+| 参考模型 | 「Every 400 steps, we replace the reference model with the latest policy model」 | 固定 ref + KL 罚项 | R1 用定期刷新 ref 替代持续 KL 拉扯，能省掉一项"老锚点"拖累 |
+| 学习率 | —（R1 正文未给单一 RL 学习率） | 1e-6 | RL 阶段 lr 比 SFT 低一个数量级 |
+| KL 系数 β | —（改用上述 ref 刷新策略） | 0.04 | β 越大越保守；与「KL 失控」坑对应 |
+
+> [!warning] 补疏漏（2026-09-13）：原 GRPO 章节只有「组大小 G ≥ 4」「G 取 8-16」两句经验值，没有任何来自原始论文的超参对照，无法核对"我们调得对不对"。上表按 R1 与 DeepSeekMath 原文补齐（G=16 为 512/32 推得，已在表中标注推算来源）。
+
 ### 常见坑清单
 
 | 坑 | 现象 | 对策 |
@@ -254,6 +279,11 @@ RewardBench（Lambert et al., 2024）是奖励模型的权威评测集，覆盖 
 | RM 过拟合偏好集 | 训练集打分准、线上打分飘 | 划留出偏好集早停；数据加长度/位置对抗样本 |
 | SFT 底座太弱 | RL 起步即崩，奖励再准也拉不动 | 先补 SFT 数据量/质量，再上 RL（数据上限论） |
 | 学习率沿用 SFT | 1e-4 直接跑 RL 立刻发散 | RL 阶段 lr 降一个数量级（1e-6 ~ 5e-6 起调） |
+| GRPO 自带的长度偏置 | 训练中回答越来越长，且**错误回答**变长的幅度更大 | GRPO 目标本身有已知偏差：「artificially increases response length (especially for incorrect outputs) during training」，可换无偏的 Dr. GRPO 目标或对长度做归一（[arXiv:2503.20783](https://arxiv.org/abs/2503.20783)） |
+| DPO 分布外退化 | 偏好集上变好，换到新分布反而更差 | 「离线即稳」不成立：DPO 论文 §6.3 表 1 在 CNN/DailyMail 新分布上实测 DPO 0.36 vs PPO 0.26（[arXiv:2305.18290](https://arxiv.org/abs/2305.18290)）；留一份分布外测试集，并监控 chosen/rejected 的绝对对数概率 |
+| RM 分数虚高 | 只看 RewardBench v1 分数就选型 | RewardBench 2 摘要原文：「models score about 20 points on average lower on RewardBench 2 compared to the first RewardBench」，只报 v1 会系统性高估 RM 能力（[arXiv:2506.01937](https://arxiv.org/abs/2506.01937)）；两个版本一起看 |
+
+> [!warning] 补疏漏（2026-09-13）：原坑清单把 GRPO 风险只归结为「组内方差为零」与「组太小」，未涵盖 GRPO 目标自身的长度偏置、DPO 的已知失效模式与 RewardBench 的版本演进，上表补三行。其中「监控 chosen/rejected 绝对对数概率」属工程建议，非论文原话。
 
 ## 相关文档
 
@@ -279,3 +309,22 @@ RewardBench（Lambert et al., 2024）是奖励模型的权威评测集，覆盖 
 - RewardBench（arXiv:2403.13787）: https://arxiv.org/abs/2403.13787
 - RewardBench 排行榜数据: https://benchmarklist.com/benchmarks/rewardbench/
 - Long-form RewardBench（INFORM-Llama3.1-70B 95.1 分数据来源）: https://ar5iv.labs.arxiv.org/html/2603.12963
+- TRL 版本元数据（PyPI JSON，最新 1.13.0 上传于 2026-09-10）: https://pypi.org/pypi/trl/json
+- TRL `DPOTrainer` 源码（核对 `processing_class` 形参）: https://raw.githubusercontent.com/huggingface/trl/main/trl/trainer/dpo_trainer.py
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | R1「自研基础设施，训练于 2048 块 H800」 | 2048×H800 是 **DeepSeek-V3 的预训练集群**（V3 报告 §3.1 原句）；R1 公开的是 RL 侧 512 块 H800（64×8，198 小时）、147K H800 GPU 小时 / $294K，未公开的只是框架名 |
+| 纠错 | 「生产实践中 GRPO 前的 RM 训练不是可选项而是必选项」+ 选型表「需 RM ✅（可掺规则）」 | 与 R1 论文 2.2.2 节相反（明确不用神经奖励模型，推理侧只用 `Reward_acc + Reward_format`），且与本文「规则奖励是 GRPO 的免费午餐」自相矛盾 → 节标题与结论改为「RM 不是必选项 / RM 可选（规则奖励亦可）」 |
+| 纠错 | Demo 1 写 `DPOTrainer(..., tokenizer=tokenizer)` | TRL v0.25.0 与 1.x 的 `__init__` 都没有 `tokenizer`、也没有 `**kwargs`，原写法必抛 `TypeError` → 改为 `processing_class=tokenizer` |
+| 纠错 | TRL 行「2025 年仍在快速迭代（如 v0.25.0 发布记录所示）」 | 版本描述过期：PyPI 最新 1.13.0（2026-09-10 上传），v0.25.0 为 2025-11 → 改写为 1.x 主版本并注明 Demo 按 1.x API 编写 |
+| 纠错 | 「GRPO 已成为社区大规模 RL 训练的主流选择」 | 社会学论断、无可核验依据 → 改写为点名 TRL `GRPOTrainer` / verl / EasyR1 并附三个来源 |
+| 补疏漏 | GRPO 章节只有「G ≥ 4」「G 取 8-16」，无原始论文超参对照 | 新增「GRPO 关键超参对照（论文口径）」表：R1 的 G=16（由 batch 512 ÷ 32 题推得）、8192 rollout 切 16 个 mini-batch 且只跑 1 个 inner epoch、最大长度 32768、每 400 步刷新 ref；DeepSeekMath 的 64 samples/question、lr 1e-6、β=0.04 |
+| 补疏漏 | 坑清单只归结为「组内方差为零」与「组太小」 | 补三行：GRPO 自身的长度偏置（Dr. GRPO，arXiv:2503.20783）、DPO 分布外退化（CNN/DailyMail 上 0.36 vs 0.26）、RewardBench 2 平均低约 20 分 |
+
+> [!warning] 仍待人工确认
+> ① 金融案例中的 G=8-16 与 RL 学习率仍是经验值，需按本机显存与任务标定；② Demo 仍是伪代码级示例，未跑通端到端训练。
+
+关联：[[CORRECTIONS]] · [[AGENTS]]

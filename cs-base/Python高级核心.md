@@ -3,7 +3,7 @@ title: Python高级核心
 aliases: [python进阶, python对象模型]
 tags: [cs/cpp, cs, cs/toolchain]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: CPython 实现口径（《Fluent Python》/官方语言参考共识）；版本敏感处以 CPython 3.10+ 为准，标待确认处须实测
 fetched_at: 2026-08-26
@@ -39,7 +39,14 @@ type 是所有类的类型; object 是所有类的基类 —— 二者互为对�
 | 数值 | `__add__` 与反射版 `__radd__` | 左侧不支持时调右侧反射版 |
 | hash/eq | `__hash__/__eq__` 成对实现 | 定义 eq 后默认 hash=None → 对象不可入 set/dict key |
 
-**bisect 维护已排序序列**：插入 O(log n) 查位+O(n) 挪动——比"append 后 sort"(O(n log n)) 快且保持有序不变量；何时不用 list：频繁头部插删用 deque、 membership 大量 `in` 用 set(O(1))。
+**bisect 维护已排序序列**：插入 O(log n) 查位+O(n) 挪动——比"append 后 sort"(O(n log n)) 快且保持有序不变量；何时不用 list：频繁头部插删用 deque、 membership 大量 `in` 用 set(O(1))。四点补充：
+
+1. **插左 vs 插右**：`insort_left` 配 `bisect_left`、`insort_right`（= `insort`）配 `bisect_right`——等键元素的插入位置不同，配错会让等键元素的相对顺序与预期相反
+2. 3.10+ 支持 `key=`（避免为比较单独造代理对象），`lo`/`hi` 可限定查找区间（`bisect` 系列同签名）
+3. **失效线**：列表短、或插入位置随机分布时优势消失（`memmove` 主导，且 append+sort 走的是 C 层高速排序）；此时改用 `deque`/`heapq`，或第三方 `SortedList`（`sortedcontainers`）
+4. 数量级只能实测：`insort` 是 O(n) 搬移 + O(log n) 比较，`append`+`sort` 是 O(n log n) 比较但常数极低，**比较代价高的元素**（对象/长字符串）才明显偏向 `insort`——按自己的 N 与元素类型跑 10^5 量级基准再决定
+
+> 来源：bisect 官方文档（含 Performance Notes 与 insort/bisect 的 left/right 差异）https://docs.python.org/3/library/bisect.html
 
 ## 三、dict/set 实现：开放寻址哈希
 
@@ -56,6 +63,12 @@ type 是所有类的类型; object 是所有类的基类 —— 二者互为对�
   三代(0新→2老), 0 代扫描最频; 触发阈值 (700,10,10) 分配计数差
 弱引用 weakref: 不增 refcnt 的观测指针 —— 缓存/观察者模式防泄漏的标准解
 ```
+
+**3.14 起循环 GC 改为增量式**（What's New in Python 3.14「Incremental garbage collection」，锚点 `#whatsnew314-incremental-gc`）：分代循环 GC 的扫描被拆成小步执行，长停顿被打散——单次停顿与总扫描开销/延迟分布都会变，按旧分代模型推出来的"调大 gen0 阈值"经验不再可靠。
+
+调优口径（按代价从轻到重）：`gc.set_threshold()` 可逆、`gc.freeze()` 把启动期对象移出扫描集、`gc.disable()` 代价最大（循环引用只能靠显式 `gc.collect()` 兜底）。判断该不该调，用 `gc.get_stats()` + **应用侧 P99 停顿**做前后对比，而不是凭经验改阈值。
+
+> [!warning] 更正（2026-09-13）：原文本段只按旧分代模型写（三代 0→2、阈值 (700,10,10) 分配计数差），未提 3.14 的增量式变化。补充依据：https://docs.python.org/3/whatsnew/3.14.html
 
 **经典泄漏排查**：对象不释放 → 先查循环引用（A 引 B、B 引 A，常伴回调/父指针），`gc.get_referrers()` 定位引用链；再查全局容器累积（注册表只加不减）。对照 [[设计模式实战]] 观察者 RAII 句柄方案的 Python 版：订阅返回 `weakref.finalize` 句柄。
 
@@ -95,12 +108,37 @@ def read_large(path):
 | asyncio | 高并发 IO（万级连接） | 单线程事件循环+协程切换(~µs)；**一处阻塞全循环卡死**——IO 库必须异步版(aiofiles/httpx) |
 | concurrent.futures | 统一池抽象 | ThreadPoolExecutor/ProcessPoolExecutor 换一行切型号 |
 
-- **GIL 边界事实**：C 扩展在进入纯 C 计算时可主动放 GIL（NumPy 大矩阵乘实际并行）；3.13 free-threaded 实验构建去 GIL 中（生产采用度**待确认**）
+- **GIL 边界事实**：C 扩展在进入纯 C 计算时可主动放 GIL（NumPy 大矩阵乘实际并行）；**free-threaded 口径已升级：3.13 只是实验构建，3.14 起 free-threaded 成为官方支持的构建**（PEP 779 Status: Final，Python-Version 3.14，Resolution 2025-06-16；默认构建仍带 GIL，phase III 未定）。仍未决的是第三方扩展兼容面（PyO3/Cython/pybind11）与生态工具链
 - asyncio 心智图：协程是"可暂停任务"，事件循环是"调度器"，Task 是"已排期"；`gather` 并发扇出——与本库 agent fan-out 模式同构（[[fan-out-subagent-pattern]]）
+- **结构化并发（3.11+，当前推荐）**：`asyncio.TaskGroup` 退出时等待全部子任务，任一子任务异常会**取消其余**并以 `ExceptionGroup` 抛出；超时用 `asyncio.timeout()` / `timeout_at()`（3.11+）替代 `wait_for`（后者的取消语义有坑）
+- **子解释器（3.14 起进标准库）**：PEP 734（Status: Final，3.14，Resolution 2025-06-05）提供 `interpreters` 模块——`Interpreter`、`InterpreterPoolExecutor` 与跨解释器 Queue/Shareable 对象。注意它们是**同一进程内**相互隔离的解释器状态，**不是跨进程机制**；隔离前提是扩展模块遵循 Isolating Extension Modules 指南，且与 free-threading 共用同一批社区工作
+
+| 维度 | `gather` | `TaskGroup` |
+|---|---|---|
+| 异常传播 | 默认只抛第一个，其余任务继续跑 | 任一异常即取消其余，聚合成 `ExceptionGroup` |
+| 取消传播 | 需手动 cancel | 与 `with` 结构绑定，退出即收敛 |
+| 结果顺序 | 与传入顺序一致 | 从各自的 `Task` 上取结果 |
+| 是否等待全部 | 是（但首异常即返回） | 是，且保证不留孤儿任务 |
+
+> 来源（本轮补完）：asyncio Task 文档（Task groups / Terminating a task group / Timeouts）https://docs.python.org/3/library/asyncio-task.html ；Python 3.14 What's New（Free-threaded Python is officially supported、PEP 734）https://docs.python.org/3/whatsnew/3.14.html ；PEP 779 https://peps.python.org/pep-0779/ ；PEP 734 https://peps.python.org/pep-0734/
+
+> [!warning] 更正（2026-09-13）：原表述为「3.13 free-threaded 实验构建去 GIL 中（生产采用度**待确认**）」——口径已过期，3.14 起 free-threaded 是官方支持的构建（PEP 779 Final），"待确认"应移到第三方扩展兼容面；原 asyncio 一行只讲 `gather`（全文无 `TaskGroup`/`timeout`），本文已补结构化并发原语。
 
 ## 八、待确认项
 
-> ① free-threading(PEP 703) 构建下第三方 C 扩展兼容面；② 解释器自适应特化指令(3.11+)对各 workload 的实测增益分布；③ subinterpreters 跨进程通信 API 稳定化进度。
+> ① free-threading(PEP 703) 构建下第三方 C 扩展兼容面（2026-09-13 更新：3.14 起 free-threaded 已是**官方支持**的构建，见 §七，待确认的只剩扩展/生态兼容面）；② 解释器自适应特化指令(3.11+)对各 workload 的实测增益分布；③ ~~subinterpreters 跨进程通信 API 稳定化进度~~（2026-09-13 收口：该表述两处错——子解释器是**同进程内**隔离，且 PEP 734 已 Final/3.14 落地，见 §七）。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §七 写「3.13 free-threaded 实验构建去 GIL 中（生产采用度待确认）」 | 改为「3.13 实验 → 3.14 起官方支持（PEP 779 Final，默认仍带 GIL）」，待确认收敛到第三方扩展兼容面；依据 PEP 779 与 3.14 What's New |
+| 纠错 | §八 待确认③ 写「subinterpreters 跨进程通信 API」 | 两处错：子解释器是同进程内隔离；PEP 734 已 Final/3.14 落地。改并补 §七 子解释器说明（`interpreters`/`InterpreterPoolExecutor`）；依据 PEP 734 与 3.14 What's New |
+| 补疏漏 | §七 asyncio 只讲 `gather`，全文无 `TaskGroup`/`timeout` | 补 `asyncio.TaskGroup`、`asyncio.timeout()` 与 gather vs TaskGroup 取舍表；依据 asyncio Task 官方文档（3.11+） |
+| 补疏漏 | §四 GC 全篇按旧分代模型写，缺 3.14 增量 GC | 补增量 GC 变化与调优口径（`gc.set_threshold`/`freeze`/`disable` + `gc.get_stats()`/P99 前后对比）；依据 3.14 What's New |
+| 加厚 | §二 bisect 只有一段结论 | 补 4 点：insort/bisect 的 left/right 配对、`key=`/`lo`/`hi`、失效线与替代结构、需自测数量级；依据 bisect 官方文档 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]
 
 ## Related
 

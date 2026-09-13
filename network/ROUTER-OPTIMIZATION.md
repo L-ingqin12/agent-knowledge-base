@@ -3,7 +3,7 @@ title: 路由器优化分析
 tags: [network/router, network/optimization, network]
 aliases: [路由器优化]
 created: 2026-07-28
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 
@@ -22,6 +22,9 @@ See also: [[Network-KB-Home]] | [[GUIDE]] | [[ROUTER-FULL-CAPABILITY]] | [[ROUTE
 | 固件 | 2.14.87 | 较新，API 有限 |
 | WAN | eth0.2 DHCP → [IP已脱敏] | 双 NAT |
 | LAN | [IP已脱敏]/24 | 设备 IP 池 |
+
+> [!warning] 更正（2026-09-13）：上表固件行 `2.14.87` 是**本机历史实测值**，官方发布页最新为 **2.14.502（2024-02-21）**（原表述保留于上）。引用时应写明「本机 2.14.87 / 官方最新 2.14.502，未升级」。来源：<https://miuirom.org/miwifi/mi-router-4c>
+> 另注：本文多处写「8 个 IoT 设备」，与设备清单不符——[[network-analysis-2026-07-28]] 第四节 13 台中 `ESP_`/`ESP-` 前缀实为 **7 台**（另 1 台 Unknown）。
 
 ## API 探测结果
 
@@ -56,6 +59,9 @@ See also: [[Network-KB-Home]] | [[GUIDE]] | [[ROUTER-FULL-CAPABILITY]] | [[ROUTE
 当前: 1500 (标准以太网)
 建议: 若上游是 PPPoE，MTU 应为 1492。当前双 NAT 环境可测试 1492 或 1480。
 
+> [!warning] 更正（2026-09-13）：「当前双 NAT 环境可测试 1492 或 1480」**与同页 WAN 类型相抵**（原表述保留于上）。
+> 本页「硬件规格」表记 WAN 为 **`eth0.2` DHCP**（不是 PPPoE）——1492 只在 PPPoE 链路上是硬要求，DHCP/以太网链路上改 MTU 属试探性调整，需先用 `ping -M do -s <size>` 探测路径 MTU，不能无条件推荐。前半句「若上游是 PPPoE，MTU 应为 1492」已自带条件，问题只在后半句。
+
 ```bash
 # 需 SSH 进入路由器 (root@[IP已脱敏]) 后执行，勿在 Windows 本机运行
 uci set network.wan.mtu='1492'
@@ -89,6 +95,12 @@ uci commit network
 | wmm | 1 | 1 | 保持（QoS必需） |
 | isolate | 1 | **0** | 已通过API设置，需永久写入 |
 
+> [!warning] 补疏漏（2026-09-13）：「`rts_threshold` 2347 → 1500（8 个 IoT 设备时减少冲突）」原表**只给结论，没有机制、代价与回滚**。
+> OpenWrt 文档确认 `rts` 即 RTS/CTS 阈值（默认由驱动决定）。补：**机制**——阈值降到 1500 意味着大于该值的帧先发 RTS/CTS 握手再传，密集小报文场景可减少碰撞；**代价**——控制帧开销上升，单流吞吐可能下降，且 802.11n 的 2347 上限常被驱动用于「等效关闭 RTS」；**回滚**——把 `rts` 改回 `2347`（或删除该 option 回到 driver default）并 `wifi reload`，用同一测速口径复测。**验收判据**：延迟尖峰频率与吞吐两项都要测，不能只看冲突率。来源：<https://openwrt.org/docs/guide-user/network/wifi/basic>
+
+> [!warning] 更正（2026-09-13）：上表与下方示例块**用了两套互不相同的参数名**（原表写 `beacon_interval` / `rts_threshold` / `frag_threshold` / `short_preamble`，示例块写 `beacon_int` / `dtim_period` / `rts`）。
+> 查 OpenWrt wireless 文档：`/etc/config/wireless` 侧的 UCI 名是 **`rts`**（「Override the RTS/CTS threshold」，默认 driver default）与 **`frag`**，并非 `rts_threshold` / `frag_threshold`；文档同时提供透传项 **`hostapd_bss_options`**（「Pass any custom options to hostapd-*.conf. Values passed as-is」）用于写 hostapd 原生键名（如 `beacon_int`、`short_preamble`）。**示例块的写法更接近正确**；上表名称为通用 hostapd 术语，直接抄进 `/etc/config/wireless` 不会生效。来源：<https://openwrt.org/docs/guide-user/network/wifi/basic>
+
 ```bash
 # /etc/config/wireless 中修改
 config wifi-iface
@@ -109,6 +121,9 @@ config wifi-iface
 
 当前: 默认 conntrack 参数 (max 根据 RAM 自动计算)
 13 设备下可能有连接数压力。
+
+> [!warning] 更正（2026-09-13）：上句「默认 conntrack 参数…自动计算」与下方 `nf_conntrack_max=16384` **互相打架——该值就是现值，写了等于没改**（原表述保留于上）。
+> [[ROUTER-DEEP-EXPLORATION]] 实测记录 `conntrack_max = 16384`，即「优化」把系统已经生效的值又赋了一遍。若确需调整，应先读取实际 `nf_conntrack_count` / `nf_conntrack_max` 与内存水位再定量，并在改动后复测；仅 `tcp_timeout_established` / `udp_timeout` 两项属真正的时间参数调整。
 
 ```bash
 # /etc/sysctl.conf
@@ -187,9 +202,26 @@ curl "http://[IP已脱敏]/cgi-bin/luci/;stok=TOKEN/api/xqnetwork/set_wifi" \
 > - **小米 AX6S** (~¥300): WiFi 6, 256MB, 双核, 160MHz
 > - 升级后收益: 5GHz 协商速率 600+ Mbps, 延迟稳定 <5ms
 
+> [!warning] 补疏漏（2026-09-13）：上表价格为**库内估价、无厂商来源**，且**未说明与客户端网卡的匹配度**（原表述保留于上）。
+> 本机网卡是 **QCA9377（2.4/5GHz 802.11ac，1×1）**，不支 WiFi 6——换 AX3000/AX6S 后，5GHz 侧协商上限由网卡决定（11ac 1×1 ≈ 433Mbps 理论），**「600+ Mbps」只在同时更换网卡时才成立**。采购前请以厂商规格页复核价格与射频参数，并明确收益预期按客户端网卡实测算。
+
 ## Related
 
 - [[Network-KB-Home]] — 网络知识库主页
 - [[GUIDE]] — 使用指南
 - [[ROUTER-FULL-CAPABILITY]] — 路由器完全能力手册
 - [[ROUTER-DEEP-EXPLORATION]] — 路由器深度探索报告
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | WiFi 高级参数表与示例块用了两套参数名（`beacon_interval`/`rts_threshold`/`frag_threshold`/`short_preamble` vs `beacon_int`/`rts`） | 加更正块：OpenWrt UCI 名为 `rts`/`frag`，hostapd 原生键需走 `hostapd_bss_options` 透传；示例块写法更接近正确 |
+| 补疏漏 | 「`rts_threshold` 2347 → 1500」只有结论 | 加注：补机制（RTS/CTS 门限）、代价（控制帧开销、吞吐可能下降）、回滚（改回 2347 / `wifi reload`）与双指标验收判据 |
+| 纠错 | MTU 节「当前双 NAT 环境可测试 1492 或 1480」与同页 WAN=eth0.2 DHCP 相抵 | 保留原句并加更正块：1492 是 PPPoE 硬要求，DHCP 链路需先 `ping -M do` 探路径 MTU |
+| 纠错 | 连接跟踪节「默认 conntrack 参数」与所设 `nf_conntrack_max=16384` 打架（等于现值，空操作） | 保留原句并加更正块：库内实测现值即 16384，真正可调的只有 timeout 两项 |
+| 补疏漏 | 硬件升级建议价格无来源，且未说明与 QCA9377（11ac 1×1）的匹配度 | 加注：AX3000/AX6S 收益受客户端网卡封顶，「600+ Mbps」需同时换网卡；价格待厂商规格页复核 |
+| 纠错 | 硬件表固件 `2.14.87` 无对照；文中多处「8 个 IoT 设备」失实 | 加更正块：官方最新 2.14.502（2024-02-21）；ESP 前缀实为 7 台（见 [[network-analysis-2026-07-28]]） |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

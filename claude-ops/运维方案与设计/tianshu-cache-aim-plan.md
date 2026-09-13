@@ -3,7 +3,7 @@ title: tianshu-tui 缓存命中率目标方案（cache-aim）
 aliases: [tianshu cache aim, 天枢缓存命中率]
 tags: [ai/ops, ai/agent]
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-13
 status: review
 ---
 
@@ -29,6 +29,12 @@ tianshu-tui 已经把本库的 Hermes 三原则 + currentDate 教训**全部内�
 | 命中率度量 | permafrost `/stats` | `usage-aggregator` + `/cache` 面板 + 悬崖自动诊断 ✅ |
 
 **核心结论**：命中率目标靠 tianshu 现有设计已可达；真正缺的是本库那套「独立时间驱动监控 + 原始证据捕获」，以及 3 个边角（gap 排序见下）。
+
+> [!note] 补：命中率口径对齐（2026-09-13）
+> 表中「本库 permafrost `/stats`」与「tianshu `usage-aggregator` + `/cache` 面板」是**两套来源**，不能直接比大小，先约定：
+> - **以谁为准**：tianshu 侧目标（Pro >95% / Flash >80%）以 tianshu `GET /cache/usage` 的计数为准；本库阈值只作告警档位参考。
+> - **换算关系**：两端统一输出「命中 token /（命中 token + 未命中 token）」的 **token 加权**口径，并同时保留**请求数**口径作对照（二者不等价）。
+> - **拿不到后端计数时**：DeepSeek 原生端点回 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`，Anthropic 兼容端点回 `cache_read_input_tokens` / `cache_creation_input_tokens` 但**可能恒为 0**（本库实测如此，见 [[claude-cache-optimization]] §1.1）——此时改用客户端前缀指纹命中估算，并在报告中显式标注为替代指标。
 
 ## 二、差距清单（按缓存影响）
 
@@ -106,7 +112,14 @@ bash scripts/tianshu-cache-monitor.sh status   # 最近记录 + dump 历史
 | build | `npm run build` | BUILD_EXIT=0 |
 | SR 相关单测 | `node --import tsx --test src/agent/__tests__/context-sr-append.test.ts`（按仓库 test runner） | 全绿 |
 | 缓存稳定单测 | `src/prompt/__tests__/engine-cache-stability.test.ts` | 全绿 |
-| P0 脚本 | `bash scripts/tianshu-cache-monitor.sh once` | 能读到 stats、无报错 |
+| P0 脚本 | `bash scripts/tianshu-cache-monitor.sh once` | 退出码 0，输出含 `rate=` / `req=` / `pc=` 三项；骨架输出形态见本库 `scripts/claude-ops-deployments/root-scripts/claude-cache-monitor.sh:219`，期望样例：`[2026-09-13 10:00:00] rate=0.93 req=412 pc=1 502=0 baseline=0.95` |
+| 命中率达标 | `bash scripts/tianshu-cache-monitor.sh once`（连续轮次，见下注口径） | **token 加权**命中率 Pro ≥0.95、Flash ≥0.80；告警档 Pro <0.85 / Flash <0.60 时按 §四 E0/S0 先停守护并 dump，**不得判定达标** |
+
+> [!note] 补：命中率验收口径（2026-09-13）
+> - **数据源**：tianshu `GET /cache/usage`（`src/server/cache-routes.ts`）或 `/cache` 面板；本库 `once` 的 `rate=` 取自 permafrost `/stats`，两者口径不同，不可直接混用（见 §一 补注）。
+> - **口径**：命中 token /（命中 token + 未命中 token），分母 = 同一工作会话的全部请求；同时记录请求数口径作对照。
+> - **样本量（建议门槛）**：连续 20 轮、间隔 60s，且期间至少完成 1 个完整工作会话（无会话的轮次不计入）。
+> - **未达标处置**：先留 dump 证据（`~/.tianshu/cache-monitor/dump-*/`），再按 §二 差距清单定位；未达标不放行 commit。
 
 **部署门槛**：以上全部通过后才 commit + push（fork `L-ingqin12/Tianshu-harness`，分支 `clean-room-pro`）。
 
@@ -125,3 +138,14 @@ bash scripts/tianshu-cache-monitor.sh status   # 最近记录 + dump 历史
 
 - P1（命中率悬崖请求体快照）、P2（聚合 `/doctor` 端点）、P4（date-stability 守卫）、P5（移植 permafrost coalescer + keepalive 冷启动优化）。
 - 相关脚本复用清单见 `scripts/claude-ops-deployments/`（`permafrost_align.py` 算法可移植，需 Anthropic→OpenAI schema shim）。
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 补疏漏 | §五 测试计划只判「能读到 stats、无报错」，没有命中率目标是否达成的度量与验收定义 | 补「命中率达标」行 + 验收口径注：数据源 `GET /cache/usage`、token 加权分母定义、建议样本量（连续 20 轮且至少 1 个完整会话）、未达标先留 dump 不放行；并给出 monitor `once` 的期望输出样例（骨架输出形态见本库 `claude-cache-monitor.sh:219`） |
+| 补疏漏 | §一 表格把 permafrost `/stats` 与 `usage-aggregator` + `/cache` 面板并列，隐含两端指标可直接比较 | 补「命中率口径对齐」注：以 tianshu `/cache/usage` 为准、统一 token 加权口径并保留请求数口径对照；后端计数恒为 0 时改用客户端前缀指纹估算并显式标注为替代指标（依据 [[claude-cache-optimization]] §1.1） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

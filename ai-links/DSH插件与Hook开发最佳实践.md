@@ -5,10 +5,9 @@ tags: [ai/agent, ai/skills, ai/links]
 created: 2026-08-17
 updated: 2026-09-13
 status: review
-source: "官方仓库 deepseek-harness-official + deepseek-harness-desktop-src + dsh-tui-repo 文档（2026-08 快照）"
+source: "官方仓库 deepseek-ai/deepseek-harness（master，2026-08 快照）＋ dsh-tui-repo 文档；原写的 deepseek-harness-official / deepseek-harness-desktop-src 两个 slug 于 2026-09-13 复核为不存在的仓库，见 §八 更正块"
 source_urls:
-  - "https://github.com/deepseek-harness-official"
-  - "https://github.com/deepseek-harness-desktop-src"
+  - "https://github.com/deepseek-ai/deepseek-harness"
   - "https://github.com/dsh-tui/dsh-tui"
 fetched_at: 2026-08-19
 ---
@@ -18,7 +17,7 @@ fetched_at: 2026-08-19
 See also: [[AI-Links-KB-Home]] | [[DSH跨框架Skills与MCP加载]] | [[DSH-TUI插件使用手册]] | [[DSH插件发布与分发]] | [[2026-08-16-AI链接综述与归档]] | [[AGENTS]]
 
 > [!abstract] 概述
-> 本文整理 DeepSeek Harness（DSH）插件与 Hook 的开发与使用最佳实践，覆盖 Cordis 插件模型、工具/服务/事件开发、hooks 桥接子系统、发布分发与防御性模式。资料来源：官方仓库 deepseek-harness-official（`docs/user/develop/**`、`docs/capability-seams.zh.md`、`docs/defensive-patterns.zh.md`、`docs/subsystems/{tools,approval}.zh.md`、`packages/hooks/**`）、deepseek-harness-desktop-src（`docs/plugin-development.md`、`docs/plugin-ecosystem.md`、`dsh-plugin-desktop/docs/plugin-services.zh.md`、`dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md`）、`dsh-tui-repo/cordis.patch.yml` 与本机 `%USERPROFILE%\.dsh` profile 实测，均为 2026-08 快照。
+> 本文整理 DeepSeek Harness（DSH）插件与 Hook 的开发与使用最佳实践，覆盖 Cordis 插件模型、工具/服务/事件开发、hooks 桥接子系统、发布分发与防御性模式。资料来源：官方仓库 `deepseek-ai/deepseek-harness`（`docs/user/develop/**`、`docs/capability-seams.zh.md`、`docs/defensive-patterns.zh.md`、`docs/subsystems/{tools,approval}.zh.md`、`packages/hooks/**`）、同一仓库 `deepseek-ai/deepseek-harness`（`docs/plugin-development.md`、`docs/plugin-ecosystem.md`、`dsh-plugin-desktop/docs/plugin-services.zh.md`、`dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md`）、`dsh-tui-repo/cordis.patch.yml` 与本机 `%USERPROFILE%\.dsh` profile 实测，均为 2026-08 快照。
 
 ---
 
@@ -122,20 +121,23 @@ export default class MetricsService extends Service {
 3. home 级 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好）；
 4. 每个 `--patch <path>` overlay（按 argv 顺序）。
 
-> [!info] 本机 profile（`%USERPROFILE%\.dsh\profiles`，2026-08 实测）
+> [!info] 本机 profile（`%USERPROFILE%\.dsh\profiles`，2026-08 实测；2026-09-13 复核并更正）
 > | profile | `dsh.profile.bundles` | 备注 |
 > |---|---|---|
 > | `web` | `@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` | 浏览器界面 |
-> | `tui` | `@deepseek-ai/dsh-base` → `@dsh-tui/dsh-tui` | 终端界面（见 [[DSH-TUI插件使用手册]]） |
+> | `dsh-tui` | `@deepseek-ai/dsh-base` → `@deepseek-harness-tui/dsh-tui` → `dsh-plugin-redact` → `dsh-plugin-content-policy` | 终端界面（见 [[DSH-TUI插件使用手册]]）；**原表把本行写成 `tui` + `@dsh-tui/dsh-tui`** |
 > | `desktop` | `@deepseek-ai/dsh-base` → `@deepseek-ai/dsh-web-app` | 桌面壳（bundles 同 web） |
+> | `headless` | （本次未读取） | 一次性 CLI；**原表漏列** |
+> | `tui.retired-20260912` | — | 已退役目录；`tui` 这个名字本机已不存在 |
 >
-> 三个 profile 的 `cordis.patch.yml` 目前均为空数组 `[]`（注释说明其为"应用于每个 bundle 层之后的补丁层"）；web/desktop 无外部依赖，tui 依赖 `@dsh-tui/dsh-tui: ^0.1.2`。
+> `cordis.patch.yml` 目前为空数组 `[]`（注释说明其为"应用于每个 bundle 层之后的补丁层"）；web/desktop 无外部依赖，`dsh-tui` 依赖 `@deepseek-harness-tui/dsh-tui: ^0.10.1`（**原表述为 `@dsh-tui/dsh-tui: ^0.1.2`**——旧包停在 0.1.2 且仅 1 个版本），并有 `patchReload: live`。
+> 来源：https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui ；https://registry.npmjs.org/@dsh-tui/dsh-tui
 
 ---
 
 ## 二、插件开发流程
 
-> 来源：`docs/user/develop/basic/publish.zh.md`、`docs/user/develop/practice/index.zh.md`、`docs/user/develop/basic/config.zh.md`、`docs/capability-seams.zh.md`
+> 来源：`docs/user/develop/basic/publish.zh.md`（其实际覆盖面见 §六 的引用范围更正）、`docs/user/develop/practice/index.zh.md`、`docs/user/develop/basic/config.zh.md`、`docs/capability-seams.zh.md`
 
 ### 2.1 声明插件：`dsh.bundle` manifest
 
@@ -371,6 +373,11 @@ Claude Code 桥（CC 30 个事件中支持 7 个）：
 
 Codex 桥（Codex 10 个 hook 点中支持 5 个）：`PreToolUse`、`PostToolUse`、`SessionStart`、`UserPromptSubmit`、`Stop`，差异在——仅正则 matcher、snake_case payload（无尾随换行）、**无 ask/allow 与输入改写路径**（只能 block）。
 
+> [!note] 这两组数字的口径（2026-09-13 复核）
+> 两个包的形态可由 npm 证实：`@deepseek-ai/dsh-hooks-claude-code` `latest` = **0.0.1-rc.5**（description：「Bridge plugin: run a Claude Code hooks.json / settings hook config on the DeepSeek Harness interception seams」）；`@deepseek-ai/dsh-hook-protocol` `latest` = **0.0.1-rc.1**（自述 matcher engine、stdin/exit-code/stdout codec、multi-hook merge、`hook/*` session events）。
+> 但**分母 30 / 10 与「支持 7 / 5」目前缺逐点名单与上游文件链接**：下面只列出被支持的点，没有"哪 23 / 5 个没支持"，也没有逐点验收判据。补法：逐点列「上游事件名 → 是否支持 → 验收判据（构造该事件的 hooks.json，观察 harness 侧是否发生对应动作）」。在补齐之前，这两组数字应按**包自述**而非"已核验清单"引用。
+> 来源：https://registry.npmjs.org/@deepseek-ai/dsh-hooks-claude-code/latest ；https://registry.npmjs.org/@deepseek-ai/dsh-hook-protocol/latest
+
 ### 4.3 超时 / 失败策略（fail-open）与合并
 
 | 维度 | 规则 |
@@ -427,7 +434,10 @@ Fabric 的组合设计结论（对 DSH 插件作者同样有指导意义）：
 
 ### 5.3 DSH 生态倡议与实操约定
 
-生态倡议三原则（`docs/plugin-ecosystem.md`）：
+生态倡议三原则（**原文标注来源为 `docs/plugin-ecosystem.md`**）：
+
+> [!warning] 更正（2026-09-13）：该文件在 master 上已不存在
+> 实测 `https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/plugin-ecosystem.md` = **HTTP 404**（`https://github.com/deepseek-ai/deepseek-harness/tree/master/docs` 下已无此文件）⇒ 下面三条原则**在 master 上暂无出处**。原表述为「生态倡议三原则（`docs/plugin-ecosystem.md`）」。两种正确读法：① 它属于 **2026-08 快照期间存在、现已不在 master** 的文档；② 若仍要引用，须先逐个实测再改挂现存的同类文档（如 `docs/capability-seams.zh.md`），否则只能作为"当时快照"引用。
 
 1. **组合优先**：通过官方 slot、service 和 patch 组合能力，不假设或覆盖其他插件的内部实现（桌面壳本身就是普通插件，无特权）。
 2. **声明清晰**：明确声明依赖的 service 与 slot，不依赖运行时巧合。
@@ -448,7 +458,11 @@ Fabric 的组合设计结论（对 DSH 插件作者同样有指导意义）：
 
 ## 六、发布与分发
 
-> 来源：`docs/user/develop/basic/publish.zh.md`、`dsh-plugin-desktop/docs/plugin-services.zh.md`
+> 来源：`dsh-plugin-desktop/docs/plugin-services.zh.md`、[[DSH插件发布与分发]]（本节的发布/分发实测线）
+>
+> [!warning] 引用范围更正（2026-09-13）
+> 本节原标注来源为 `docs/user/develop/basic/publish.zh.md`。该文件**确实存在**（HTTP 200，标题「打包与安装插件」），但**只覆盖** bundle/profile 两种 manifest、`dsh.bundle`、`allowBuilds` 授权，以及「发布到 npm」与「交付 tarball」两种免授权分发形态（`pnpm publish` 仅一句带过）——**没有 prepublishOnly 流程、没有 2FA、没有发现/收录机制**。用它给本节「发布与分发」整体背书属于「引对了文件、引错了范围」；§6.4 的实际依据是 [[DSH插件发布与分发]] 里的实测线。
+> 依据：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/user/develop/basic/publish.zh.md
 
 ### 6.1 三种分发形态与 `dsh plugin` 命令
 
@@ -513,6 +527,18 @@ dsh --profile demo --dump-config   # 先验证层（应出现 "# == dsh-hello-pl
 
 模型看到 `mcp__<serverName>__<rawName>`；`transport: streamable-http` 时改用 `url`/`headers`；`toolCallTimeoutMs` 默认 60000；启动失败默认静默降级。
 
+边界与自检（2026-09-13 复核，取自随 `@deepseek-ai/dsh` 0.1.5-rc.2 一同安装的那一份）：
+
+| 项 | 事实 | 出处 |
+|---|---|---|
+| `serverName` 约束 | 受 `SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/` 约束；**含非法字符或超长时会被替换并追加 12 位 SHA-256 短哈希**——工具名前缀因此可能与你写的不一样 | `dsh-mcp-client/lib/index.js:730` |
+| 重连退避 | `RECONNECT_DEFAULTS = { initialDelayMs: 500, maxDelayMs: 3e4, maxAttempts: 10 }` | `dsh-mcp-client/lib/index.js:472-476` |
+| 失败自检 | 启动失败默认静默降级 ⇒ **"看不到工具"不等于"配置没错"**。核对：先 `dsh --profile <p> --dump-config`（确认 mcp 行与 config 齐全），再在会话里查模型工具目录里有没有 `mcp__<serverName>__` 前缀 | — |
+
+> [!warning] npm 上该包只到 `0.0.1-rc.1`
+> `@deepseek-ai/dsh-mcp-client` 的 registry `latest` = **0.0.1-rc.1**（description 逐字为「MCP client bridge: connects to MCP servers and registers their tools on ctx.tools」）；上表两条常量来自随 CLI 0.1.5-rc.2 安装的那一份——内部包按 rc 线随 CLI 发版，与 registry 上的 latest 不同属正常。
+> 来源：https://registry.npmjs.org/@deepseek-ai/dsh-mcp-client/latest
+
 ### 7.2 dsh-bridges 补丁（跨框架桥接，按桥开关）
 
 ```yaml
@@ -574,16 +600,22 @@ TUI 本身就是一个 bundle patch 层，展示"覆盖 base 行 + 插入 TUI-on
 }
 ```
 
-profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依赖由 pnpm 管理；用户自己的补丁层在 `profiles/<name>/cordis.patch.yml`（本机三个 profile 均为空数组）。
+profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依赖由 pnpm 管理；用户自己的补丁层在 `profiles/<name>/cordis.patch.yml`（本机各 profile 的该层均为空数组——**原写「本机三个 profile」**；2026-09-13 复核本机实为五个目录，见 §1.5）。
 
 ---
 
 ## 八、局限与时效性提示
 
-> 来源：各 README 的"已知限制与暂缓事项"节、`docs/plugin-ecosystem.md`、[[DSH跨框架Skills与MCP加载]]
+> 来源：各 README 的"已知限制与暂缓事项"节、`docs/plugin-ecosystem.md`（**该文件已不在 master，见 §5.3 更正**）、[[DSH跨框架Skills与MCP加载]]
 
-- **rc 线快速迭代**：本机 dsh CLI 为 v0.1.0-rc.6（见 [[DSH跨框架Skills与MCP加载]]），文档与接口随 rc 快速演进，字段/事件以上游最新文档与生成区块为准。
-- **hooks 桥接是子集**：CC 30 个事件仅支持 7 个、Codex 10 个仅支持 5 个；`updatedInput` 会被解析+警告但**不应用**；`SessionStart` 部分功能；未实现 per-session hook 配置发现（`TODO(per-session-hook-config)`）、`Stop` 连续阻塞上限等。
+> [!warning] 更正（2026-09-13）：front matter 里的两个「官方仓库」slug 不存在
+> 原表述为 `source: "官方仓库 deepseek-harness-official + deepseek-harness-desktop-src + dsh-tui-repo 文档（2026-08 快照）"` 与 `source_urls: [https://github.com/deepseek-harness-official, https://github.com/deepseek-harness-desktop-src, https://github.com/dsh-tui/dsh-tui]`，本文摘要亦同。
+> 实测：`https://github.com/deepseek-harness-official` = **HTTP 404**；按 `user:deepseek-harness-desktop-src` 搜索返回 **422 resources do not exist** ⇒ 两个 slug 都不是仓库。**真实官方仓库是 `deepseek-ai/deepseek-harness`（默认分支 master）**，npm 元数据 `repository.directory = apps/cli`。front matter 与摘要已同步改写；本文引用 `docs/**`、`packages/hooks/**` 时应统一挂 `.../blob/master/...`。
+> 依据：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/README.md
+
+- **rc 线快速迭代**：本机 dsh CLI 为 **0.1.5-rc.1**（原表述为 v0.1.0-rc.6，见 [[DSH跨框架Skills与MCP加载]]）；上游 master `apps/cli/package.json` = 0.1.5-rc.2，npm dist-tags = `latest: 0.1.5-rc.1` / `next: 0.1.5-rc.2` / `alpha: 0.1.5-alpha.2`（自查：`npm view @deepseek-ai/dsh dist-tags`）。文档与接口随 rc 快速演进，字段/事件以上游最新文档与生成区块为准。
+  来源：https://registry.npmjs.org/@deepseek-ai/dsh
+- **hooks 桥接是子集**：CC 30 个事件仅支持 7 个、Codex 10 个仅支持 5 个（这两组数字的**口径**见 §4.2 复核块：分母与逐点名单尚未核验）；`updatedInput` 会被解析+警告但**不应用**；`SessionStart` 部分功能；未实现 per-session hook 配置发现（`TODO(per-session-hook-config)`）、`Stop` 连续阻塞上限等。
 - **Fabric 仍是 Draft**：dsh-community-fabric 的 manifest/capability/事件模型是社区 RFC Draft，尚不能作为依赖或发布目标；插件市场仍处设计阶段，目录收录 ≠ 安全审核。
   > **2026-09-13 复核（更硬的口径）**：**官方没有市场**——`dsh plugin` 只是 pnpm 转发，官方仓库无 marketplace/registry 目录，npm 上相关包名全部 404；社区目录全部**自动抓取**、自述**不做代码审查**（见 [[DSH插件发布与分发]] §一、§七）。
 - **Desktop 契约边界**：第三方公开 service 仅 `desktopProfiles` 与 `desktopPnpm`；`desktopRuntime`、`desktopPnpmBootstrap`、Electron 细节非兼容 contract；`dshmarket@1.2.3` 早于该契约且缺完整 MIT 文本，Desktop 不预装。
@@ -600,3 +632,17 @@ profile 目录由 `dsh plugin` 创建维护（从不手写）；树外插件依�
 - [[2026-08-16-AI链接综述与归档]] — 16 链接调研综述（DeepSeek Harness 生态条目）
 - [[TYPORA-KB-Home]] — 插件式扩展机制对照
 - [[AGENTS]] — 知识库协作规范
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | front matter 与摘要把官方仓库写成 `deepseek-harness-official` / `deepseek-harness-desktop-src` | 两个 slug 实测 404 / 422，已改为 `deepseek-ai/deepseek-harness`；原表述保留在 §八 更正块。依据 master README |
+| 纠错 | §八 写本机 dsh CLI 为 v0.1.0-rc.6 | 改为 0.1.5-rc.1（上游 master 0.1.5-rc.2；dist-tags latest/next/alpha），附 `npm view` 自查；依据 registry 元数据 |
+| 纠错 | §5.3 与 §八 把「生态倡议三原则」的来源写成 `docs/plugin-ecosystem.md` | 该文件在 master 上 404：补更正块，标注为「2026-08 快照期间存在、现已不在 master」，并给出两种正确读法 |
+| 纠错 | §六 用 `docs/user/develop/basic/publish.zh.md` 给「发布与分发」整体背书 | 补「引用范围更正」（该文件只覆盖 manifest / allowBuilds / 两种分发形态，无 prepublishOnly、2FA、收录机制），§六 来源改挂 [[DSH插件发布与分发]]，§二 来源行加指向 |
+| 纠错 | §1.5 表写 `tui` + `@dsh-tui/dsh-tui: ^0.1.2`，§7.4 写「本机三个 profile」 | 改为 `dsh-tui` + `@deepseek-harness-tui/dsh-tui: ^0.10.1`，补 `headless` 与 `tui.retired-20260912` 行、§7.4 改为五个目录；原表述均保留在句中。依据两个包的 npm 元数据 |
+| 加厚 | §7.1 mcp-client 缺 `serverName` 约束、重连默认值与失败自检 | 补边界表（`SERVER_NAME_PATTERN`、`RECONNECT_DEFAULTS`）与「看不到工具 ≠ 配置没错」的自检步骤；依据本机 0.1.5-rc.2 安装树与 npm 元数据 |
+| 加厚 | §4.2 / §八 的「CC 30→7、Codex 10→5」无逐点名单与验收判据 | 补口径块（包版本可证：0.0.1-rc.5 / 0.0.1-rc.1；分母与逐点名单未核验，暂按"包自述"引用），§八 加指针 |

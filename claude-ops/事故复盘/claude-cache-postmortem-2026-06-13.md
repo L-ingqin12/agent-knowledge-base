@@ -3,7 +3,7 @@ title: Claude Code 缓存命中率下降 — 排查复盘报告
 aliases: []
 tags: [ai/ops, incident]
 created: 2026-06-12
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 
@@ -45,6 +45,14 @@ CC v2.1.174 → Permafrost :8788 (缓存对齐) → Proxy :8787 (韧性) → Dee
 最初怀疑 permafrost 不生效，但通过对比测试确认：
 - DeepSeek Anthropic 端点**确实支持前缀缓存**（字节级前缀匹配，≥64 tokens 最小单元，异步写入 ~6-60s）
 - permafrost 侧显示 97%+ 命中率，但 DeepSeek 后台低得多
+
+> [!warning] 更正（2026-09-13）：上条机制描述已过期（原表述为「字节级前缀匹配，≥64 tokens 最小单元，异步写入 ~6-60s」）
+> DeepSeek 官方 Context Caching 页现行表述：*A cache hit requires that the corresponding prefix has already been persisted … Due to the Sliding Window Attention mechanism, the storage and matching of cached prefixes differs from before. Each cached prefix is an independent, complete unit. A subsequent request can only hit the cache if it fully matches a cache prefix unit.*；落盘单元有三类（请求边界 / 公共前缀检测 / 固定 token 间隔）。故现行规则是「**缓存前缀单元 + 完整匹配**」，不是「字节级前缀 + 64 token 最小单元」。
+> 来源：https://api-docs.deepseek.com/guides/kv_cache
+
+> [!note] 补疏漏（2026-09-13）：「去 cache_control」对 DeepSeek 命中率**无用但无害**
+> DeepSeek Anthropic 兼容性表逐格确认：`tools[]` 的 `cache_control` 为 *Ignored*；message content 各块（text / tool_use / tool_result）的 `cache_control` 亦为 *Ignored*。故 permafrost 剥离 `cache_control` 对命中率既无收益也无副作用，应从「缓存优化项」改标为「无用但无害」（`system` 块该页只写 *Fully Supported*、未列 `cache_control` 行，不作判断）。优化清单应收敛到前缀稳定化 + 落盘单元对齐。
+> 来源：https://api-docs.deepseek.com/guides/anthropic_api
 
 ### 2.3 发现绕过流量
 
@@ -92,6 +100,12 @@ CC 将 `system-reminder`（含 `currentDate`）注入到 **`messages[0]`** — �
 ```
 
 这与微信公众号文章的核心原则「**稳定在前，易变在后**」直接违背 — `currentDate` 这个最易变的内容被放在了缓存前缀的起点位置。
+
+> [!note] 补疏漏（2026-09-13）：该原则的唯一出处原是微信公众号文章，现补两个官方出处并把判据收紧
+> - Claude 官方文档（prompt caching）：*The API caches by matching the start of each request, called the prefix*。
+> - DeepSeek 官方文档：命中要求**完整匹配某个缓存前缀单元**，缓存单元按请求边界与公共前缀落盘。
+> 可检判据改为三条：① 前缀必须逐字节稳定（含空白与换行）；② 任何每次请求都变的内容（时间、nonce、随机排序的工具表）必须位于前缀之后；③ **只改尾部不能保证命中**——要按落盘单元对齐。
+> 来源：https://code.claude.com/docs/en/prompt-caching.md ｜ https://api-docs.deepseek.com/guides/kv_cache
 
 ### 2.6 v2.1.150 对比验证
 
@@ -177,6 +191,12 @@ bash /root/claude-version-switch.sh rollback  # 回退
 - prefix_changes > 0 → 自动触发 dump
 - 异常时自动捕获 permafrost 快照 + 请求体 + proxy 日志
 
+> [!warning] 补疏漏（2026-09-13）：两条触发阈值缺依据、去重与容量治理
+> - **阈值依据**：修复后基线 97%，告警线宜按「基线 − N 个百分点」设，或按可解释事件分别设线（跨天 `currentDate`、compaction、新建 session）。
+> - **去重与频率上限**：`prefix_changes > 0` 极易持续命中，需加冷却窗口（同一原因 10 分钟内只 dump 一次），否则 60s 轮询会把磁盘打满。
+> - **容量与隐私**：`DUMP_DIR` 存的是真实请求体（含代码与对话），必须规定个数 / 总字节上限、滚动删除与脱敏要求。
+> - **验收**：人为制造一次 miss（改一次 system 文本）后 ≤60 s 内出现 dump，且 stats 中 `miss_ratio` 可读。
+
 ---
 
 ## 四、架构总览
@@ -234,6 +254,10 @@ Claude Code ────▶ Permafrost :8788 ────▶ Proxy :8787 ──�
 
 GitHub: `L-ingqin12/claude-code-knowledge`
 
+> [!warning] 更正（2026-09-13）：仓库已重命名（原表述为 `L-ingqin12/claude-code-knowledge`）
+> 现名 **`L-ingqin12/agent-knowledge-base`**（旧路径 302 重定向：id 1265645967，public，created_at 2026-06-11T00:53:55Z，pushed_at 2026-09-13T06:39:45Z）。统一改用 https://github.com/L-ingqin12/agent-knowledge-base，并同步 URL 登记表与本地 clone 目录名，避免按旧名 clone 出第二份。姊妹篇 [[proxy-cancelretry-hook-incident]] §六 / §5.3 的同一路径本次一并更新。
+> 来源：https://api.github.com/repos/L-ingqin12/claude-code-knowledge
+
 ---
 
 ## 六、经验教训
@@ -244,3 +268,22 @@ GitHub: `L-ingqin12/claude-code-knowledge`
 4. **prod 操作先验证再执行**: 每次 kill permafrost 都导致 session 中断，需要在隔离环境先测试通过
 5. **DeepSeek 缓存 TTL 远长于 Claude**: 数小时到数天 vs 5分钟 — 这意味着 compaction 的破坏更持久
 6. **监控先于排查**: 如果一开始就有 cache-monitor，异常时自动 dump 可省去大量手动工作
+
+> [!note] 补疏漏（2026-09-13）：TTL 结论有官方出处；Claude 侧「5 分钟」应写成默认档
+> DeepSeek：*Cache construction takes seconds. Once the cache is no longer in use, it will be automatically cleared, usually within a few hours to a few days.*；Claude：*The API offers two: a five-minute TTL, and a one-hour TTL*（1 小时 TTL 按更高写入价计费，可用 `ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens` 观测）。结论方向不变：5 分钟只是 Claude 的默认档，不是唯一档。
+> 来源：https://api-docs.deepseek.com/guides/kv_cache ｜ https://code.claude.com/docs/en/prompt-caching.md
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | §2.2「字节级前缀匹配，≥64 tokens 最小单元，异步写入 ~6-60s」 | 保留原表述并加更正：现行机制为「缓存前缀单元 + 完整匹配」（请求边界 / 公共前缀检测 / 固定 token 间隔三类落盘单元），附 DeepSeek 官方 Context Caching 页 |
+| 补疏漏 | §2.2/§四 把「去 cache_control」列为缓存优化项 | 依 DeepSeek 兼容性表（`tools[]` 与 message content 各块的 `cache_control` 均为 *Ignored*）改标为「无用但无害」；优化清单收敛到前缀稳定化 + 落盘单元对齐 |
+| 补疏漏 | §2.5「稳定在前、易变在后」唯一出处是微信公众号文章 | 补 Claude / DeepSeek 两个官方出处，判据收紧为三条（前缀逐字节稳定、易变内容置于前缀之后、只改尾部不保证命中） |
+| 加厚 | §3.7 监控守护两条阈值无依据、无去重与容量治理 | 补阈值依据（基线 − N 或按事件分线）、冷却窗口、`DUMP_DIR` 容量与隐私上限、人为制造 miss 的验收判据 |
+| 纠错 | §五 文件清单末「GitHub: L-ingqin12/claude-code-knowledge」 | 保留旧名并加更正：现名 `L-ingqin12/agent-knowledge-base`（302 重定向 + 仓库元数据），同步 URL 登记与本地 clone 目录 |
+| 补疏漏 | §六 经验 5 的 TTL 对比无出处，「Claude 5 分钟」未写为默认档 | 补两侧官方原文，注明 Claude 另有 1 小时 TTL 档与用量字段 |
+
+依据与索引：[[CORRECTIONS]] · [[AGENTS]]

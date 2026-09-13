@@ -3,7 +3,7 @@ title: Claude-Ops-KB-Home
 aliases: [Claude Code 运维知识库, claude-ops, ClaudeOps]
 tags: [moc, ai/ops]
 created: 2026-08-17
-updated: 2026-09-12
+updated: 2026-09-13
 status: stable
 ---
 
@@ -11,7 +11,8 @@ status: stable
 
 > [!abstract] 概述
 > 本子库承载远程仓库 `akb-remote`（Claude Code 无人值守运维知识库，commit `f493130`）的运维知识体系：从现象→根因→方案→部署的完整推导与产出。所有文档均可独立阅读，彼此正交但交叉引用。
-> 迁移日期：2026-08-17 · 文档总数：61（54 篇迁移 + 本 MOC + [[MEMORY-INDEX]] + 2026-08-25 新增 4 篇 + 2026-08-28 事故复盘 1 篇 + 2026-09-12 新增 [[CORRECTIONS]]）
+> 迁移日期：2026-08-17 · 文档总数：62（**迁移入库口径** = 54 篇迁移 + 本 MOC + [[MEMORY-INDEX]] + 2026-08-25 新增 4 篇 + 2026-08-28 事故复盘 1 篇 + 2026-09-12 新增 [[CORRECTIONS]] 1 篇；**按磁盘实际清点的口径见「关键数据」的目录分布**，两者范围不同、不能相加）
+> 计数口径说明（2026-09-13 补）：本行此前写 61，与它自己的列项之和 62 不符——因为 2026-09-12 新增的 [[CORRECTIONS]] 未计入。数字一律要写明**含哪些文件**，否则过期无人察觉。
 
 See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECTIONS]] · [[MEMORY-INDEX]]
 
@@ -112,6 +113,11 @@ See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECT
 | [[tianshu-cache-aim-plan]] | tianshu-tui 缓存命中率目标方案（新增 2026-09-06） |
 | [[deepseek-400-mitigation-design]] | DeepSeek 400 双类报错规避与恢复：预防/恢复/兜底三层（新增 2026-09-06） |
 | [[deepseek-400-mitigation-usage]] | DeepSeek 400 规避与恢复使用说明（架构 + 命令速查 + 消毒脚本）（新增 2026-09-06） |
+| [[claude-code-auto-mode-classifier-cache]] | Claude Code 自动模式分类器缓存（2026-09-13 补入地图） |
+| [[claude-context-window-and-model-id]] | 上下文窗口与模型 ID（2026-09-13 补入地图） |
+| [[deepseek-400-context-overflow-recovery]] | 400 上下文溢出恢复（2026-09-13 补入地图） |
+| [[deepseek-cache-key-and-sep-experiments]] | DeepSeek cache key 与 sep 实验（2026-09-13 补入地图） |
+| [[ds2ox-proxy-retirement]] | ds2ox 代理退役记录（2026-09-13 补入地图） |
 | ~~[[claude-network-resilience-design]]~~ | ⚠️ 已废弃 → [[claude-network-resilience-v2]] |
 | ~~[[claude-optimal-resilience-design]]~~ | ⚠️ 已废弃 → [[claude-network-resilience-v2]] |
 
@@ -128,6 +134,8 @@ See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECT
 | [[proxy-cancelretry-hook-incident]] | cancelRetry Hook 卡死事故 |
 | [[2026-06-24-hermes-feishu-outage-postmortem]] | Hermes 飞书助手全面瘫痪（P0） |
 | [[explorer-cpu-spin-postmortem-2026-08-28]] | Explorer 100% CPU 空转排查修复（Windows 壳扩展，新增 2026-08-28） |
+| [[2026-09-12-flash-migration-context-shrink-postmortem]] | Flash 迁移导致上下文收缩复盘（2026-09-13 补入地图） |
+| [[dsh-tui-cpu-spin-postmortem-2026-09-13]] | DSH TUI 100% CPU 空转复盘（2026-09-13，补入地图） |
 
 ### 3. Agent-架构模式（status: stable）
 
@@ -169,13 +177,24 @@ See also: [[AGENTS]] · [[AI-Links-KB-Home]] · [[Network-KB-Home]] · [[CORRECT
 | ~~[[proxy-resilience-optimization-2026-07-09]]~~ | → [[claude-resilience-architecture]] |
 | ~~[[resource-class-scheduling-plan-2026-07-03]]~~ | → [[subagent-resource-architecture-2026-07-03]] |
 
+### 5. claude-ops 根目录（MOC 与元文档）
+
+| 文档 | 主题 |
+|------|------|
+| [[ci-and-prepush-gates]] | CI 与 pre-push 门禁（2026-09-13 补入地图） |
+| [[repo-merge-2026-09-12]] | 四子库合并入库记录（2026-09-13 补入地图） |
+
+> [!warning] 地图完整性（2026-09-13 补）
+> 本节与 §1/§2 新增的 9 条原本**存在于磁盘但未出现在本「文档地图」中**；完整性此前是从「文档地图 + 全库总数」推出来的，没有字面声明，故漏收长期无人察觉。现按磁盘逐目录重算，并给出计数命令：
+> `Get-ChildItem -Path claude-ops/<目录> -Recurse -File -Filter *.md | Measure-Object`（2026-09-13 实测：运维方案与设计 34 · 事故复盘 11 · Agent-架构模式 22 · Plans 8）。
+
 ## 关系图
 
 ```
 Claude-Ops-KB-Home (HOME)
-├─ 运维方案与设计 (OPS) — review × 23 · deprecated × 2
-├─ 事故复盘 (INC) — stable × 9
-├─ Agent-架构模式 (ARCH) — stable × 14 · review × 4（2026-08-25 新增实时交互、基座选型、日志网络根因、记忆与知识库化）
+├─ 运维方案与设计 (OPS) — review × 31 · deprecated × 3
+├─ 事故复盘 (INC) — stable × 11
+├─ Agent-架构模式 (ARCH) — stable × 14 · review × 8（2026-08-25 新增实时交互、基座选型、日志网络根因、记忆与知识库化；2026-08-26 新增 harness 解剖、评测观测、opencode/pi 深入实战）
 ├─ Plans (PLAN) — deprecated × 8
 ├─ AGENTS (AG)
 └─ AI-Links-KB-Home (AI)
@@ -201,11 +220,27 @@ Claude-Ops-KB-Home (HOME)
 
 | 指标 | 值 |
 |------|-----|
-| 迁移文档总数 | 56（54 篇迁移 + MOC + [[MEMORY-INDEX]]）；2026-08-25 起 Agent-架构模式 新增 4 篇（[[main-subagent-realtime-interaction]]、[[opencode-pi-base-development-analysis]]、[[lognet-rootcause-multiagent-architecture]]、[[agent-memory-context-knowledge-design]]），2026-08-28 事故复盘 +1（[[explorer-cpu-spin-postmortem-2026-08-28]]），全库总数 61 |
+| 迁移文档总数 | 56（54 篇迁移 + MOC + [[MEMORY-INDEX]]）；2026-08-25 起 Agent-架构模式 新增 4 篇（[[main-subagent-realtime-interaction]]、[[opencode-pi-base-development-analysis]]、[[lognet-rootcause-multiagent-architecture]]、[[agent-memory-context-knowledge-design]]），2026-08-28 事故复盘 +1（[[explorer-cpu-spin-postmortem-2026-08-28]]），2026-09-12 [[CORRECTIONS]] +1，**全库总数 62**（56 + 4 + 1 + 1） |
 | 迁移日期 | 2026-08-17 |
 | 来源仓库 | `akb-remote` @ commit `f493130` |
 | status 分布 | review 27 · stable 22 · deprecated 10（不含 MOC/索引 2 篇 stable） |
-| 目录分布 | 运维方案与设计 25 · 事故复盘 9 · Agent-架构模式 18（含 MEMORY-INDEX；+4 为 2026-08-25 新增）· Plans 8（合计 60 + 本 MOC = 61） |
+| 目录分布 | **按磁盘实际清点（2026-09-13，`Get-ChildItem -Recurse *.md`）**：运维方案与设计 34 · 事故复盘 11 · Agent-架构模式 22（含 MEMORY-INDEX）· Plans 8（四个子目录合计 75）；本 MOC 与 [[CORRECTIONS]] 位于 `claude-ops/` 根目录，另计。此口径与上行的「迁移入库口径 62」范围不同——62 只数迁移清单与后续入库记录，75 是磁盘上真实存在的四个子目录文档数（多出的部分是此前未纳入文档地图的 9 篇） |
+
+### 版本核验矩阵（2026-09-13 建）
+
+本 MOC 此前把所有全局数字集中放在「关键数据 / 环境上下文 / 标签索引」三处，但**没有任何数字带核验命令与核验日期**，于是每次上游发版都自动过期而无人察觉。下表把外部版本锚点连同复核命令与日期一并固定下来。
+
+| 组件 | 核验值（2026-09-13） | 复核命令 / 页面 | 说明 |
+|------|----------------------|------------------|------|
+| Claude Code | 2.1.270 | `npm view @anthropic-ai/claude-code version` | 见 <https://registry.npmjs.org/@anthropic-ai/claude-code/latest>。上文「环境上下文」里的 v2.1.172 是**原始运行环境的历史记录**，不是待更新项 |
+| nginx for Windows | 1.31.5（官方自述 beta） | <https://nginx.org/en/docs/windows.html> | 官方页逐字：Windows 版「is considered to be a beta version」 |
+| @earendil-works/pi-coding-agent | 0.85.1（engines node>=22.19.0） | `npm view @earendil-works/pi-coding-agent version` | 旧名 `@mariozechner/pi-coding-agent` 停在 0.73.1 且已 deprecated |
+| Tornado | 6.5.8 | <https://www.tornadoweb.org/en/stable/ioloop.html> | 文档页即版本锚点 |
+| Python | 3.14.7 | <https://docs.python.org/3/library/concurrent.futures.html> | 线程池默认值随版本变化（3.13 起改用 `os.process_cpu_count()`） |
+
+> [!note] 引用来源
+> 上表五条均由 2026-09-13 的独立复核逐条核验；URL 已登记到 [[sources/dep-cve]] 与 [[sources/learning-notes]]。
+> 口径纪律：**每个进入正文的数字都要带「命令 + 日期」**，否则下次复核无法判断它是失效还是从未成立。「2026-09-12 发布」一类发布时间未核验，故不写入。
 
 ## 脚本清单
 
@@ -229,3 +264,18 @@ Claude-Ops-KB-Home (HOME)
 
 - 远程 `memory/MEMORY.md` 索引 19 条中 12 条悬空（指向归档中不存在的文件）：6 条已重定向至本库等价文档、6 条无本地等价，详见 [[MEMORY-INDEX]]。
 - 远程仓库的 `articles/`、`dumps/`、`deployments/` 等目录不在本次迁移清单内，仍保留于 `_install-tmp/akb-remote/`。
+  > [!warning] 更正（2026-09-13）：**本机 vault 根下已无 `_install-tmp/`**（`D:\Document\local\knowledge` 与 `D:\Document\local` 两层均无 `*install*` / `akb-remote` 目录），读者按此路径去找会扑空。该路径是 2026-08-17 迁移时的暂存位置，现已清理；此处保留原表述作为历史记录，当前真实位置待补（[[MEMORY-INDEX]] 也引用了同一路径，尚未一并标注，列为待办）。**原表述为「仍保留于 `_install-tmp/akb-remote/`」**——迁移暂存目录（已清理）。
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|------------|
+| 纠错 | 「文档总数：61」与同行列项之和（62）不符；「关键数据」也只到 61，未计 2026-09-12 入库的 [[CORRECTIONS]] | 两处均改为 62，并写明**迁移入库口径含哪些文件**；原 61 作为历史保留在上文说明中 |
+| 纠错 | 关系图「OPS review × 23 · deprecated × 2」「ARCH stable × 14 · review × 4」「INC stable × 9」为 2026-08-26 之前的旧数 | 按磁盘重算为 OPS review × 31 · deprecated × 3、ARCH stable × 14 · review × 8、INC stable × 11（`Get-ChildItem` 逐目录清点 + frontmatter `status` 统计） |
+| 纠错 | 「目录分布 25 / 9 / 18 / 8（合计 60+本 MOC=61）」同样过期 | 改为磁盘口径 34 / 11 / 22 / 8（合计 75），并注明与「迁移入库口径 62」范围不同、不可相加 |
+| 补疏漏 | 「文档地图」漏收 9 篇实际存在的文档（运维方案与设计 5、事故复盘 2、claude-ops 根目录 2） | 按目录补入 §1、§2，并新增 §5 收录根目录两篇；附计数命令与 2026-09-13 实测结果 |
+| 补疏漏 | `_install-tmp/akb-remote/` 在本机已解析不到目标 | 保留原表述并加更正块，说明该暂存目录已清理、按此路径找会扑空 |
+| 加厚 | MOC 承载全局事实（版本、标签数）却不带核验命令与日期 | 新增「版本核验矩阵」：5 个外部版本锚点各带复核命令/页面与核验日期 2026-09-13，来源登记至 [[sources/dep-cve]] / [[sources/learning-notes]] |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]（两处链接本页 See also 区已有，不重复添加）。
+

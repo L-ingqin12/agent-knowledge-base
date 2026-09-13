@@ -3,7 +3,7 @@ title: 网络中断无感方案设计
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-17
+updated: 2026-09-13
 status: deprecated
 ---
 
@@ -152,7 +152,11 @@ claude -p "网络中断后恢复。读取 /root/.claude/context-dump.md 了解�
 
 ## 三、完整恢复链路（仅网络中断场景）
 
+> [!warning] 更正（2026-09-13）：本章（含 §3.2 数据流图）仍按**未修正前提**展开——「代理返回 502 → Claude 进程退出 → 守护检测并拉起」，属**历史推导，已被 [[claude-network-resilience-v2]] 修正**为「Claude 不退出，只是报错后停住等用户输入」，据此守护脚本与 `--resume` 机制均判定为「不需要」。下文的「T-62s 进程退出」等刻画**非现行结论**，仅作设计过程留存。（原表述为「T-62s  Claude 收到 502 → 进程退出 (exit code ≠ 0)」）
+
 ### 3.1 精确时间线
+
+> [!warning] 加厚（2026-09-13）：本节刻度是**单次推演时间线，不是统计量**——原文未自称实测，但同样未给出观测方式与样本口径：未记录取自 `proxy.log` / `guardian.log` 的哪一行、以哪个时钟为准，停顿区间（「约 90 秒」「30-90s」）也没有 p50/p95 与样本量。T-92s 的例行检查刻度系按 `CHECK_INTERVAL=30` 推定，引用时请勿当作实测分布。（原表述为「### 3.1 精确时间线」）
 
 ```
 正常执行中:
@@ -251,6 +255,8 @@ Claude 崩溃:
 ---
 
 ## 四、守护脚本 — 网络中断专用版
+
+> [!warning] 更正（2026-09-13）：本脚本仍按未修正前提展开（假定 502 会导致进程退出、必须由外部守护拉起），属**历史推导，已被 [[claude-network-resilience-v2]] 判定为「不需要」**。脚本实体 `scripts/claude-ops-deployments/root-scripts/claude-network-guardian.sh` 头部现标「⚠️ 归档 — 见 network-resilience-v2.md 的结论」，仅在「若未来实测确认 Claude 会崩溃」时才启用；下方代码保留作参考实现，不代表现网在跑。
 
 ```bash
 #!/bin/bash
@@ -366,6 +372,27 @@ done
 | 5 | `resume-prompt-header.txt` | 恢复时注入的正确 prompt | 写入文件 |
 | 6 | `task-state.json` + `context-dump.md` | Claude 执行任务时自动维护 | prompt 中嵌入规则 |
 
+### 交付验收判据（补，2026-09-13）
+
+上表原仅列「组件 / 作用 / 部署方式」三列，无法判定部署是否成功。按 [[AGENTS]] 五·五 部署四规则（记录可追溯 / 部署前验证 / 逃生机制 / 日志可审计）逐项补齐：
+
+| # | 组件 | 验收判据（可执行命令 → 期望输出） |
+|---|------|-----------------------------------|
+| 1 | `sysctl tcp_keepalive_time=60` | `sysctl net.ipv4.tcp_keepalive_time` → `= 60`（PRoot 环境不可用，见 [[claude-network-resilience-v2]] §七 警示） |
+| 2 | `claude-resilience-proxy.py` | `curl -sI --connect-timeout 2 http://127.0.0.1:8787/ >/dev/null; echo $?` → `0`；`proxy.log` 出现 `[proxy] Listening 127.0.0.1:8787 → …` |
+| 3 | `ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic` | `grep -h ANTHROPIC_BASE_URL ~/.claude/settings.local.json /root/.zshrc /root/.bashrc` → 三处取值一致 |
+| 4 | `claude-network-guardian.sh` | `pgrep -f claude-network-guardian.sh` 有输出且 `kill -0 <PID>` → `0`；`guardian.log` 首行 `Network Guardian started (PID …)` |
+| 5 | `resume-prompt-header.txt` | `test -s /root/.claude/resume-prompt-header.txt && echo OK` → `OK` |
+| 6 | `task-state.json` + `context-dump.md` | 跑完一个步骤后 `python3 -m json.tool /root/.claude/task-state.json` 无报错，且 `completed` 数组较上一步递增 |
+
+> 补（2026-09-13）：现行部署为 Node 版 `claude-resilience-proxy.js`（`claude-resilience-deploy.sh` 以 `node` 启动），上表第 2 项沿用原文的 `.py` 组件名。
+
+**部署前隔离验证**：先以非生产端口起一份对照代理（`PROXY_PORT=8795` + `PROXY_TARGET` 指向测试上游），确认无副作用后再切回 8787 并改 `ANTHROPIC_BASE_URL`；不要「先上线再排错」。
+
+**逃生机制**：通用退路是 `bash /root/claude-rollback.sh`（停止全部代理、恢复直连 DeepSeek）；本方案专属的轻量退路是先 `pkill -f claude-network-guardian.sh` 停守护，再删去 `ANTHROPIC_BASE_URL` 行恢复直连。
+
+**记录可追溯**：本次部署的组件清单、命令与验收输出写入 [[deployment-log]]。
+
 ### 达成后的效果矩阵
 
 | 网络中断场景 | 中断时长 | Claude 行为 | 用户体验 |
@@ -402,3 +429,17 @@ done
   前提: 六项组件全部部署。
   代价: 形态②③会有几十秒到几分钟的停顿（等待网络恢复的时间）。
 ```
+
+> [!warning] 更正（2026-09-13）：§五 效果矩阵与本节总结同样承接 §三 / §四 的未修正前提（「代理耗尽 → 502 → Claude 退出 → 守护拉起」），其「有 30-90s 停顿」等判断按历史推导读；现行口径见 [[claude-network-resilience-v2]]。
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §三 / §四 仍按「代理 502 → Claude 退出 → 守护拉起」展开恢复链路 | 于 §三、§四 就地标注「**仍按未修正前提展开的历史推导，已被 v2 修正**」，并注明守护脚本实体已归档；依据 [[claude-network-resilience-v2]] :14-15 与 `claude-network-guardian.sh` :3-6 的归档标注 |
+| 补疏漏 | §一 形态②③ 覆盖目标与 §五 达成条件清单（六项组件）均无部署验收判据 | 新增「交付验收判据」表（逐项命令与期望输出）+ 部署前隔离验证路径 + 逃生机制 + 写入 [[deployment-log]]；依据 [[AGENTS]] 五·五 部署四规则 |
+| 加厚 | §3.1 时间线未给观测方式、时钟基准与样本口径 | 于 §3.1 标注「单次推演时间线，非统计量」，列出缺失的日志锚点与分位数口径；原文并未自称实测，故按缺失口径补而非改数 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

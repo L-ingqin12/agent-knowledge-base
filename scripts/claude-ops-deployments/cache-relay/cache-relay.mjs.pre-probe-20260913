@@ -25,7 +25,6 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync, statSyn
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { Transform } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 
 const RELAY_PORT = Number(process.env.RELAY_PORT ?? 8790)
@@ -237,50 +236,10 @@ function normalizeTools(body) {
   body.tools = kept.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
-/** 把 system 里含易变内容（日期/uuid/hash/SHA）的 env 块搬迁到末尾消息（内容保留，只移出前缀）。
- *  **返回实际搬走的块数**（0 = 没搬）。返回计数而非布尔，是因为探针需要区分
- *  「搬迁没发生」和「搬迁发生了但被别的 system 改写掩盖」—— 后者曾让 relocFired 恒真。 */
-const relocGuard = new Map()   // sessionKey -> 上一轮**对齐前** system 的 sha256 前 8 位
-const RELOC_GUARD_MAX = 512
-/** 稳定性闸开关。默认**开**；config `relocateVolatileGuard:false` 可退回旧行为（每轮都搬）。 */
-const relocGuardOn = () => readConfig().relocateVolatileGuard !== false
-
-function relocateVolatile(body, sessionKey) {
+/** 把 system 里含易变内容（日期/uuid/hash/SHA）的 env 块搬迁到末尾消息（内容保留，只移出前缀）。 */
+function relocateVolatile(body) {
   const system = body?.system
-  if (!Array.isArray(system)) return 0
-  // ---- 稳定性闸 ----------------------------------------------------------
-  // 依据：本 harness 的 system **整会话静态**（块内含 `gitStatus:` 等 ENV_MARKER，被 looksLikeEnv 整块命中），
-  // 搬走收益为零，代价是「整段提示每轮重算 + 把系统提示当 user 轮注进对话」双重损失。
-  // 判据用**对齐前**的 system：alignRequest 会改写 system，事后再算就不是原始指纹了。
-  // 首见**只登记不搬**（无先例可判，且冷启动本就无缓存可保）；
-  // 只有在**观察到变化**时才搬 —— 自我修正、不误伤真易变的会话。
-  if (relocGuardOn()) {
-    let sig = ''
-    try { sig = createHash('sha256').update(JSON.stringify(system)).digest('hex').slice(0, 8) } catch { sig = '' }
-    // 逐块指纹：用于在闸门放行时指出**是哪一块变了**，而不是只记「变了」。
-    let blockSigs = []
-    try { blockSigs = system.slice(0, 12).map((b) => createHash('sha256').update(JSON.stringify(b)).digest('hex').slice(0, 8)) } catch { blockSigs = [] }
-    // 判据 = 「**这个指纹以前见过吗**」，而不是「跟上一轮是否相同」。
-    // 实测（reloc-guard.jsonl）：同一会话的 system 只有**两个变体、交替出现**（sig 在两值间来回翻、两块都变）。
-    // 单槽闸门必然把这种交替误判成「每轮都在变」而反复搬迁 —— **两种形态其实都是稳定的**。
-    // 保留最近几种已知形态，见过的都算稳定；只有**全新**指纹才放行搬迁。
-    const seen = relocGuard.get(sessionKey) || []
-    if (seen.includes(sig)) return 0          // 以前见过 ⇒ 稳定 ⇒ 整块跳过
-    const next = [...seen, sig].slice(-4)
-    if (relocGuard.size > RELOC_GUARD_MAX) relocGuard.delete(relocGuard.keys().next().value)
-    relocGuard.set(sessionKey, next)
-    if (seen.length === 0) return 0           // 首见：只登记，不搬
-    // 放行 ⇒ 这是一个**从没见过的** system 形态。记下是哪一块变（只记指纹，不记内容）。
-    try {
-      const changed = []
-      for (let i = 0; i < blockSigs.length; i++) if (blockSigs[i] !== (lastBlockSigs.get(sessionKey) || [])[i]) changed.push(i)
-      lastBlockSigs.set(sessionKey, blockSigs)
-      writeFileSync(join(STATE_DIR, 'reloc-guard.jsonl'), JSON.stringify({
-        t: Date.now(), sid: sessionKey, sig, known: seen, blocks: blockSigs.length, changedBlockIdx: changed,
-      }) + '\n', { flag: 'a' })
-    } catch { /* 诊断尽力而为 */ }
-  }
-  // ------------------------------------------------------------------------
+  if (!Array.isArray(system)) return
   const keep = []
   const moved = []
   for (const b of system) {
@@ -288,11 +247,10 @@ function relocateVolatile(body, sessionKey) {
     if (countVolatile(text) > 0 && looksLikeEnv(text)) moved.push(b)
     else keep.push(b)
   }
-  if (moved.length === 0) return 0
+  if (moved.length === 0) return
   body.system = keep
   const msgs = body?.messages
-  // 没有消息可挂载 ⇒ 回滚成原样，等于没搬，故计入 0。
-  if (!Array.isArray(msgs) || msgs.length === 0) { body.system = [...keep, ...moved]; return 0 }
+  if (!Array.isArray(msgs) || msgs.length === 0) { body.system = [...keep, ...moved]; return }
   const last = msgs[msgs.length - 1]
   const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }]
     : Array.isArray(last.content) ? last.content : []
@@ -301,7 +259,6 @@ function relocateVolatile(body, sessionKey) {
     ...moved,
   ]
   msgs[msgs.length - 1] = last
-  return moved.length
 }
 
 /** 原文里是否**可能**出现 cache_control 键。
@@ -312,10 +269,7 @@ const rawMayHaveCacheControl = (raw) => raw === undefined || raw.includes('cache
 
 /** 按 provider 分派对齐。passthrough = 零改动透传（逃生）。
  *  raw = 请求原文（可选，仅用于快速预筛；判据均为必要条件，不传则全量执行，结果一致）。 */
-let lastRelocMoved = 0   // 上一次 alignRequest 中 relocateVolatile 实际搬走的块数。
-                         // alignRequest 是同步的，调用方在其返回后同步读取，故无并发窗口。
-function alignRequest(body, provider, raw, sessionKey) {
-  lastRelocMoved = 0
+function alignRequest(body, provider, raw) {
   switch (provider) {
     case 'deepseek':
     case 'glm':
@@ -325,7 +279,7 @@ function alignRequest(body, provider, raw, sessionKey) {
       sortTools(body)
       // normalizeTools 默认关：会剥掉 MCP 等非锚点工具（行为级变化），需 config.json 显式 normalizeTools=true 开启
       if (readConfig().normalizeTools === true) normalizeTools(body)
-      lastRelocMoved = relocateVolatile(body, sessionKey)
+      relocateVolatile(body)
       break
     case 'anthropic':
       sortTools(body)          // 保留 cache_control 断点，只排序 + 稳定
@@ -376,239 +330,6 @@ function firstMessageText(body) {
     if (text) return text
   }
   return ''
-}
-
-// ---------------------------------------------------------------------------
-// P6 诊断探针（config.probe=true 开启；默认关 = 零额外状态、零额外内存、零额外 IO）。
-//
-// 背景：中继此前**只测请求、不测响应**，也没有任何前缀分歧检测 —— 所以「51 次离散重置事件」
-// 一个都归不了因，命中率只剩猜。这两个探针把决策从猜变成可判定。
-//
-//   A) 分歧探针：按「真实世系」= x-claude-code-session-id + x-claude-code-agent-id 记住上一轮
-//      指纹。**只存哈希，不存 body**：100+ 并发 agent 时保留整包会让中继多占上百 MB，得不偿失。
-//      预登记判据：
-//        preSysChanged   ⇒ 原始 system 会漂 ⇒ relocateVolatile 确实在干活 → 不可关
-//        preSys 恒定     ⇒ 整会话静态      ⇒ relocateVolatile 是纯税 → 可关（A/B 决策依据）
-//        appendOk 为假   ⇒ 实际发出的前缀不是纯追加 ⇒ 该轮整段重算
-//        msgsShrank      ⇒ 压缩/截断 ⇒ 固有的新前缀，不可归因于中继
-//
-//   B) usage 探针：tee 上游 SSE 取 usage。这是**唯一**能看到分类器世系缓存健康度的途径 ——
-//      Claude Code 不把分类器调用写进 transcript，所以 96.7% 根本没覆盖那 33% 的流量。
-// ---------------------------------------------------------------------------
-
-const probeState = new Map()   // lineageKey -> { preSys, preTools, nMsgs, msgHashes, capped, relocFired, t }
-const PROBE_MAX_LINEAGES = 512
-const PROBE_MAX_MSGS = 400      // 超过则不逐条哈希（退化 capped）：大对话上 O(条数) 同步开销会失控
-
-const hash8 = (s) => createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 8)
-
-/** 消息哈希，**跳过 cache_control**。
- *  理由：cache_control 是缓存断点元数据、**不是 token**，DeepSeek 的 token 前缀缓存不受其影响；
- *  但 Claude Code 的断点位置随对话增长而移动，上一轮的末条消息这一轮被摘掉标记 ⇒ JSON 变了。
- *  对齐前取哈希会把这份元数据算进去 ⇒ 每轮都误判「非纯追加」（实测 10/10 全假阳性，
- *  而同期 cache_read 单调增长、命中率 98.3% 证明前缀其实稳定）。 */
-const msgHash = (m) => hash8(JSON.stringify(m, (k, v) => (k === 'cache_control' ? undefined : v)))
-
-const probePrefixOn = (cfg) => cfg?.probe === true || cfg?.probe?.prefix === true
-const probeUsageOn = (cfg) => cfg?.probe === true || cfg?.probe?.usage === true
-/** 记录「分歧的那条消息」的内容片段。**默认关** —— 打开后 prefix-break.jsonl 会落盘消息内容，
- *  而默认契约是只记哈希与计数。仅在需要定位「到底什么变了」时临时开：config `probe:{sample:true}`。 */
-const probeSampleOn = (cfg) => cfg?.probe?.sample === true
-const PROBE_SAMPLE_CHARS = 200
-/** 消息内容片段（有界）。仅在采样开关打开时才会被调用。
- *  **与 msgHash 用同一套归一化**（都跳过 cache_control），否则片段会把「断点位移」这种
- *  已经被明确排除的噪声重新显示出来，让人以为找到了新差异。 */
-const previewOf = (m) => {
-  try {
-    return JSON.stringify(m ?? null, (k, v) => (k === 'cache_control' ? undefined : v)).slice(0, PROBE_SAMPLE_CHARS)
-  } catch { return '<unserializable>' }
-}
-
-function lineageOf(headers) {
-  const sid = String(headers?.['x-claude-code-session-id'] ?? '-').slice(0, 40)
-  const agent = String(headers?.['x-claude-code-agent-id'] ?? 'main').slice(0, 20)
-  return { sid, agent, key: `${sid}|${agent}` }
-}
-
-/** 探针槽位键 = 世系 + 请求种类。**必须带 cls 维**：分类器请求不带 x-claude-code-agent-id，
- *  只按 `${sid}|${agent}` 会与同样不带 agent-id 的主会话请求落到同一个槽，
- *  两条流每交替一次就记一次**假分歧**（实测 5 分钟内 21 次），而 preSysChanged 正是
- *  relocateVolatile 取舍所依赖的字段 —— 仪器会把待决策的结论直接污染成噪声。 */
-function probeKey(headers, isCls) {
-  return `${lineageOf(headers).key}|${isCls === true ? 'cls' : 'main'}`
-}
-
-/** 必须在 alignRequest **之前**调用：对齐会改写 system，事后再采就不是「原始」指纹了。
- *  isCls 也必须按**对齐前**的原始请求判定，两侧同源，故由调用方传入并随 pre 一并带走。 */
-function probePre(headers, parsed, isCls, sampleOn) {
-  if (!parsed) return null
-  const msgs = Array.isArray(parsed.messages) ? parsed.messages : []
-  const capped = msgs.length > PROBE_MAX_MSGS
-  return {
-    key: probeKey(headers, isCls),
-    isCls: isCls === true,
-    preSys: hash8(JSON.stringify(parsed.system ?? null)),
-    preTools: hash8(JSON.stringify(parsed.tools ?? null)),
-    nMsgs: msgs.length,
-    capped,
-    // 逐条消息哈希。**必须在这里算** —— relocateVolatile 之后最后一条消息已被改写。
-    msgHashes: capped ? [] : msgs.map(msgHash),
-    // 采样开关打开时，记下**本条请求末条**的片段：实测 firstDiffIdx ≡ prevMsgs-1，
-    // 即分歧永远落在「上一轮的末条」，所以下一轮拿它的片段对上一轮的这份，就能看出变的是什么。
-    lastPreview: sampleOn && msgs.length ? previewOf(msgs[msgs.length - 1]) : null,
-  }
-}
-
-/** alignRequest 之后：与同世系上一轮比对，**只在出现分歧时**落盘（低 volume）。
- *
- *  「纯追加」必须按**消息序列**判定，不能按整包字节判定 —— 这是单测 [3] 逼出来的：
- *  对话增长时 JSON 是 …[m0,m1,m2]  →  …[m0,m1,m2,m3]，旧包尾是 `]}`、新包该位置是 `,{`，
- *  于是**永远不是字节前缀**。但缓存命中率实测 96.7% ⇒ 缓存是 token 前缀（system→tools→消息序），
- *  不是 HTTP 请求体字节前缀。按字节比等于在量一个和缓存无关的东西。
- *  所以正解 = 逐条消息哈希，判断「上轮的消息序列是不是本轮的前缀」。
- *  relocMoved：由 relocateVolatile 自己上报的**搬走块数**（0 = 没搬）。
- *   **不能用「对齐后 system ≠ 对齐前 system」代替** —— stabilizeVolatileText 每轮都会把
- *   客户端真实日期改写成固定值，任何 system 哈希差几乎恒真，分不出「搬迁」与「钉日期」。
- *  成本：每请求 N 次消息 stringify + N 次 sha256（N 封顶 PROBE_MAX_MSGS），关掉即零。 */
-function probeRecord(headers, parsed, pre, relocMoved) {
-  const { sid, agent } = lineageOf(headers)
-  const key = pre.key   // 用采样时算出的 key，不在两侧重算 —— 重算口径不一致正是假分歧的来源
-  const prev = probeState.get(key)
-  let convOk = null     // null = 本轮无法判定（capped 或首见），绝不当成「没分歧」
-  let firstDiffIdx = -1 // 第一个不匹配的消息下标：直接看出「是什么在变」，别再一次次靠猜
-  if (prev && !pre.capped && !prev.capped) {
-    const a = prev.msgHashes
-    const b = pre.msgHashes
-    convOk = b.length >= a.length
-    if (convOk) {
-      for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) { convOk = false; firstDiffIdx = i; break }
-      }
-    } else firstDiffIdx = -2   // -2 = 消息数反而变少
-  }
-  const relocFired = relocMoved > 0
-  if (prev) {
-    const preSysChanged = prev.preSys !== pre.preSys
-    const preToolsChanged = prev.preTools !== pre.preTools
-    const msgsShrank = pre.nMsgs < prev.nMsgs
-    const relocFlip = prev.relocFired !== relocFired
-    // **末条消息变了不算重置。** 实测：每条记录的 firstDiffIdx 恒等于 prevMsgs-1，
-    // 即分歧永远发生在「上一轮的末条」——那是被 relocateVolatile 每轮改写的尾部，
-    // 改它只让**尾巴重算**（input_tokens 2–7K），前面照常命中（cache_read 单调增长、命中 98–99%）。
-    // 只有**早于末条**的分歧才真的砍掉缓存前缀，被砍长度 = nMsgs - firstDiffIdx。
-    const sigBreak = convOk === false && firstDiffIdx >= 0 && firstDiffIdx < prev.nMsgs - 1
-    // 采样开关打开时（pre.lastPreview !== null 即代表开关已开），**尾部翻动也落盘**。
-    // 否则装上去也是空转：sigBreak 恰恰排除了尾部翻动，而"上一轮末条变成了什么"正是要看的那个现象。
-    // 这是显式 opt-in 的啰嗦模式，默认契约（只记哈希与计数、只在早期分歧落盘）不受影响。
-    const tailSample = pre.lastPreview !== null && convOk === false
-      && firstDiffIdx >= 0 && firstDiffIdx === prev.nMsgs - 1
-    if (preSysChanged || preToolsChanged || msgsShrank || sigBreak || relocFlip || tailSample) {
-      const rec = {
-        t: Date.now(), sid, agent, model: parsed?.model ?? null,
-        preSysChanged, preToolsChanged, msgsShrank, convOk, firstDiffIdx,
-        // 被作废的消息条数：0 = 纯尾部翻动（无前缀损失），越大越是真重置
-        invalidatedMsgs: firstDiffIdx >= 0 ? Math.max(0, pre.nMsgs - firstDiffIdx) : 0,
-        relocFired, relocMoved, relocFlip,
-        nMsgs: pre.nMsgs, prevMsgs: prev.nMsgs, gapMs: Date.now() - prev.t,
-        toolsLen: Array.isArray(parsed?.tools) ? parsed.tools.length : 0,
-        isCls: pre.isCls,
-        // 采样开关打开且分歧恰好落在「上一轮末条」时，并列给出前后两个片段 —— 直接看出变的是什么。
-        // 默认关：prefix-break.jsonl 的默认契约是只记哈希与计数，不落消息内容。
-        ...(pre.lastPreview !== null && firstDiffIdx >= 0 && firstDiffIdx === prev.nMsgs - 1
-          ? { sample: { prev: prev.lastPreview, cur: previewOf(parsed?.messages?.[firstDiffIdx]) } }
-          : {}),
-      }
-      try { writeFileSync(join(STATE_DIR, 'prefix-break.jsonl'), JSON.stringify(rec) + '\n', { flag: 'a' }) } catch { /* 尽力而为 */ }
-    }
-  }
-  if (probeState.size > PROBE_MAX_LINEAGES) probeState.delete(probeState.keys().next().value)
-  probeState.set(key, {
-    preSys: pre.preSys, preTools: pre.preTools, nMsgs: pre.nMsgs,
-    msgHashes: pre.msgHashes, capped: pre.capped, relocFired,
-    lastPreview: pre.lastPreview,
-    t: Date.now(),
-  })
-}
-
-/** 上游响应是否被压缩。SSE 一般不会，但不假设 —— 压缩了就不解析，只记 encoded=true。 */
-function responseEncoded(headers) {
-  const ce = String(headers?.['content-encoding'] ?? '').toLowerCase()
-  return ce.includes('gzip') || ce.includes('deflate') || ce.includes('br')
-}
-
-function usageMeta(reqHeaders, resHeaders, parsed, isCls) {
-  const { sid, agent } = lineageOf(reqHeaders)
-  return {
-    sid, agent, isCls, model: parsed?.model ?? null,
-    nMsgs: Array.isArray(parsed?.messages) ? parsed.messages.length : 0,
-    encoded: resHeaders ? responseEncoded(resHeaders) : false,
-  }
-}
-
-/** tee 上游 SSE 到客户端：字节原样透传，旁路解析 usage 落盘。绝不改变转发语义。 */
-function pipeUpstream(stream, res, meta, enabled) {
-  // 上游中途 error/destroy 时，Node 的 `pipe` 只会 unpipe，**不会结束客户端响应**，
-  // 于是客户端一直挂到自己的超时（触发源：提供方 RST，或 forward() 自己的 180s 不活跃定时器）。
-  // 这是**既有缺陷**，与探针无关 —— 关掉探针走的就是下面这一支。
-  const abortTo = () => {
-    try { stream.destroy() } catch { /* 已销毁 */ }
-    try { if (!res.writableFinished) res.destroy() } catch { /* 已关闭 */ }
-  }
-  if (!enabled) {
-    stream.on('error', abortTo)
-    stream.pipe(res)
-    return
-  }
-  let buf = ''
-  let collected = ''    // 非 SSE 响应的退化路径（分类器多为整段 JSON，没有 data: 行）
-  let usage = null
-  let done = false
-  const finish = () => {
-    if (done) return
-    done = true
-    // SSE 里解析不到 usage 时退回整包 JSON 解析 —— 否则分类器世系永远没有数据，
-    // 而「看清分类器世系的缓存健康度」正是本探针唯一的用途
-    // （Claude Code 不把分类器调用写进 transcript，transcript 侧根本看不到）。
-    if (!usage && collected) {
-      try { const o = JSON.parse(collected); if (o && o.usage) usage = o.usage } catch { /* 非 JSON */ }
-    }
-    try {
-      writeFileSync(join(STATE_DIR, 'usage.jsonl'),
-        JSON.stringify({ t: Date.now(), ...meta, bodyBytes: collected.length, ...(usage || {}) }) + '\n', { flag: 'a' })
-    } catch { /* 尽力而为 */ }
-  }
-  const tap = new Transform({
-    transform(chunk, _enc, cb) {
-      try {
-        const s = chunk.toString('utf8')
-        buf += s
-        if (collected.length < 65536) collected += s   // 仅为退化解析保留有界前缀
-        let i
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i)
-          buf = buf.slice(i + 1)
-          const c = line.indexOf('data:')
-          if (c === -1) continue
-          const js = line.slice(c + 5).trim()
-          if (js.length < 2 || js.charCodeAt(0) !== 123 /* { */) continue
-          if (!js.includes('usage')) continue   // 文本增量占绝大多数，先做廉价筛选
-          try {
-            const o = JSON.parse(js)
-            if (o.type === 'message_start' && o.message?.usage) usage = { ...(usage || {}), ...o.message.usage }
-            else if (o.usage) usage = { ...(usage || {}), ...o.usage }
-          } catch { /* 非 JSON 行（注释/心跳） */ }
-        }
-        if (buf.length > (1 << 20)) buf = buf.slice(-8192)   // 防御：无换行的畸形流
-      } catch { /* 探针绝不打断转发 */ }
-      cb(null, chunk)
-    },
-    flush(cb) { finish(); cb() },
-  })
-  tap.on('close', finish)        // 客户端断连 / 上游中止也落盘
-  res.on('close', finish)        // 客户端断连时也要落一次 usage（原来只挂了 tap）
-  stream.on('error', () => { finish(); abortTo() })   // 记完账还要**收尾**，否则客户端挂死
-  tap.on('error', abortTo)
-  stream.pipe(tap).pipe(res)
 }
 
 /** 请求头安全摘要：全部头名 + 非敏感头值（鉴权/key/token/auth/secret/cookie 类值脱敏）。
@@ -874,19 +595,9 @@ function serve() {
 
     let parsed = null
     let isCls = false
-    let preProbe = null
     try {
       parsed = JSON.parse(body)
-      // P6 探针 A：必须在 alignRequest **之前**采样 —— 对齐会改写 system，事后再采就不是原始指纹了。
-      // isCls 也按对齐前的原始请求判定（下方 754 行的 isCls 仍走原路径，行为不变）。
-      const isClsPre = isClassifierRequest(parsed)
-      if (probePrefixOn(cfg)) preProbe = probePre(req.headers, parsed, isClsPre, probeSampleOn(cfg))
-      // 稳定性闸的会话键**必须带 cls 维**。分类器带的是**同一个 session-id**（只是没有 agent-id），
-      // 而它的 system 与主会话完全不同 ⇒ 若共用键，每轮主/分类器交替都让闸门误判「system 变了」而反复搬迁
-      // （实测 relocMoved 在 0/1 间翻转，且同一行 preSysChanged=false 证明对齐前 system 其实稳定）。
-      // 与 probeKey 当初踩的是同一个坑：**按世系分组时漏掉请求种类**。
-      alignRequest(parsed, provider, body,
-        `${String(req.headers['x-claude-code-session-id'] ?? '-').slice(0, 40)}|${isClsPre ? 'cls' : 'main'}`)
+      alignRequest(parsed, provider, body)
       isCls = isClassifierRequest(parsed)
       // 分类器模型档位重映射：全部投 flash（省 pro 成本）。
       // 精确 key 优先，* 通配兜底；不分 Stage（全走 flash）。
@@ -899,8 +610,6 @@ function serve() {
       }
       body = JSON.stringify(parsed)
     } catch { /* 非 JSON 透传 */ }
-    // P6 探针 A（续）：用对齐后的整包与同世系上一轮比对，仅出现分歧时落盘。
-    if (preProbe) probeRecord(req.headers, parsed, preProbe, lastRelocMoved)
 
     const fallback = fallbackConfig()
     // 分类器 sid 改写（config.classifier.sessionIdSuffix 配置时生效）：转发前把分类器请求的
@@ -944,7 +653,7 @@ function serve() {
           console.log(`[cache-relay] classifier → ${clsUp} status=${cls.status}`)
           if (cls.stream && cls.status >= 200 && cls.status < 400) {
             res.writeHead(cls.status, cls.headers)
-            pipeUpstream(cls.stream, res, usageMeta(req.headers, cls.headers, parsed, true), probeUsageOn(cfg))
+            cls.stream.pipe(res)
             return
           }
           if (cls.stream) cls.stream.resume()
@@ -975,7 +684,7 @@ function serve() {
         } catch { /* 非 JSON 原样转发 */ }
         const fb = await forward(req, fbBody, fallback.upstream, path, { authorization: '[已脱敏] ' + fallback.authToken, ...clsOverride }, clientGone.signal)
         console.log(`[cache-relay] 400 risk → fallback ${fallback.upstream} status=${fb.status}`)
-        if (fb.stream) { res.writeHead(fb.status, fb.headers); pipeUpstream(fb.stream, res, usageMeta(req.headers, fb.headers, parsed, isCls), probeUsageOn(cfg)); return }
+        if (fb.stream) { res.writeHead(fb.status, fb.headers); fb.stream.pipe(res); return }
         // 兜底也失败：回传原始 400（信息最准）
         res.writeHead(fwd.status, fwd.headers)
         res.end(errBody)
@@ -988,7 +697,7 @@ function serve() {
     }
     if (!fwd.stream) { res.writeHead(fwd.status); res.end(); return }
     res.writeHead(fwd.status, fwd.headers)
-    pipeUpstream(fwd.stream, res, usageMeta(req.headers, fwd.headers, parsed, isCls), probeUsageOn(cfg))
+    fwd.stream.pipe(res)
   })
   // SSE 是「小块高频」写入，Nagle 攒包会直接抬高 Claude Code 逐字上屏的延迟。
   server.on('connection', (socket) => socket.setNoDelay(true))

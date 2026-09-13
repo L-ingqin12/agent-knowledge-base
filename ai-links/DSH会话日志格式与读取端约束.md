@@ -3,7 +3,7 @@ title: DSH 会话日志格式与读取端约束
 aliases: [session.v3.jsonl.zstd, 会话日志格式, seq 密集性]
 tags: [ai/tools, ai/agent]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
@@ -18,7 +18,12 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH�
 > [!danger] 三句话结论
 > 1. **行号即身份**：第 n 行的 `seq` 必须等于 n−1。删掉中间某行后，其后每一行都要**重编号**，且**所有引用**都要按同一映射改写；`seq` 忘了改 → 必挂，引用漏改 → 也挂，引用改错（指向合法但错误的行）→ **不报错但语义已坏**。
 > 2. **容器层不防编辑**：每帧校验和只覆盖该帧自己的压缩字节，改完重压即合法。真正拦住你的是行级语义（seq 密集 + 引用规则），不是校验和。
-> 3. **判据只有一个**：本机 `dsh-session-persistence-jsonl` 的 `open()`。⚠ 但它会把「看着像未完成末帧」的损坏**静默截断**——必须配合事件计数与逐字节帧走查才可信。
+> 3. **判据只有一个（本机侧）**：本机 `dsh-session-persistence-jsonl` 的 `open()`。⚠ 但它会把「看着像未完成末帧」的损坏**静默截断**——必须配合事件计数与逐字节帧走查才可信。**2026-09-13 复核补**：本机判据应与上游发布记录**双向对齐**，理由见下。
+
+> [!important] 上游权威入口：已发布格式的兼容义务（2026-09-13 补）
+> 官方 `docs/session-format-status.zh.md`（HTTP 200）明确写着：「**产品的 alpha、beta 或 release-candidate 发布都会确立已发布 Session 格式的义务。GitHub 的 prerelease 标记不会让持久化用户数据成为可丢弃数据**」，并给出发布记录 `latestReleasedVersion: 3` / `evidenceTag: dsh-v0.1.5-alpha.1`——与本文 §〇 的代码常量 `SESSION_FORMAT_VERSION = 3` 一致。
+> 对要写或评审「日志改写工具」的人，这是一条硬约束：**rc 线的 v3 也已经是有兼容义务的已发布格式**，不能按"还在预发布、随便改"处理。因此正确口径是「本机 `open()` **＋** 上游发布记录」双向对齐，而不是"只信本机实现"。
+> 来源：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/session-format-status.zh.md
 
 ## 〇、判据、取证与标注规则
 
@@ -28,6 +33,11 @@ See also: [[AI-Links-KB-Home]] | [[DSH插件与Hook开发最佳实践]] | [[DSH�
 | 格式版本 | `SESSION_FORMAT_VERSION = 3`（`dsh-session/lib/index.js:56`）；后端包 0.1.5-rc.2 |
 | 取证方式 | **合成日志**：假数据 + 真实编解码器 + 真实后端；夹具写在 `%TEMP%\dsh-logfmt\`，**未读取任何真实会话内容、缓存或 `*.jsonl.zstd`** |
 | 权威判据 | `new JsonlSessionPersistence(ctx, { root, compression:'zstd' })` → `open(id,'read')` → `handle.read(0)` |
+| 上游对齐（2026-09-13 复核补） | 官方 `docs/session-format-status.zh.md` 的发布记录 `latestReleasedVersion: 3` / `evidenceTag: dsh-v0.1.5-alpha.1`，与代码常量 `SESSION_FORMAT_VERSION = 3` 一致 |
+
+> [!note] 2026-09-13 复核：这两项取证独立地成立
+> `dsh-session/lib/index.js:56` 确为 `const SESSION_FORMAT_VERSION = 3;`；本机后端包 `dsh-session-persistence-jsonl` = 0.1.5-rc.2；上游发布记录同样记 v3（`evidenceTag: dsh-v0.1.5-alpha.1`）⇒ 代码常量与上游记录一致。
+> 来源：https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/docs/session-format-status.zh.md
 
 后文引用简写（一律 `简写:行`）：
 
@@ -215,6 +225,7 @@ if (event.seq !== eventCount) {
 5. **递归检查每一个引用字段**：键名匹配 `/(^|_)(seq|seqs)$/i` 的整数 → 必须 `< 本行 seq`；数组 → **先按游程展开**（`[a,b]` 是闭区间），再检查「每个元素 < 本行 seq、无重复、严格递增」；`shadowedRange` 端点必须等于 `shadowedSeqs` 首尾；`messageSeqs` 必须指向更早的人类 `user/message`。
 6. **逐字节对账**：扫描出的帧范围拼起来必须恰好覆盖整个文件长度。**任何未被解释的字节，就是「被当成崩溃尾静默截断」的指纹**——这是第六节那个坑的唯一检出手段。
 7. **交叉验证权威 oracle**：`dsh-session-persistence-jsonl` 的 `open()`（`open(id,'read')` 即可，实测与 `'write'` 对同一文件的判定一致）。⚠ 它不是充分判据（见第六节），必须与第 4 步的事件计数一起看。
+   **2026-09-13 复核补**：这条自我限定应保留；可加固之处是给「静默截断」找一条**规格出处**——跨后端类型声明把契约写成「**残缺物理尾永不返回给读者，由写路径在首次追加前截断**」（`dsh-session-persistence/lib/types/index.d.ts:82-84`；本文 §五 表格已引用同一句），而上游 `docs/session-format-status.zh.md` 又把 rc 线纳入兼容义务 ⇒ **"删除"是有规格出处的，不是本工具的工程选择**。所以第 7 步与第 4 步必须成对读：`open()` 返回 ok 只说明"读取端接受"，事件计数才说明"内容完整"。
 8. **只读检查**：不要用 `open(id,'write')` 当探针——写句柄在首次 append 时会**截断崩溃尾并重放恢复尾**（`J:221-239`），检查动作本身会改文件。写入侧语义见 [[DSH会话持久化与活跃改写安全]]。
 
 ```js
@@ -262,3 +273,13 @@ function scanFrames(buf) {
 - [[DSH插件与Hook开发最佳实践]] — `session/event` 与 Cordis 事件的区别、插件侧观察姿势
 - [[AI-Links-KB-Home]] — AI 链接收藏库 MOC
 - [[AGENTS]] — 本库写作与取证规范（§6.5 出结论前回查 [[CORRECTIONS]]）
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | §〇 取证表只有本机侧两项，缺上游权威入口 | 补上游对齐行（`latestReleasedVersion: 3` / `evidenceTag: dsh-v0.1.5-alpha.1`）与复核块；依据官方 `docs/session-format-status.zh.md` |
+| 加厚 | §四 把判据说成「只有一个：本机 `open()`」 | 升级为「本机 `open()` **＋** 上游发布记录」双向对齐，并引上游原文（alpha/beta/rc 发布同样确立已发布格式义务） |
+| 加厚 | §八 第 7 步承认会静默截断，但"删除"缺规格出处 | 补规格出处（跨后端类型声明「残缺物理尾永不返回给读者，由写路径在首次追加前截断」＋上游兼容义务），并点明第 7 步必须与第 4 步成对读 |

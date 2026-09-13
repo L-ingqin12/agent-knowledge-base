@@ -3,7 +3,7 @@ title: Claude Code 韧性代理 — 使用手册
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-06-11
-updated: 2026-08-17
+updated: 2026-09-13
 status: review
 ---
 
@@ -124,4 +124,16 @@ bash /root/claude-rollback.sh
 ## 八、GitHub 完整文档
 
 所有设计文档、推导链路、复盘记录均在此仓库：
-https://github.com/L-ingqin12/claude-code-knowledge
+https://github.com/L-ingqin12/agent-knowledge-base
+
+> [!warning] 更正（2026-09-13）：仓库已改名，正确地址为 https://github.com/L-ingqin12/agent-knowledge-base ；旧地址仍可经 HTTP 301 重定向解析到新地址（旧名保留重定向，并非失效链接）。（原表述为「https://github.com/L-ingqin12/claude-code-knowledge」）
+>
+> 依据：https://github.com/L-ingqin12/claude-code-knowledge → HTTP 301 → `https://github.com/L-ingqin12/agent-knowledge-base`；https://github.com/L-ingqin12/agent-knowledge-base 返回 200（核验于 2026-09-13）
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §八 给出的 GitHub 仓库地址是改名前的旧仓库名 | 就地标注更正并补新地址；旧地址经 301 仍可解析，故只标「已改名」不标「失效」（依据：301 实测，见上） |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

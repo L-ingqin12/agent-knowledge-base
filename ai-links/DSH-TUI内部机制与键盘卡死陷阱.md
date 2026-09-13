@@ -3,7 +3,7 @@ title: DSH-TUI 内部机制与键盘卡死陷阱
 aliases: [tuiDialogs, 命令结果渲染, 200格截断, 键盘让出]
 tags: [ai/tools, ai/agent]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
@@ -21,6 +21,8 @@ See also: [[DSH-TUI插件使用手册]] | [[DSH插件与Hook开发最佳实践]]
 
 所有 `文件:行号` 都指**本机安装的那一份打包产物**（tsc 输出，不是源码仓库）；下文裸写的 `xxx.js` 一律指安装根下的 `lib\types\dsh-adapter\xxx.js`，`Chat.js`/`PromptInput.js`/`ExtensionDialog.js` 则分别在 `lib\types\screens\` 与 `lib\types\components\` 下；`index.js` 与 profile 补丁层另行标注。
 基线：包 `@deepseek-harness-tui/dsh-tui` **0.10.1**，安装根 `C:\%USERPROFILE%\.dsh\profiles\dsh-tui\node_modules\@deepseek-harness-tui\dsh-tui\`（即 `$DSH_HOME/profiles/dsh-tui/…`），文件时间 2026-09-12 15:13（全部同步）。
+上游（2026-09-13 复核补记）：**ccch1mneyyy/dsh-TUI**（https://github.com/ccch1mneyyy/dsh-TUI ，实测 ★2995、`pushed_at` 2026-09-13 仍在推送），npm `dist-tags.latest` = 0.10.1，与基线一致。注意**上游不是 `dsh-tui/dsh-tui`**——那是已退役的 `@dsh-tui/dsh-tui@0.1.2` 一脉（见 [[DSH-TUI插件使用手册]]）。
+来源：https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui
 
 | 文件 | 字节 | SHA256（前 8 … 后 8） |
 |---|---|---|
@@ -213,7 +215,16 @@ approvalPanelNode !== null ? (approvalPanelNode)
 恢复链路（全部在 `dialogs.js`）：`:100-102` 挂定时器 → `:79-98 onAbort` 从队列摘除/清 `active` → `:92` 结算为 `undefined` → `:97 advance()` → `:170-173 emit()` → Chat 的订阅者被唤醒（`Chat.js:235-236`）→ `dialogSnapshot` 变回 `null` → `:2566` 不再 return、`PromptInput.js:2456` 恢复 `isActive: true`。
 
 实测（真实 `TuiDialogStore`，无 TTY）：**15011 ms / 15026 ms 结算**；把事件循环同步阻塞约 4 秒只是推迟、不会丢定时器。服务卸载时 `settleAll()` 把所有排队 + 活动请求以 `undefined` 结清（`:148-157`，注册于 `:193`）。
-**所以 15 秒是"有界"，不是"修复"**：它把一次交互变成一次全局键盘封锁。
+
+> [!warning] 更正（2026-09-13）：15 秒与 30 秒不是同一件事
+> §4.1 记的默认超时是 `DIALOG_DEFAULT_TIMEOUT_MS = 30_000`，而本节的 15011 / 15026 ms 是**某一次显式传入 `timeoutMs` 的实测样本**——两处数字对不上，但都不错，必须分清：
+> - **调用方没传 `timeoutMs`** ⇒ 服务层补 30000 ⇒ 用户实际要等 **30 秒**（`timeoutOf()` 把"缺失/非数/≤0"一律映射成 30000，再把有效值夹到 24h）；
+> - **调用方传了 15 秒** ⇒ 就是本节这组数字；
+> - **直接 `new TuiDialogStore()` 且不传超时** ⇒ store 层没有默认值 ⇒ **永久挂起**（§4.1 的警示块）。
+> 另：本页全部行号（含 `Chat.js:3585`）**只对 0.10.1 这一份打包产物成立**；旧线 `@dsh-tui/dsh-tui@0.1.2` 已退役，行号不通用。
+> 来源：https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui
+
+**所以 15 秒（或 30 秒）是"有界"，不是"修复"**：它把一次交互变成一次全局键盘封锁。
 
 ---
 
@@ -301,3 +312,14 @@ approvalPanelNode !== null ? (approvalPanelNode)
 - [[DSH提效与Token插件调研]] — 官方与社区插件清单及推荐组合
 - [[AI-Links-KB-Home]] — 本子库 MOC（本文的文档地图入口）
 - [[AGENTS]] — 知识库写作与链接规范
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | §一 证据基线未写上游 owner 与仓库 URL | 补记上游 `ccch1mneyyy/dsh-TUI`（★2995、2026-09-13 仍在推送）与 npm `dist-tags.latest` 对照，并澄清上游**不是** `dsh-tui/dsh-tui`；依据 registry 元数据与 GitHub 搜索 API |
+| 纠错 | §八.1 的 15011/15026 ms 与 §4.1 的 `DIALOG_DEFAULT_TIMEOUT_MS = 30_000` 两处数字对不上 | 补更正块：15 秒来自调用方显式传入的 `timeoutMs`；**没传时实际等 30 秒**；store 层无默认值 ⇒ 永久挂起。同时声明全部行号只对 0.10.1 成立（旧线 0.1.2 已退役）。来源：npm registry |
+
+更正与依据登记：[[CORRECTIONS]]

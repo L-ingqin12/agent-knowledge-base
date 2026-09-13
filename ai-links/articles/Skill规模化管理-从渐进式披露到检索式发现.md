@@ -3,7 +3,7 @@ title: "Skill 规模化管理——从渐进式披露到检索式发现"
 aliases: [Skill规模化管理, 检索式发现, Skill Discovery]
 tags: [ai/skills, ai/learning]
 created: 2026-06-22
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 source: "基于 Claude Code Skills 体系推演"
 date: "2026-06-22"
@@ -17,6 +17,9 @@ See also: [[AI-Links-KB-Home]] | [[Articles-Index]] | [[Agent驱动Skill迁移�
 ## 摘要
 
 当 Skill 从 10 个增长到 1000 个，渐进式披露的 Level 1（元信息始终在 system prompt）本身就成为瓶颈——1000 个 skill × 30 token/行 = 30000 token，还没加载任何内容就把 system prompt 吃掉了。
+
+> [!warning] 更正（2026-09-13）：`30 token/行` 是本文自造的换算系数，官方文档中没有这个口径，「1000 skill = 30000 token」由它推出，**不应作为量化基石**（原表述为「1000 个 skill × 30 token/行 = 30000 token，还没加载任何内容就把 system prompt 吃掉了」）。可核对的上界只有两条：Agent Skills 规范规定 `description` ≤ 1024 字符、`name` ≤ 64 字符；Claude Code 把 `description` 与 `when_to_use` 合并后在技能列表中**截断于 1,536 字符**（官方原文：the combined description and when_to_use text is truncated at 1,536 characters in the skill listing to reduce context usage）。1,536 字符是**截断上限而非典型占用**，真实开销取决于各技能 description 的实际长度，必须以 `/skill-doctor` 实测为准，不得引用任何未经实测的换算值。本文第一、二、五、六节沿用的全部数字（300/1500/3000/9000/15000/30000、150、12000 等）都是同一自造系数的推导结果，请按「方向性示意」而非实测值阅读。低成本治理手段见第九节，检索式发现自身的代价见第十节。
+> 来源：https://code.claude.com/docs/en/skills ；https://agentskills.io/specification
 
 解法：把上下文工程的四层解法**递归应用到 Skill 管理自身**。Skill 元信息不再是常驻列表，而是一个可检索、可发现、按时效性分层的动态目录。核心转变：**从「渐进式披露」（先列目录再展开）到「检索式发现」（先搜再列）。**
 
@@ -44,6 +47,8 @@ Skill 数量和当前任务的**相关性比例**，决定了瓶颈到来的速�
 | 公司级市场 | 2000 | 5-10 | < 1% | 99% 是噪声 |
 
 规模越大，**相关性比例越低，渐进式披露的浪费越严重**。
+
+> 本节表格中的 token 数字与摘要同源（自造系数），只表达趋势；在讨论「要不要上检索式发现」之前，请先看第九节的量测手段与显隐旋钮。
 
 ---
 
@@ -87,6 +92,8 @@ Layer 2 — Skill 完整内容（渐进式披露 Level 2 & 3）
   ├── model 判断要用了 → 加载完整 SKILL.md
   └── 需要具体文件 → 按需读取
 ```
+
+> 检索式发现不是纯收益解法：它的漏召回风险、描述截断损失与触发率验收方式见第十节。
 
 ---
 
@@ -169,6 +176,9 @@ def pre_filter(skills, context):
 
 这个过滤是**零 token 开销**的——在候选技能进入 LLM 视野之前，先砍掉确定不相关的。
 
+> [!warning] 更正（2026-09-13）：方案 C 里的 `paths` 前置过滤与「命名空间」**已由 Claude Code 原生提供**，不应再当作待自建扩展（原表述为把 namespace / paths / conflicts 整体列为方案 C 的自研内容，第八节 Phase 2 亦称「给 skill 补 namespace/paths/includes frontmatter」）。`paths` 已是 SKILL.md frontmatter 的一等字段（官方原文：Glob patterns that limit when this skill is activated. Accepts a comma-separated string or a YAML list. When set, Claude loads the skill automatically only when working with files matching the patterns. Uses the same format as path-specific rules），`.claude/rules/` 同样支持 `paths` 路径限定（Rules without a paths field are loaded unconditionally；Path-scoped rules trigger when Claude reads files matching the pattern, not on every tool use）；插件技能天然带命名空间，调用形式为 `/plugin-name:skill-name`。真正需要自建的只剩 namespace 语义分组、includes/optional_includes 依赖声明与检索式发现三块。
+> 来源：https://code.claude.com/docs/en/skills ；https://code.claude.com/docs/en/plugins
+
 ---
 
 ## 四、时效性分层——Skill 的「stale 管理」
@@ -199,6 +209,12 @@ skill 内容...
 
 类似记忆系统的 `<system-reminder>This memory was saved N days ago</system-reminder>`，超过 `stale_after_days` 的 Skill 在加载时自动附带提示。
 
+> [!warning] 更正（2026-09-13）：上面这套字段**在当前机制下不会生效**。
+> 1. **位置错了**——Agent Skills 规范只允许六个键：`name`（≤64 字符，不得以连字符开头或结尾）、`description`（≤1024 字符）、`license`、`compatibility`（≤500 字符）、`metadata`（string→string map）、`allowed-tools`（Experimental）。`last_verified` / `stale_after_days` / `source_repo` 属规范外键，只能落进 `metadata` map。
+> 2. **承诺不成立**——官方对 `metadata` 的态度是「Free-form YAML map for your own key-value data, such as entitlement or catalog fields, read by your own tooling from SKILL.md. Claude Code doesn't act on its contents, and drops a value that isn't a map. Don't reuse frontmatter field names such as paths as keys」，即写了也不会自动提示，必须由自己的 hook/脚本读取 `metadata` 后注入（原表述为「超过 `stale_after_days` 的 Skill 在加载时自动附带提示」）。
+> 3. **验收应落成三步清单**：①日期判定 stale → ②重跑触发评测（should-trigger 集复测）→ ③改名或下线。注意 **stale ≠ 废弃**：工具升级导致的失效要靠触发集复测暴露，不是靠日期。官方已有的近似能力是 `/skill-doctor`，它会列出从未被调用的技能并指出可关闭的位置，可直接作为「废弃检测」的第一版实现，不必自建使用频率统计。
+> 来源：https://agentskills.io/specification ；https://code.claude.com/docs/en/skills
+
 ---
 
 ## 五、依赖式引入：`@include` 级联加载——编程式的按需关联
@@ -216,6 +232,13 @@ CLAUDE.md 中已经实现了这个机制：
 ```
 
 加载时自动读取目标文件内容拼入，同时有防循环引用和防路径遍历的工程保护。Skills 可以直接复用同一套语法和实现。
+
+> [!warning] 更正（2026-09-13）：本节的**方向反了**，而且反转依据就在同一份官方文档里。
+> 1. `@path` 导入是**启动时急切展开**，不是按需级联——官方原话「Imported files are expanded and loaded into context at launch alongside the CLAUDE.md that references them」与「Splitting into @path imports helps organization but doesn't reduce context, since imported files load at launch」。越 import 越占 context，**不可能**产生 5.2–5.4 节承诺的「子 Skill 隐形、开销 0 token」。真正的按需加载要靠 Skill 目录本身（SKILL.md 正文触发时才加载，加载后 stays in context across turns）与 `references/` 的按需读取。（原表述为「加载时自动读取目标文件内容拼入……Skills 可以直接复用同一套语法和实现」，并据此推出子 Skill 的 token 节省结论）
+> 2. 导入深度上限是**四跳**：官方原文「Imported files can recursively import other files, with a maximum depth of four hops」。
+> 3. 跨工作目录的导入会触发**一次性批准弹窗**：官方原文「The first time Claude Code encounters external imports in a project, it shows an approval dialog listing the files. If you decline, the imports stay disabled and the dialog doesn't appear again」——须限定为「项目级记忆文件引入工作目录之外的文件时」，不是无条件可用，也不是所有导入都需要批准。
+> 4. 原文所称的「防循环引用和防路径遍历」两项工程保护在该官方文档中**未见对应表述**，按本库规则不应作为官方机制引用。
+> 来源：https://code.claude.com/docs/en/memory
 
 ### 5.2 Skill 依赖声明
 
@@ -246,6 +269,8 @@ System prompt（始终加载，30 token）：
 ```
 
 模型只需要知道父 Skill 的存在（30 token），三个子 Skill 的元信息根本不在 system prompt 里——只在被需要时才出现。
+
+> 更正（2026-09-13）：本段结论不成立——`@import` 是启动时急切展开，「子 Skill 隐形」不成立；原因与官方原文见 5.1 节末的更正块。
 
 ### 5.3 与检索式发现的对比
 
@@ -328,6 +353,9 @@ class SkillLoader:
         return loaded
 ```
 
+> [!note] 补疏漏（2026-09-13）：上面 `depth > 5` 是自建加载器的深度上限，官方 `@import` 体系的硬上限是**四跳**（memory 文档原文：Imported files can recursively import other files, with a maximum depth of four hops）。自建解析器若沿用 5 而不写明理由，会出现「本机可解析、上游展开失败」的落差，建议在对齐官方语义时改为四跳；库内 `scripts/claude-ops-deployments/demos/skill-registry.py` 的 `resolve_dependencies(..., max_depth=5)` 同理。
+> 来源：https://code.claude.com/docs/en/memory
+
 ---
 
 ## 六、完整架构（双路径：依赖声明 + 检索发现）
@@ -393,15 +421,21 @@ class SkillLoader:
 
 | 框架组件 | Claude Code 已有实现 |
 |---------|-------------------|
-| 命名空间隔离 | CLAUDE.md 六层级（Managed/User/Project/Local/Auto/Team） |
-| 依赖链级联加载 | `@include` 指令（防循环引用 + 防路径遍历） |
-| 条件匹配 | `.claude/rules/` 的 `paths` glob 匹配 |
-| 小模型选择 | Sonnet 从 MEMORY.md 索引选 top-5 记忆 |
-| Stale 管理 | `<system-reminder>` 2 天 stale 警告 |
-| 去重过滤 | `alreadySurfaced` + `recentTools` 过滤 |
+| 命名空间隔离 | CLAUDE.md 四层级（Managed policy / User / Project / Local）；auto memory 是与之并列的另一套机制，不是层 |
+| 依赖链级联加载 | `@import` 指令——但它是**启动时急切展开**，不是按需级联；深度上限四跳 |
+| 条件匹配 | `.claude/rules/` 与 SKILL.md frontmatter 的 `paths` glob 匹配 |
+| 小模型选择 | ⚠️ 待证：Sonnet 从 MEMORY.md 索引选 top-5 记忆 |
+| Stale 管理 | ⚠️ 待证：`<system-reminder>` 2 天 stale 警告 |
+| 去重过滤 | ⚠️ 待证：`alreadySurfaced` + `recentTools` 过滤 |
 | 渐进式披露 | Skills 三级加载（元信息 → SKILL.md → 具体文件） |
 
-**七个机制，每一个都已在 Claude Code 中运行。** 当前 Skill 数量还小，这些机制主要用在记忆系统和 CLAUDE.md 上——当 Skill 数量增长时，同样的模式可以直接平移。
+**核对结果：skills 侧的机制有官方依据，记忆侧的三项待证。**
+
+> [!warning] 更正（2026-09-13）：
+> 1. **CLAUDE.md 层级是四层不是六层**——官方作用域表按加载顺序为 Managed policy（macOS `/Library/Application Support/ClaudeCode/CLAUDE.md`、Linux 与 WSL `/etc/claude-code/CLAUDE.md`、Windows `C:\Program Files\ClaudeCode\CLAUDE.md`）→ User instructions（`~/.claude/CLAUDE.md`）→ Project instructions（`./CLAUDE.md` 或 `./.claude/CLAUDE.md`）→ Local instructions（`./CLAUDE.local.md`）。官方原文「Claude Code has two complementary memory systems」确认 **auto memory 不是 CLAUDE.md 的层级**，而是与 CLAUDE.md 并列的另一套机制；「Team」只是 Project instructions 的共享对象（Team members via source control），不是第五/第六层。（原表述为「CLAUDE.md 六层级（Managed/User/Project/Local/Auto/Team）」）
+> 2. **`@include` 是启动时急切展开而非「级联加载」**——官方原话「Imported files are expanded and loaded into context at launch alongside the CLAUDE.md that references them」「Splitting into @path imports helps organization but doesn't reduce context, since imported files load at launch」；原文承诺的「防循环引用 + 防路径遍历」在该官方文档中未见对应表述。（原表述为「`@include` 指令（防循环引用 + 防路径遍历）」）
+> 3. **结尾断言降级**：七项里只有四项能找到公开官方依据，其中两项口径本身还需订正（见上）；「Sonnet 从 MEMORY.md 索引选 top-5 记忆」「2 天 stale 警告」「alreadySurfaced + recentTools 过滤」三项在 `code.claude.com/docs/en/memory` 与 `code.claude.com/docs/en/skills` 两份官方文档中均无对应描述，目前只有本库自证的页面（如 [[Claude-Code记忆机制源码拆解]]）支撑，按本库规则应标 `unverifiable`——要么补上可公开核验的一手证据，要么改写为「本库源码观察所得，未经官方文档确认」。（原表述为「**七个机制，每一个都已在 Claude Code 中运行。**」）
+> 来源：https://code.claude.com/docs/en/memory ；https://code.claude.com/docs/en/skills 当前 Skill 数量还小，这些机制主要用在记忆系统和 CLAUDE.md 上——当 Skill 数量增长时，同样的模式可以直接平移。
 
 ---
 
@@ -416,7 +450,7 @@ Phase 2（增长到 100-300 个 skill）
   → 加命名空间 + 条件过滤 + @include 依赖声明
   → 把共享 skill 抽成依赖，顶层 skill 声明 includes
   → system prompt 只列顶层入口，子 Skill 隐形
-  → 任务：给 skill 补 namespace/paths/includes frontmatter
+  → 任务：给 skill 补 includes 依赖声明（namespace 由目录/插件分组承担；paths 已是官方原生字段，直接用、不必自建——见 3.3 节更正）
 
 Phase 3（增长到 500-1000 个 skill）
   → 加检索式发现（search_skills 工具）
@@ -430,3 +464,56 @@ Phase 4（增长到 5000+ 个 skill）
 ```
 
 核心原则不变：**任何时刻 context 里只放当前这一步真正用得上的部分。** 对文档成立、对记忆成立、对 Skill 成立——依赖声明和检索发现是这条原则在 Skill 管理上的两种互补实现。
+
+---
+
+## 九、先量测、再改架构（2026-09-13 补）
+
+原文通篇默认「Skill 元信息常驻 system prompt」是唯一机制，没有提到 Claude Code 已经提供的技能成本度量与显隐治理手段。这三条正是「要不要上检索式发现」的判据，也是最有可能让整套架构升级变得不必要的低成本替代方案。
+
+| 手段 | 作用 | 关键约束 |
+|------|------|---------|
+| `/skill-doctor` | 直接报告每个技能占用的 context 成本与调用频次；交互式会话开在 `/plugin` 管理器的 Stats 标签，`-p` 非交互模式打印为文本 | 需 v2.1.252+；在跳过 feature-flag fetching 的会话中不可用 |
+| `skillOverrides` | 把单个技能改为 `name-only` 或 `off`，人工可读示例 `"legacy-context": "name-only"` | **插件技能不受 `skillOverrides` 影响**——官方原文「Plugin skills are not affected by skillOverrides. Manage those through /plugin instead.」 |
+| `disable-model-invocation: true` | 阻止模型自动加载，只允许人工 `/name` 调用 | 反向旋钮 `user-invocable: false`；`skillOverrides` 的 `"user-invocable-only"` 是等价档位 |
+
+官方把这件事说得很直白：「Every skill in the skill listing adds to your context on every turn, whether or not Claude ever uses it. Run /skill-doctor to see what each of your skills costs and how often it gets used, so you can decide which ones to turn off」。
+
+> 来源：https://code.claude.com/docs/en/skills
+
+---
+
+## 十、取舍对照：检索式发现的失败模式与代价（2026-09-13 补）
+
+原文第二节只对比 token 开销（30 token vs 30000 token）就把检索式发现当作纯收益解法。实际上两种机制的风险类型不同：**常驻列表永不漏召回、只多花 token；检索式发现错在不可见**——一旦漏召回，模型不会知道该技能存在。
+
+| 代价 | 具体表现 | 对策 |
+|------|---------|------|
+| 召回有损 | 原文提出「返回 top-5 匹配」并以「Be selective — if uncertain, do NOT include」作为提示词；漏召回时模型无从察觉 | 按触发率而非主观感受验收，对漏召回设回归集 |
+| 描述被截断 | `description` + `when_to_use` 合计截断于 1,536 字符；把路由信息压进检索查询会进一步放大截断损失 | 路由信息写进 `description` 前先确认长度预算 |
+| 触发质量不可自证 | 官方原文「Seeing a skill trigger tells you Claude found it, not that it did what you intended.」 | 建 should-trigger / should-not-trigger 查询集，每条查询多次运行取触发率 |
+
+触发集的建法（agentskills.io 官方口径）：最有价值的负样本是**近失（near-miss）**——原文「The most valuable negative test cases are near-misses」，同时提醒无关键词重叠的负样本太容易（too easy），测不出东西；每条查询至少跑 3 次取触发率，阈值 0.5。
+
+结论：**检索式发现必须带上同等强度的触发率回归测试**，否则无法证明它比常驻列表更好——只比 token 开销是不完整的对照。
+
+> 来源：https://agentskills.io/skill-creation/optimizing-descriptions ；https://code.claude.com/docs/en/skills
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 以自造系数「30 token/行」推出 30000/150/12000 全套数字，作为全文量化基石 | 摘要处加更正块：官方只有 `description` ≤ 1024 字符与 `description`+`when_to_use` 截断于 1,536 字符两条上界，实测交给 `/skill-doctor`；来源 code.claude.com/docs/en/skills、agentskills.io/specification |
+| 纠错 | 第七节称 CLAUDE.md 为「六层级」（含 Auto/Team） | 改为官方四层级（Managed policy/User/Project/Local），auto memory 单列为并列机制；原表述保留在更正块内（来源 code.claude.com/docs/en/memory） |
+| 纠错 | 称 `@include` 是「级联加载」且有防循环引用/防路径遍历保护，并据此推出子 Skill 隐形结论 | 更正为启动时急切展开（越 import 越占 context）、深度上限四跳、跨工作目录导入需一次性批准；5.2 节结论一并标注失效 |
+| 纠错 | 第七节断言「七个机制，每一个都已在 Claude Code 中运行」 | 降级为「skills 侧有官方依据，记忆侧三项待证」，三项标 `unverifiable` 并指向本库自证页面 |
+| 补疏漏 | 3.3 方案 C 把 namespace / paths 当作待自建扩展；Phase 2 要「补 namespace/paths frontmatter」 | 标注 `paths` 与插件命名空间已原生存在，真正待自建的只剩 namespace 语义分组、includes 与检索式发现（来源 code.claude.com/docs/en/skills、/docs/en/plugins） |
+| 补疏漏 | 4.2 时效性字段位置错误，且「加载时自动附带提示」不成立 | 标注规范只允许六个键、私有字段须落 `metadata`，Claude Code 不解读 `metadata`，需自建 hook 注入；补「stale 判定 → 重跑触发评测 → 改名/下线」三步验收清单（来源 agentskills.io/specification） |
+| 补疏漏 | 通篇未提技能成本度量与显隐治理手段 | 新增第九节：`/skill-doctor`、`skillOverrides`、`disable-model-invocation`；含版本与插件技能例外两条约束 |
+| 加厚 | 第二节把检索式发现当作纯收益解法 | 新增第十节：召回有损、描述截断、触发质量不可自证，与近失负样本 + 多次运行取触发率的验收口径 |
+| 加厚 | 5.5 节 `SkillLoader` 深度上限无出处 | 补注官方 `@import` 四跳上限，说明自建解析器（`depth > 5`、`max_depth=5`）与上游语义的落差 |
+
+来源登记：[[sources/learning-notes]]（B7 复核新增一节）
+回链：[[CORRECTIONS]] | [[AGENTS]]

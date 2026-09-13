@@ -3,7 +3,7 @@ title: "Anthropic Claude Code Skill 系统：设计方案与实现方法深度�
 aliases: [Anthropic Skill系统, Skill Creator, Skill系统深度分析]
 tags: [ai/skills, ai/learning]
 created: 2026-06-12
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 source: "Anthropic 官方博客 + 社区资料分析"
 source_urls:
@@ -12,6 +12,7 @@ source_urls:
   - "https://github.com/anthropics/skills"
   - "https://shellypalmer.com/2026/03/the-recursive-advantage/"
 date: "2026-06-12"
+fetched_at: "2026-09-13"
 ---
 
 # Anthropic Claude Code Skill 系统：设计方案与实现方法深度分析
@@ -73,7 +74,7 @@ Skill 是 Claude Code 的**模块化能力扩展单元**。它是一个包含指
 │           → 始终在上下文中 (~100 tokens)              │
 │                                                     │
 │  Level 2: SKILL.md 正文                              │
-│           → skill 触发时加载 (<500 行 / <5k 词)       │
+│           → skill 触发时加载 (<500 行 / 1.5-2k 词)   │
 │                                                     │
 │  Level 3: 捆绑资源 (Bundled Resources)                │
 │           → scripts/   - 可执行而不加载到上下文       │
@@ -89,8 +90,11 @@ Skill 是 Claude Code 的**模块化能力扩展单元**。它是一个包含指
 | 层级 | 内容 | 加载时机 | Token 成本 | 设计约束 |
 |------|------|---------|-----------|---------|
 | **Metadata** | YAML frontmatter (name, description) | 始终在上下文 | ~100 tokens/skill | description ≤ 1024 字符，必须同时包含"做什么"和"何时用" |
-| **SKILL.md 正文** | 核心指令、工作流、示例 | skill 触发时 | <5k 词（推荐上限） | 只放核心流程；接近上限时拆到 references/；官方规范 <5000 字符级上限，插件实践建议 1500-2000 |
+| **SKILL.md 正文** | 核心指令、工作流、示例 | skill 触发时；加载后跨轮常驻 | 官方规范：body < 500 行；官方插件指南：1,500–2,000 词 | 只放核心流程；接近上限时拆到 references/；官方 DON'T 清单把「>3,000 词且不拆 references/」列为反模式 |
 | **捆绑资源** | scripts/, references/, assets/ | 按需 | 无限制（scripts 不占上下文） | references 大文件 (>300行) 需有目录 |
+
+> [!warning] 更正（2026-09-13）：同一格里原本并列了三个互相矛盾的上限——「<5k 词（推荐上限）」「官方规范 <5000 字符级上限，插件实践建议 1500-2000」——其中「5,000 字符」是**单位错误**：Anthropic 官方 skill 作者指南质量清单写的是「SKILL.md body under 500 **lines**」（500 行），不是 5,000 字符；插件侧官方 skill-development 指南写的是「Lean body (1,500-2,000 **words**) in imperative form」，并把「Put everything in SKILL.md (>3,000 words without references/)」列进 DON'T 清单——单位同样是「词」不是「字符」，故「插件实践建议 1500-2000」数字对但缺单位。现表已按三行分列订正。另补一条常被忽略的加载语义：官方 skills 文档原文「Once a skill loads, its content stays in context across turns」。同表 Metadata 行的「~100 tokens/skill」同样**没有官方出处**，与 [[Skill规模化管理-从渐进式披露到检索式发现]] 自造的「30 token/行」相差约 3.3 倍——两处口径都不可作为量化依据，成本一律以 `/skill-doctor` 实测为准。
+> 来源：https://code.claude.com/docs/en/skills ；https://raw.githubusercontent.com/tomevault-io/claude-code-plugins/refs/heads/main/anthropics--claude-plugins-official--skill-development/skills/SKILL.md ；https://agentskills.io/specification
 
 **关键洞察**: 为什么每个 skill 都检入 repo 会增加上下文负担？因为 **Level 1 metadata 是所有 skill 同时加载的**。一个 50 个 skill 的项目，即使没触发任何 skill，也要消耗 ~5000 tokens 在 description 上。
 
@@ -104,6 +108,16 @@ Agent 决定是否触发 skill 的核心逻辑：
 4. 复杂、多步骤、专业化的查询最容易触发 skill
 
 因此：**description 是写给模型（Agent）看的，不是给用户看的**。它不是功能摘要，而是触发条件描述。
+
+#### 1.4.1 怎么验证触发质量（2026-09-13 补）
+
+上面三条只解释了「为什么有时不触发」，没有给出任何可执行的验证方法。官方的口径是：
+
+1. **触发与效果要分开测**——原文「Seeing a skill trigger tells you Claude found it, not that it did what you intended. To know a skill is working, measure two things separately: whether Claude invokes it on the prompts it should, and whether the output matches what you expect when it does.」
+2. **建 should-trigger / should-not-trigger 查询集**，其中最有价值的是近失（near-miss）负样本——原文「The most valuable negative test cases are near-misses」，同时把无关键词重叠的负例标为 too easy（测不出东西）；每条查询需多次运行取触发率。
+3. **可执行的验收判据**：正样本触发率、近失样本不触发率、with/without 输出对比三项。第 3.5 节描述的 skill-creator 分层与「按 test 分数选最优、改进时对 test 设盲」是工具实现细节，同一原则应在这里落成读者可直接执行的动作。
+
+> 来源：https://code.claude.com/docs/en/skills ；https://agentskills.io/skill-creation/optimizing-descriptions
 
 ---
 
@@ -134,6 +148,27 @@ skill-name/                    # kebab-case 命名，必须
     ├── logo.png               #   复制或修改后用于输出
     └── boilerplate/           #   模板代码
 ```
+
+**frontmatter 字段分层（2026-09-13 补）**——上面只写了「name / description 必须」，实际有两套字段，混用会在分发时静默丢失：
+
+| 来源 | 字段 | 约束 |
+|------|------|------|
+| Agent Skills 规范（唯一六键） | `name` | max 64 字符，小写字母/数字/连字符，不得以连字符开头或结尾 |
+| | `description` | max 1024 字符，非空 |
+| | `license` | — |
+| | `compatibility` | max 500 字符 |
+| | `metadata` | string→string map |
+| | `allowed-tools` | Experimental |
+| Claude Code 专有 | `when_to_use`、`argument-hint`、`arguments`、`disable-model-invocation`、`user-invocable`、`disallowed-tools`、`model`、`effort`、`context: fork`、`agent`、`background`、`hooks`、`paths`、`shell` | 仅在 Claude Code 内生效 |
+
+分发侧的硬约束：**claude.ai 上传、Skills API、以及用 anthropics/skills 的 `package_skill.py` 打包，这三条路径只接受规范六字段**（name, description, license, compatibility, metadata, allowed-tools），其余字段被忽略——官方另注「Restricting frontmatter to the spec's six fields avoids the unexpected-key error above」。Claude Code 自身接受全部六字段，故规范合规的 frontmatter 可原样加载。
+
+两个反直觉点：
+
+- 个人/项目技能里 `name` 只是**列表显示名**（官方原文「Display name shown in skill listings. Defaults to the directory name.」），命令名来自目录名；
+- 插件技能里 frontmatter `name` 才决定命令末段——`my-plugin/skills/review/SKILL.md` 配 `name: fancy` → `/my-plugin:fancy`。
+
+> 来源：https://agentskills.io/specification ；https://code.claude.com/docs/en/skills
 
 ### 2.2 各目录的用途边界
 
@@ -215,7 +250,10 @@ SKILL.md 中包含选择逻辑（"如果是 AWS → 读 aws.md"），Agent 只�
 
 Skill Creator 是一个**元技能 (meta-skill)** — 它的任务是构建和优化其他 skill。它于 2026 年 3 月发布，实现了"用技能构建技能"的递归自举。
 
-> 来源: Anthropic 官方 skills 仓库 (github.com/anthropics/skills, 141k+ stars)
+> 来源: Anthropic 官方 skills 仓库 (github.com/anthropics/skills, 约 17.6 万 star，截至 2026-09-13)
+
+> [!warning] 更正（2026-09-13）：star 数已从原文的「141k+」更新为**约 17.6 万**（原表述为「141k+ stars」，偏低约 3.5 万）。复核日实测 `stargazers_count` = 176,041、`forks_count` = 20,833、`created_at` = 2025-09-22T15:53:31Z、`pushed_at` = 2026-09-10、description = 「Public repository for Agent Skills」，仓库名称未变。数字写成「截至复核日约 17.6 万」而非绑死一个整数——GitHub 不提供按日历史 API，确切历史值无法回溯核对，只会持续漂移。
+> 来源：https://api.github.com/repos/anthropics/skills
 
 ### 3.2 四大模式
 
@@ -436,6 +474,22 @@ Skill Creator 定义了完整的 JSON Schema 体系：
 - 排除根级 `evals/` 目录（评估数据不打入分发包）
 - 打包前运行 `quick_validate.py` 验证结构
 - 输出: `<skill-name>.skill`
+
+### 3.8 安装途径与评测口径（2026-09-13 补）
+
+原文只说明 skill-creator 存在于 `anthropics/skills`，没给安装途径、评测口径，也没提插件级评测格式与 skill-creator 格式**不互通**这一关键约束。
+
+| 事项 | 口径 |
+|------|------|
+| 安装 | skill-creator 现在是官方 Claude Code 插件：`/plugin install skill-creator@claude-plugins-official` |
+| 排错 | 若报 `Marketplace "claude-plugins-official" not found`，官方处置是先 `/plugin marketplace add anthropics/claude-plugins-official` 再重试；提示 `Run /reload-plugins to activate.` 时可加 `--force` |
+| 官方专文 | 《Improving skill-creator: Test, measure, and refine Agent Skills》（见参考来源第 7 条） |
+| 插件级评测 | `claude plugin eval`：在隔离会话里 with/without 各跑一遍，用自定义 grader 打分，默认 `--threshold 1.0`，任一 case 低于完美即 exit 1，可直接卡 CI |
+| 格式边界 | 插件评测的 case 格式与 skill-creator 的 `evals/evals.json` **互不通用**——官方两处原话：「Its case format is separate from the `evals/evals.json` file the skill-creator plugin uses」与「The two formats aren't interchangeable」 |
+
+第 8.3 节把「结构化 JSON 作为 Agent 间通信协议」当作通用做法，据此应补上这条边界：**同一套 JSON 契约只在一种形态内自洽，跨形态（单技能 ↔ 插件）必须显式转换**。
+
+> 来源：https://code.claude.com/docs/en/skills ；https://claude.com/blog/improving-skill-creator-test-measure-and-refine-agent-skills ；https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/SKILL.md
 
 ---
 
@@ -672,14 +726,24 @@ After (互斥):
 | 1 | **Library & API Reference** | 正确使用库/CLI/SDK | `billing-lib`, `internal-platform-cli` |
 | 2 | **Product Verification** | 测试/验证代码行为 | `signup-flow-driver`, `tmux-cli-driver` |
 | 3 | **Data Fetching & Analysis** | 连接数据和监控栈 | `funnel-query`, `grafana`, `datadog` |
-| 4 | **Business Process & Team Automation** | 自动化重复工作流 | `standup-post`, `create-ticket`, `weekly-recap` |
-| 5 | **Code Scaffolding & Templates** | 生成框架样板代码 | `new-workflow`, `new-migration`, `create-app` |
-| 6 | **Code Quality & Review** | 执行代码质量/审查 | `adversarial-review`, `code-style` |
-| 7 | **CI/CD & Deployment** | 代码交付和部署 | `babysit-pr`, `deploy-service`, `cherry-pick-prod` |
+| 4 | **Business Process & Team Automation** | 自动化重复工作流 | `standup-post`, `create-<ticket-system>-ticket`, `weekly-recap` |
+| 5 | **Code Scaffolding & Templates** | 生成框架样板代码 | `new-<framework>-workflow`, `new-migration`, `create-app` |
+| 6 | **Code Quality & Review** | 执行代码质量/审查 | `adversarial-review`, `code-style`, `testing-practices` |
+| 7 | **CI/CD & Deployment** | 代码交付和部署 | `babysit-pr`, `deploy-<service>`, `cherry-pick-prod` |
 | 8 | **Runbooks** | 症状 → 调查 → 结构化报告 | `service-debugging`, `oncall-runner` |
-| 9 | **Infrastructure Operations** | 运维操作（带护栏） | `resource-orphans`, `cost-investigation` |
+| 9 | **Infrastructure Operations** | 运维操作（带护栏） | `<resource>-orphans`, `cost-investigation` |
 
 关键洞察：**最好的 skill 干净地落入一个分类**。试图做太多事的 skill "跨越多个分类并让 agent 困惑"。
+
+> [!warning] 更正（2026-09-13）：第 4/5/7/9 行的示例名在转录方**是带尖括号的占位符模板**（`create-<ticket-system>-ticket`、`new-<framework>-workflow`、`deploy-<service>`、`<resource>-orphans`），原文第 675-680 行把尖括号去掉后写成 `create-ticket`、`new-workflow`、`deploy-service`、`resource-orphans`，会让读者误以为是可检索的具体技能名——现表已恢复占位符写法；`new-migration`、`create-app`、`cherry-pick-prod` 等本来就是不带括号的实际名字，保持原样。
+
+**同一篇里还有三条最有操作性的结论被丢掉了（补回）**：
+
+1. **Product Verification（类型 2）的优先级最高**——转录方原文：「验证类 Skill 对 Claude 输出质量的提升是所有类型中最为可衡量的——投入一个工程师一周时间专门打磨验证 Skill 是完全值得的。如果你只能先做一个 Skill，Anthropic 的建议是：从 Product Verification 开始，而不是从代码生成开始」。
+2. **类型 6 的实际流水线**是 `testing-practices`（定义「好的测试长什么样」）→ 代码生成时遵循 → `adversarial-review` 自动挑剔 → 循环修复，转录方称之为「Anthropic 内部最常见的质量保障流水线」；原表只列了 `adversarial-review` 与 `code-style`，漏了 `testing-practices`（现表已补）。
+3. **类型 9 的护栏写法**：转录方原文「这类 Skill 中有部分涉及破坏性操作（如删除资源），应该设置 `disable-model-invocation: true` 限制为仅手动调用，并使用 `allowed-tools` 限制权限范围」——这正是 6.2 节原则 9 里 `/careful` 的官方替代实现。
+
+> 来源：http://monap.cn/AI/Skills/04-Anthropic%E5%86%85%E9%83%A8Skills%E6%96%B9%E6%B3%95%E8%AE%BA.html ；https://code.claude.com/docs/en/skills
 
 ### 6.2 官方设计原则
 
@@ -713,6 +777,12 @@ Skill 可以包含持久化数据存储（append-only logs、JSON 文件、SQLit
 
 #### 原则 9: 使用按需 Hooks
 仅在 skill 被调用时激活的 hooks，仅持续会话期间。如 `/careful` hook 阻止 `rm -rf`、`DROP TABLE`。
+
+> [!warning] 更正（2026-09-13）：`/careful` **不是 Anthropic 官方示例**，属张冠李戴（原表述把它作为官方实践呈现）。
+> - 转录方 monap.cn 的「技巧 8：使用按需 Hook」正文只写「Skills 可以包含 Hook，这些 Hook 只在 Skill 被调用时激活，且只持续到会话结束」，随后**另起一行明确加注**「比如（社区/gstack 实践，非 Anthropic 博客原文）：」才列出 `/careful`——拦截 `rm -rf`、`DROP TABLE`、force push 等危险命令。
+> - `/careful` 确为第三方 Skill：skills.sh 页面归属 `kunchenguid/programbench-bench`，First Seen Aug 7, 2026，安装命令 `npx skills add https://github.com/kunchenguid/programbench-bench --skill careful`；其 SKILL.md 正文把 `~/.gstack/analytics/skill-usage.jsonl` 当埋点（`echo '{"skill":"careful",...}' >> ~/.gstack/analytics/skill-usage.jsonl`），与 Anthropic 无关；skills.sh 另标注该 skill 含 Claude hooks 并给出 Snyk Warn 安全审计结论。
+> - **官方护栏写法**（转录方对类型 9 Infrastructure Operations 给出的口径）：设置 `disable-model-invocation: true` 把技能限制为仅手动调用，并用 `allowed-tools` 限制权限范围——这才是 `/careful` 的官方替代实现。
+> 来源：http://monap.cn/AI/Skills/04-Anthropic%E5%86%85%E9%83%A8Skills%E6%96%B9%E6%B3%95%E8%AE%BA.html ；https://www.skills.sh/kunchenguid/programbench-bench/careful
 
 ### 6.3 治理与演进模式
 
@@ -824,6 +894,8 @@ Analyzer  ──(analysis.json)──► 用户
 - 不同组件可以独立开发和测试
 - JSON Schema 本身是 Agent 和脚本之间的契约
 
+> [!note] 边界（2026-09-13 补）：JSON 契约只在**同一种技能形态内**自洽。插件形态的评测走 `claude plugin eval`（隔离会话 with/without + 自定义 grader + 默认 `--threshold 1.0`），与 skill-creator 自己的 `evals/evals.json` **互不通用**——官方原话「Its case format is separate from the `evals/evals.json` file the skill-creator plugin uses」「The two formats aren't interchangeable」。跨形态必须显式转换，见 3.8 节。
+
 ### 8.4 可视化反馈循环
 
 Skill Creator 通过 `generate_review.py` 构建的 Web 查看器：
@@ -922,9 +994,18 @@ my-plugin/
 1. Claude Code 自动扫描 `skills/` 目录
 2. 找到包含 `SKILL.md` 的子目录
 3. 解析 YAML frontmatter 获取 metadata
-4. 所有 skill 的 metadata 始终在上下文中（Level 1）
+4. 技能元信息默认进入上下文（Level 1）——但这是**默认值而非事实**，可被 `skillOverrides` 降级为 `name-only` 或 `off`，且 `description` + `when_to_use` 合计截断到 1,536 字符
 5. 当 agent 根据 description 判断需要时，加载 SKILL.md 正文（Level 2）
 6. Agent 在需要时自主决定读取 references/ 或执行 scripts/（Level 3）
+
+**加载语义补全（2026-09-13 补）**：
+
+- **三类落点与优先级**：个人 `~/.claude/skills/<name>/`、项目 `.claude/skills/<name>/`、插件内 `<plugin>/skills/<skill-name>/`（调用形如 `/plugin-name:skill-name`；插件技能因带命名空间，可与同名技能并存）。同名冲突时由来源决定 `/name` 跑哪一个。
+- **子目录技能不在启动时加载**：官方原文「Skills in a .claude/skills/ directory below where you started don't load at startup. They load the first time Claude reads or edits a file in that subdirectory and stay available for the rest of the session. Until then they don't appear in the / menu and you can't invoke them by name. To load them sooner, run /add-dir with the subdirectory's path」（需 v2.1.257+）。这是「按需加载」在原生机制里的实际形态。
+- **命令与技能已等价**：官方原文「Custom commands have been merged into skills. A file at .claude/commands/deploy.md and a skill at .claude/skills/deploy/SKILL.md both create /deploy and work the same way. Your existing .claude/commands/ files keep working.」——9.1 节把 `commands/` 随手注为「也是 skill」是对的，但未给出这条等价关系及其影响（现有 commands 无需迁移即可继续工作）。
+
+> [!warning] 更正（2026-09-13）：原文第 4 条「所有 skill 的 metadata 始终在上下文中（Level 1）」是默认值而非事实，现条目已改写。
+> 来源：https://code.claude.com/docs/en/skills
 
 ---
 
@@ -962,7 +1043,29 @@ Anthropic 的 skill 系统（包括社区扩展）展现出非常一致的设计
 
 1. [Lessons from building Claude Code: How we use skills](https://claude.com/blog/lessons-from-building-claude-code-how-we-use-skills) — Anthropic 官方博客, 2026 年 6 月
 2. [Skill Creator — Ultimate Guide](https://skywork.ai/blog/claude-code-skill-creator-ultimate-guide/) — Skywork.ai, 2026
-3. [Anthropic Skills Repository](https://github.com/anthropics/skills) — GitHub, 141k+ stars
+3. [Anthropic Skills Repository](https://github.com/anthropics/skills) — GitHub, 约 17.6 万 stars（截至 2026-09-13；原文为 141k+，见 3.1 节更正）
 4. [The Recursive Advantage](https://shellypalmer.com/2026/03/the-recursive-advantage/) — Shelly Palmer, 2026
 5. Anthropic 官方 marketplace: `claude-plugins-official` 仓库中的 skill-creator 和 plugin-dev
 6. 用户构建的 skill-refactor 和 evolve 系统（本地 `.claude/skills/` 目录）
+7. [Improving skill-creator: Test, measure, and refine Agent Skills](https://claude.com/blog/improving-skill-creator-test-measure-and-refine-agent-skills) — Anthropic 官方博客
+8. [Claude Code 官方文档 — Skills](https://code.claude.com/docs/en/skills) / [Memory](https://code.claude.com/docs/en/memory) / [Plugins](https://code.claude.com/docs/en/plugins) ；[Agent Skills 规范](https://agentskills.io/specification) — 2026-09-13 复核时逐条核对的一手来源
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 「来源: anthropics/skills, 141k+ stars」为明显偏低的历史值（3.1 节与参考来源两处） | 改为「约 17.6 万 star，截至 2026-09-13」，并补 frontmatter `fetched_at`；依据 api.github.com/repos/anthropics/skills 实测 176,041 |
+| 纠错 | 6.2 节原则 9 把第三方 `/careful` 当作 Anthropic 官方实践 | 标注为社区/gstack 实践（skills.sh 归属 kunchenguid/programbench-bench），并补官方护栏写法 `disable-model-invocation` + `allowed-tools` |
+| 纠错 | 1.3 节同一格并列三个矛盾上限，其中「5,000 字符」是单位错误 | 拆为「官方规范 500 行 / 官方插件指南 1,500–2,000 词（>3,000 词必须拆 references/）」，补「加载后跨轮常驻」语义；并标注「~100 tokens/skill」同样无官方出处 |
+| 纠错 | 9.4 节称「所有 skill 的 metadata 始终在上下文中」 | 改写为「默认进入上下文、可被 `skillOverrides` 降级、`description`+`when_to_use` 截断于 1,536 字符」 |
+| 纠错 | 6.1 节把带尖括号的占位符写成具体技能名（`create-ticket` / `new-workflow` / `deploy-service` / `resource-orphans`） | 恢复占位符写法（`create-<ticket-system>-ticket` 等），并保留不带括号的真实名字 |
+| 补疏漏 | 3 节与 9.2 节未给 skill-creator 的官方安装途径与评测口径 | 新增 3.8 节：`/plugin install skill-creator@claude-plugins-official`、marketplace 排错、`claude plugin eval` 与两种 eval 格式不互通 |
+| 补疏漏 | 2.1 节把 frontmatter 简化成两个必填字段 | 新增「Agent Skills 规范六字段 vs Claude Code 专有字段」对照表 + 三条分发路径只认规范六字段 + `name` 的显示名/命令名差异 |
+| 补疏漏 | 1.4 节只解释「为什么不触发」，无验证方法 | 新增 1.4.1：触发与效果分开测、should-trigger / should-not-trigger 集、近失负样本、多次运行取触发率 |
+| 补疏漏 | 6.1 节丢掉了官方最有操作性的三条结论 | 补回 Product Verification 优先级、类型 6 的 testing-practices 流水线、类型 9 护栏写法（来源 monap.cn 转录方） |
+| 加厚 | 9.4 节 6 行结论过简 | 补三类落点与优先级、子目录技能延迟加载、`commands/` 与 skills 等价三条加载语义（来源 code.claude.com/docs/en/skills） |
+
+来源登记：[[sources/learning-notes]]（B7 复核新增一节）
+回链：[[CORRECTIONS]] | [[AGENTS]]

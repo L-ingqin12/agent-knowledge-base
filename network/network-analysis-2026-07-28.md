@@ -3,7 +3,7 @@ title: 初始网络全栈分析
 aliases: [网络分析, 初始诊断]
 tags: [network/analysis, network]
 created: 2026-07-28
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -47,6 +47,9 @@ Internet → [光猫/上游路由 [IP已脱敏]]
 | 信道 | 6 (2.4GHz), 利用率 13% | 中等 |
 | 接入设备数 | 13 (含 8 个 ESP32 IoT) | 偏高 |
 | 网卡驱动 | 2021-05-19 v12.0.0.1118 | 过时 — 已知延迟问题 |
+
+> [!warning] 更正（2026-09-13）：上表「8 个 ESP32 IoT」**与本文第四节清单不符**（原表述保留于上表；设备总数 13 无误）。
+> 第四节 13 台中，`ESP_`/`ESP-` 前缀共 **7 台**（ESP_24A3E8、ESP_098195、ESP_09610B、ESP_4F95CF、ESP_25B21B、ESP_4F8F46、ESP-AA48A5），另 1 台为 Unknown。引用该数字的下游页面是 [[ROUTER-OPTIMIZATION]] 与 `SESSION-ARCHIVE-2026-07-28`（**不是** [[ARCHITECTURE]] 决策 6，决策 6 讲的是节点排除）。
 
 **根因**: R4CM 是单频路由器 (仅 2.4GHz)，无法利用 QCA9377 的 5GHz/AC 能力。8 个 ESP32 设备 + 过时驱动 → 信道争用 → 延迟抖动。
 
@@ -105,6 +108,9 @@ Internet → [光猫/上游路由 [IP已脱敏]]
 
 > [!warning] 勘误：Mux 开启为致障配置
 > 后续复盘确认「Mux 开启 (concurrency=8)」与 VLESS Vision 冲突（队头阻塞 → Telegram 视频卡死），已回退为 `mux: false`。本节「优化后的配置」对应 Phase 1 存档 `scripts/xray-config-optimized.json`，已被废弃。详见 [[v2rayn-balancer-复盘-2026-08-09]] 与 [[ARCHITECTURE#决策 2]]。
+
+> [!warning] 勘误（2026-09-13）：上条勘误**只覆盖了 Mux，漏了同一行里的 Observatory 频率**（原表述为「Observatory 健康检查 (每 2 分钟)」）。
+> 现役配置已将 Observatory 调为 **10 分钟**（见 [[FINAL-SUMMARY]] 的「Observatory: 10分钟, 4节点健康检查」），本页「每 2 分钟」与 [[ARCHITECTURE]] 的 observatory 设置存在口径冲突。上游文档说明：节点从探测失败到被标记为故障**最快 1 个探测周期、最慢 2 个周期**，恢复需一次成功探测、**最慢 1 个周期**；并明确提示 `interval` 过小 / `sampling` 过大**会让探测特征更明显**（对伪装不利）。因此 2 分钟属「灵敏但易暴露」的取舍，不是单纯越快越好——引用本页时应改用现役的 10 分钟。来源：<https://xtls.github.io/config/observatory.html>
 
 ### L4 — 代理服务器层
 
@@ -300,3 +306,13 @@ cp D:/Document/Download/v2rayN-windows-64-desktop/v2rayN-windows-64/binConfigs/c
 | 本分析文档 | `D:\Document\local\knowledge\network\network-analysis-2026-07-28.md` |
 | 小米路由器 skill | `.claude/skills/xiaomi-router/SKILL.md` |
 | 历史事故报告 | [[2026-07-21-树莓派网络故障与路由器破解完整复盘]] |
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | L1 表「接入设备数 13 (含 8 个 ESP32 IoT)」与第四节清单不符 | 保留原句并加更正块：清单实为 7 台 `ESP_`/`ESP-` + 1 台 Unknown（总数 13 无误）；同时更正下游引用页为 [[ROUTER-OPTIMIZATION]] 与 SESSION-ARCHIVE，而非 [[ARCHITECTURE]] 决策 6 |
+| 补疏漏 | 页内勘误只覆盖 Mux，未覆盖同一行的「Observatory 每 2 分钟」 | 加勘误块：现役为 10 分钟；补上游 observatory 的 1~2 探测周期灵敏度语义与「interval 过小反而更易被识别」的取舍（Xray observatory 文档） |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+

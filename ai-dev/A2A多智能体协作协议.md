@@ -3,7 +3,7 @@ title: A2A多智能体协作协议
 aliases: [A2A协议, Agent2Agent, A2A多智能体协作, 多智能体协作协议]
 tags: [ai, ai/agent]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -37,7 +37,7 @@ status: review
 
 | 概念 | 说明 |
 |------|------|
-| Agent Card（智能体身份卡） | 公开的 JSON 元数据：技能、能力、端点、认证方式，挂在 `/.well-known/agent.json` |
+| Agent Card（智能体身份卡） | 公开的 JSON 元数据：技能、能力、端点、认证方式，挂在 `/.well-known/agent.json`（更正 2026-09-13：v0.3.0 起路径为 `/.well-known/agent-card.json`，见下方更正块） |
 | Task（任务） | A2A 通信的基本单元，有独立 ID 与生命周期 |
 | Message（消息） | 包裹在 Task 内的对话片段，含 `role` 与 `parts` |
 | Part（消息片段） | Message 的组成部分：文本、文件、结构化数据 |
@@ -59,6 +59,9 @@ status: review
 
 > [!note] 状态机要点
 > 正常路径 `submitted → working → completed`；`input-required` 是 A2A 独有的双向暂停态，用于中途向对方要材料或等人工拍板；`failed / canceled` 是终态。客户端的轮询与 SSE 订阅本质都是在跟踪这个状态机的推进。
+>
+> **加厚（2026-09-13）**：`auth-required` 不只用于任务入口，v1.0 支持**执行中授权**（In-Task Authorization）——任务推进到需要认证时中断为 `auth-required`，客户端/用户完成认证后任务继续。本轮核对确认 proto 的 `TaskState` 为 9 个枚举值（`TASK_STATE_UNSPECIFIED=0` … `AUTH_REQUIRED=8`），与上表 8 行状态一一对应、无事实错误；原文所引 commit `5817ffb`（2025-06-08）经 GitHub API 确认确为「Adding a new enumeration member: USER_CONSENT_REQUIRED」。
+> 依据：<https://raw.githubusercontent.com/a2aproject/A2A/main/specification/a2a.proto>、<https://aaif.io/blog/a2a-v1-0-a-builder-s-guide-part-2-migration-security-and-production>
 
 ### 设计关键原则
 
@@ -73,9 +76,24 @@ status: review
 
 | 场景 | 机制 |
 |------|------|
-| 同步短任务 | 一次 `message/send` 请求-响应即拿结果 |
-| 长任务 | `tasks/send` 创建 Task 后轮询 `tasks/get` |
-| 长任务流式 | `tasks/sendSubscribe` 通过 SSE 实时推送 `status-update` / `artifact-update` 事件 |
+| 同步短任务 | 一次 `message/send` 请求-响应即拿结果（v1.0 名：`SendMessage`，`POST /message:send`） |
+| 长任务 | `tasks/send` 创建 Task 后轮询 `tasks/get`（更正：`tasks/send` 是 0.2.x 遗留名；v1.0 用 `SendMessage` 提交 + `GetTask` / `ListTasks` 查询） |
+| 长任务流式 | `tasks/sendSubscribe` 通过 SSE 实时推送 `status-update` / `artifact-update` 事件（更正：v1.0 名 `SendStreamingMessage`，`POST /message:stream`） |
+| 超长任务（分钟～小时级） | 注册 Push Notification（`TaskPushNotificationConfig`）后由服务端向客户端 webhook 发 HTTP POST（补疏漏 2026-09-13） |
+
+**v0.2.x → 0.3.0 → v1.0 操作名对照（补疏漏 2026-09-13）**：
+
+| 0.2.x（遗留） | v1.0（现行，`service A2AService`） | 形态 |
+|---------------|-----------------------------------|------|
+| `message/send` | `SendMessage` | `POST /message:send` |
+| `tasks/send` | 并入 `SendMessage`（提交即建 Task） | — |
+| `tasks/get` | `GetTask` / `ListTasks` | `GET /tasks/{id}` |
+| `tasks/sendSubscribe` | `SendStreamingMessage` | `POST /message:stream` |
+| `tasks/cancel` | `CancelTask` | — |
+| `tasks/resubscribe` | `SubscribeToTask` | — |
+| —（无） | `GetExtendedAgentCard` | v1.0 新增 |
+
+> 依据：<https://raw.githubusercontent.com/a2aproject/A2A/main/specification/a2a.proto>、<https://a2a-protocol.org/latest/whats-new-v1/>
 
 ### A2A vs MCP 对比
 
@@ -84,7 +102,7 @@ status: review
 | 定位 | Agent ↔ 工具 / 数据源 | Agent ↔ Agent |
 | 原语 | Tool / Resource / Prompt | Agent Card / Task / Message / Artifact |
 | 传输 | stdio / SSE / Streamable HTTP | HTTP + JSON-RPC 2.0 + SSE |
-| 发现机制 | 连接后 `tools/list` 枚举工具 | 拉取 `/.well-known/agent.json` 身份卡 |
+| 发现机制 | 连接后 `tools/list` 枚举工具 | 拉取 `/.well-known/agent.json` 身份卡（更正 2026-09-13：现为 `/.well-known/agent-card.json`） |
 | 执行方 | Agent 自己调用工具 | 把任务委托给对端 Agent 执行 |
 | 典型场景 | 让 Agent 会查数据库、调 API | 跨框架多 Agent 分工：前端 Agent 委托后端 Agent 修 bug |
 | 关系 | 互补：Agent **内部**用它连工具 | 互补：Agent **之间**用它委托任务 |
@@ -97,20 +115,28 @@ MCP 定义了 Agent 与工具之间的统一协议，但它假设"调用方是 A
 
 ### 如何解决：发现 → 委托 → 通信三段式
 
-1. **发现**：每个 A2A Agent 在 `/.well-known/agent.json` 公开 Agent Card（技能列表、能力、端点、认证方式），客户端拿到 Card 即知对方"是谁、会什么"——这与 Web 的 robots.txt / 手机号的通讯录名片是同一个思路；
-2. **委托**：`message/send`（短任务）或 `tasks/send`（长任务）创建 Task，服务端按 Task 生命周期推进，客户端通过轮询或 SSE 订阅进度；
+1. **发现**：每个 A2A Agent 在 `/.well-known/agent.json` 公开 Agent Card（技能列表、能力、端点、认证方式），客户端拿到 Card 即知对方"是谁、会什么"——这与 Web 的 robots.txt / 手机号的通讯录名片是同一个思路；（更正 2026-09-13：路径现为 `/.well-known/agent-card.json`，见下方更正块）
+2. **委托**：`message/send`（短任务）或 `tasks/send`（长任务）创建 Task，服务端按 Task 生命周期推进，客户端通过轮询或 SSE 订阅进度；（更正 2026-09-13：v1.0 操作名统一为 PascalCase，长任务入口是 `SendMessage` / `SendStreamingMessage`，`tasks/send` 属 0.2.x 遗留名）
 3. **通信**：Task 内的 Message / Part 承载对话，Artifact 承载产物（小产物内联 base64，大产物用 URI 引用，避免协议栈被大数据压垮）。
 
 ```
-用户 ──→ Client Agent ──(发现: GET /.well-known/agent.json)──→ Server Agent
+用户 ──→ Client Agent ──(发现: GET /.well-known/agent-card.json)──→ Server Agent
             │                                                      │
             │←──(返回 Agent Card: 技能/能力/端点/认证)────────────│
             │                                                      │
-            │──(委托: tasks/send 创建 Task, 返回 task_id)─────────→│
+            │──(委托: SendMessage 创建 Task, 返回 task_id)────────→│
             │                                                      │
             │←──(SSE: status-update working → input-required → …)──│
             │←──(SSE: artifact-update 产物增量 → 最终产物)────────│
+
+# 更正（2026-09-13）：上图原表述为 GET /.well-known/agent.json（现 agent-card.json）
+# 与 tasks/send 创建 Task（现 SendMessage；tasks/send 是 0.2.x 遗留名）
 ```
+
+> [!warning] 更正（2026-09-13）：Agent Card 路径与操作名
+> **路径**：原表述为 `/.well-known/agent.json`（全文 6 处：基本通信要素表、A2A vs MCP 对比表、本节第 1 点、本流程图、Demo ② 注释、Client Demo 注释）。A2A CHANGELOG 确认 **0.3.0（2025-07-30）以 ⚠ BREAKING CHANGES 将 well-known URI 从 `agent.json` 改为 `agent-card.json`**（#841）；IANA well-known URI 登记表确认 `agent-card.json` 为 permanent，Reference 指向 A2A 官方规范，Change Controller 为 Linux Foundation，登记日期 2025-08-01。
+> **操作名**：原表格混用 `message/send` / `tasks/send` / `tasks/get` / `tasks/sendSubscribe`。官方 proto（`package lf.a2a.v1`）的 `service A2AService` 只含 **PascalCase** 方法，`tasks/send` 与 `tasks/sendSubscribe` 属 0.2.x 遗留名。
+> 来源：<https://raw.githubusercontent.com/a2aproject/A2A/a554aedbb5be85345ffd838e749e179a3e65ba8b/CHANGELOG.md>、<https://www.iana.org/assignments/well-known-uris/well-known-uris.txt>、<https://a2a-protocol.org/latest/whats-new-v1/>、<https://raw.githubusercontent.com/a2aproject/A2A/main/specification/a2a.proto>
 
 ### 与 MCP 的配合：互补而非竞争
 
@@ -127,7 +153,10 @@ MCP 定义了 Agent 与工具之间的统一协议，但它假设"调用方是 A
 ## 最小可运行 Demo
 
 > [!warning] 版本提示
-> `a2a-sdk` 版本演进较快：0.2.x → 0.3.x → 1.x（PyPI 已发布 1.1.0；仓库由 google/a2a-python 迁至 a2aproject/a2a-python，官方提供 v0.3 → v1.0 迁移指南）。下文示例以 0.3.x 写法为主（现存教程主流），0.2.x 差异在注释中标注，1.x 迁移要点见文末参考资料。安装：`pip install a2a-sdk`。以下片段聚焦协议要点，个别细节用伪代码标注，完整可运行示例以官方 a2a-samples 为准。
+> `a2a-sdk` 版本演进较快：0.2.x → 0.3.x → 1.x（PyPI 已发布 1.1.0〔更正 2026-09-13：最新发行版为 1.1.2，上传时间 2026-07-22T13:40，「1.1.0」既非最新也非精确〕；仓库由 google/a2a-python 迁至 a2aproject/a2a-python，官方提供 v0.3 → v1.0 迁移指南）。下文示例以 0.3.x 写法为主（现存教程主流），0.2.x 差异在注释中标注，1.x 迁移要点见文末参考资料。安装：`pip install a2a-sdk`。以下片段聚焦协议要点，个别细节用伪代码标注，完整可运行示例以官方 a2a-samples 为准。
+>
+> 更正（2026-09-13）：v1 的 client 模块已拆分为 `a2a.client.client`、`a2a.client.client_factory`、`a2a.client.transports.{jsonrpc,grpc,rest}` 等，本文下方 `A2ACardResolver` + `A2AClient(card)` + `client.send_message(...)` 属 0.3.x 口径，与当前 SDK 文档不再一一对应。
+> 依据：<https://pypi.org/pypi/a2a-sdk/json>、<https://a2a-protocol.org/latest/whats-new-v1/>、<https://a2a-protocol.org/latest/sdk/python/api/a2a.server.agent_execution.agent_executor.html>
 
 ### Server 端：AgentSkill 定义 + Starlette 挂载
 
@@ -169,7 +198,7 @@ server = A2AStarletteApplication(
     http_handler=DefaultRequestHandler(
         agent_executor=TranslatorExecutor()))              # 挂载执行器
 
-app = server.build()   # Agent Card 自动暴露在 /.well-known/agent.json
+app = server.build()   # Agent Card 自动暴露在 /.well-known/agent-card.json（更正 2026-09-13，原表述为 agent.json）
 # 0.2.x 写法: StarletteApplication(...) + app.add_route(AGENT_CARD_WELL_KNOWN_PATH, ...)
 # 启动: uvicorn.run(app, port=8000)
 ```
@@ -178,13 +207,15 @@ app = server.build()   # Agent Card 自动暴露在 /.well-known/agent.json
 
 ```python
 # a2a_client.py —— 最小 A2A Client
+# 口径说明(2026-09-13 复核): 本节为 a2a-sdk 0.3.x 写法; v1 已将 client 模块拆分为
+# a2a.client.client / client_factory / transports.{jsonrpc,grpc,rest}
 import asyncio
 from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import MessageSendParams, Message, TextPart
 from a2a.types import TaskArtifactUpdateEvent
 
 async def main():
-    # 1. 发现: 按 URL 拉取身份卡(约定路径 /.well-known/agent.json)
+    # 1. 发现: 按 URL 拉取身份卡(约定路径 /.well-known/agent-card.json，更正 2026-09-13，原表述为 agent.json)
     card = await A2ACardResolver("http://localhost:8000").get_agent_card()
     print("发现的 Agent 技能:", [s.name for s in card.skills])
 
@@ -248,6 +279,11 @@ class GraphExecutor(AgentExecutor):
 | 大产物 | 大文件用 Artifact 的 URI 引用（对象存储签名 URL），协议只传元数据 |
 | 超时 | 长任务设 TTL；客户端轮询用指数退避 + 抖动 |
 | Card 缓存 | Agent Card 变更不频繁，客户端可短 TTL 缓存，失败时强制刷新 |
+| 推送通知（补疏漏 2026-09-13） | 分钟级/小时级任务用 Push Notification（配置对象 `TaskPushNotificationConfig`，配套 RPC `CreateTaskPushNotificationConfig`）替代长轮询：服务端向客户端 webhook 发 HTTP POST |
+| 推送安全（补疏漏 2026-09-13） | 规范要求**至少投递一次**并明确允许重复 → 接收端必须**幂等**；token 需轮换、常量时间校验；JWT + JWKS 校验 `iss` / `aud` / `iat` / `exp` / `jti` 与 `kid` |
+| 任务存储（补疏漏 2026-09-13） | 默认 TaskStore 为内存实现，重启即丢；生产改用持久化后端（`pip install "a2a-sdk[postgresql]"` 或 `[mysql]` / `[sqlite]` / `[sql]`）+ `DatabaseTaskStore(engine=...)`，并配对 `DatabasePushNotificationConfigStore` |
+
+> 依据：<https://a2a-protocol.org/latest/topics/streaming-and-async/>、<https://aaif.io/blog/a2a-v1-0-a-builder-s-guide-part-2-migration-security-and-production>
 
 ### 常见坑清单
 
@@ -257,7 +293,11 @@ class GraphExecutor(AgentExecutor):
 > 3. **任务卡在 working**：`execute` 里异常被吞、没发 `completed` 事件——用 finally 块保证终态事件一定发出；
 > 4. **只发 Artifact 不发终态**：先 completed 后 artifact，或漏发 `final=True`，客户端轮询永远不退出；
 > 5. **把 A2A 当 RPC 用**：大模型 Agent 任务多为分钟级，`send_message` 同步死等会超时——长任务走轮询 / 流式订阅；
-> 6. **安全**：生产环境把 Agent Card 端点限制在允许列表内，防止被陌生 Agent 探测并塞恶意任务。
+> 6. **安全**：生产环境把 Agent Card 端点限制在允许列表内，防止被陌生 Agent 探测并塞恶意任务；
+> 7. **默认 TaskStore 是内存实现**（补疏漏 2026-09-13）：进程重启或多副本时任务与推送配置丢失、状态对不上——生产换持久化后端（见上「任务存储」行）；
+> 8. **按旧结构解析 Agent Card**（补疏漏 2026-09-13）：v1 的 Card 支持 JWS 签名、规范化用 RFC 8785，`protocolVersion` 从 Card 顶层下移到各 `AgentInterface`，`preferredTransport` / `additionalInterfaces` 合并为 `supportedInterfaces`，并按 `A2A-Version` 头协商——照抄旧结构会读不到版本与端点。
+
+> 依据：<https://a2a-protocol.org/latest/whats-new-v1/>、<https://aaif.io/blog/a2a-v1-0-a-builder-s-guide-part-2-migration-security-and-production>
 
 ## 相关文档
 
@@ -272,6 +312,29 @@ class GraphExecutor(AgentExecutor):
 - A2A 协议官方规范（Python）：<https://a2aprotocol.ai/docs/guide/a2a-protocol-specification-python>
 - A2A Task 状态机详解（DeepWiki）：<https://deepwiki.com/google/a2a-python/4.1-task-state-machine>
 - a2a-python 类型定义源码（TaskState 枚举，fork 镜像）：<https://github.com/martimfasantos/a2a-python/blob/a402a3bf610705c77e83c86f3b200027a77afcf3/src/a2a/types.py>
-- a2a-sdk PyPI 发布页（当前版本 1.1.0，版本事实核实来源）：<https://pypi.org/project/a2a-sdk/1.1.0/>
+- a2a-sdk PyPI 发布页（当前版本 1.1.0，版本事实核实来源）：<https://pypi.org/project/a2a-sdk/1.1.0/>（更正 2026-09-13：最新发行版为 1.1.2，上传时间 2026-07-22T13:40，查询接口 <https://pypi.org/pypi/a2a-sdk/json>）
 - a2a-python v0.3 → v1.0 官方迁移指南：<https://raw.githubusercontent.com/a2aproject/a2a-python/b598dfccf6e3e9b4e0abddffe2c2f26da3059ff1/docs/migrations/v1_0/README.md>
 - A2A Python SDK 入门（DeepWiki）：<https://deepwiki.com/google/A2A/4.1.1-getting-started-with-python-sdk>；客户端交互教程：<https://a2a-protocol.org/pr-849/tutorials/python/6-interact-with-server/>
+
+**版本复核来源（2026-09-13 回写补入）**：
+
+- A2A 官方 CHANGELOG（0.3.0 将 well-known URI 由 `agent.json` 改为 `agent-card.json`，⚠ BREAKING CHANGES #841）：<https://raw.githubusercontent.com/a2aproject/A2A/a554aedbb5be85345ffd838e749e179a3e65ba8b/CHANGELOG.md>
+- IANA well-known URI 登记表（`agent-card.json` 为 permanent，Change Controller: Linux Foundation）：<https://www.iana.org/assignments/well-known-uris/well-known-uris.txt>
+- A2A v1.0 变更说明（发现路径、PascalCase 操作名、Agent Card 字段调整）：<https://a2a-protocol.org/latest/whats-new-v1/>
+- A2A 官方 proto（`service A2AService` 方法清单与 `TaskState` 枚举）：<https://raw.githubusercontent.com/a2aproject/A2A/main/specification/a2a.proto>
+- A2A 官方 Streaming & Asynchronous（Push Notification 定位与配置对象）：<https://a2a-protocol.org/latest/topics/streaming-and-async/>
+- AAIF A2A v1.0 Builder's Guide Part 2（迁移、In-Task Authorization、推送安全与持久化存储）：<https://aaif.io/blog/a2a-v1-0-a-builder-s-guide-part-2-migration-security-and-production>
+- a2a-sdk PyPI JSON 元数据（最新版本与上传时间）：<https://pypi.org/pypi/a2a-sdk/json>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | Agent Card 路径写作 `/.well-known/agent.json`（全文 6 处，含 ASCII 图与两处 Demo 注释） | 6 处全部就地加注更正 + 一处集中更正块：0.3.0（2025-07-30）以 BREAKING CHANGES 改为 `agent-card.json`；IANA 登记为 permanent（Linux Foundation） |
+| 纠错 | 交互机制表混用 `message/send` / `tasks/send` / `tasks/sendSubscribe` | 表内逐行加注 v1.0 名，并补「v0.2.x → 0.3.0 → v1.0 操作名对照表」（官方 proto 的 `service A2AService` 为 PascalCase） |
+| 纠错 | 版本提示称「PyPI 已发布 1.1.0」 | 就地加注：最新为 1.1.2（2026-07-22T13:40）；并说明 v1 已拆分 `a2a.client.*` 模块，正文 Client 示例属 0.3.x 口径 |
+| 加厚 | Task 生命周期表未交代 `auth-required` 的执行中语义 | 状态机要点补 In-Task Authorization 说明；复核确认 9 个 `TaskState` 枚举与原文 8 行表无事实错误，原提交记录引用成立 |
+| 补疏漏 | 交互机制只列 3 种，生产化要点无推送通知 | 交互机制表补「超长任务：Push Notification」一行；生产化要点补推送通知、推送安全（幂等/轮换/JWT+JWKS）、任务存储三行 |
+| 加厚 | 常见坑清单 6 条，未含存储与 Card 结构变更 | 补第 7、8 条（默认 TaskStore 内存实现；v1 Agent Card 签名/字段/协商） |
+
+> 回链：[[CORRECTIONS]] · [[AGENTS]]

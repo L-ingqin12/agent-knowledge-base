@@ -3,7 +3,7 @@ title: LLVM使用调优与SO优化
 aliases: [clang调优, so优化, 编译期工程]
 tags: [cs/toolchain, cs]
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-13
 status: review
 source: clang/lld 官方文档与工业实践共识；效果量级为常见经验区间，须以自家基准回归为准
 fetched_at: 2026-08-26
@@ -46,11 +46,16 @@ MYAPI int plugin_init(...);
 ```
 -fdata-sections -ffunction-sections   # 每函数/数据独立 section
 -Wl,--gc-sections                     # 未引用段剥离
--Wl,--icf=all                         # 相同代码折叠(lld)
+-Wl,--icf=safe                        # 相同代码折叠(lld)：默认档其实是 --icf=none，safe 依赖 clang 默认发射的 .llvm_addrsig 地址显著性表
+# -Wl,--icf=all                       # 激进折叠：会合并地址不同的函数，破坏"函数地址唯一"假设，须显式接受风险
 -Oz + strip                           # 极限体积路径
 bloaty lib.so -- base.so              # 体积 diff 归因到符号
 ```
-典型结果：未收敛符号面的 C++ so 收缩 20–40%（模板实例是重灾区）。
+- `--icf` 三档：`none`（默认）/`safe`（工程建议默认，靠 `.llvm_addrsig` 判定安全）/`all`（即使地址不同也合并）。另有两个"接受不安全优化"的开关：`--ignore-function-address-equality`（非 PIC 调用 / 共享对象场景）与 `--ignore-data-address-equality`（lld man 里 "allows lld to do unsafe optimization that breaks the requirement" 这句属于**后者**，别抄到函数版上）；`--keep-unique=symbol` 可做折叠白名单
+- 上 `all` 的前提是"代码里没有函数指针相等比较 + 有回归测试覆盖"；验收用开关前后 `nm -DC --defined-only lib.so | wc -l` 计数对比 + 全量回归
+- 典型结果：未收敛符号面的 C++ so 收缩 20–40%（模板实例是重灾区）。
+
+> 来源（`--icf` 三档与不安全优化开关）：ld.lld man 页 https://manpages.debian.org/unstable/lld-19/ld.lld-19.1.en.html
 
 ### 维度 3：启动时间
 - ld.so 成本 ≈ 重定位处理 + 符号解析 + init_array 执行：
@@ -70,11 +75,15 @@ bloaty lib.so -- base.so              # 体积 diff 归因到符号
 
 ## 三、PGO / LTO / BOLT 三引擎
 
-| 引擎 | 输入 | 典型增益 | 代价 |
+| 引擎 | 输入 | 典型增益 | 代价 / 前置约束 |
 |------|------|---------|------|
 | ThinLTO | `-flto=thin` 全链(clang+lld) | 跨 TU 内联/DCE，5–15% | 链接内存↑；符号面先收敛才吃满 |
 | PGO(instr/AutoFDO) | 真实流量 profile | 分支布局+内联重排 10–30%(热点型) | 需代表性负载采集管线 |
-| BOLT | 无需重编(perf LBR 采样) | 已发布二进制再排布 5–20% | 仅 x86-64 Linux 成熟 |
+| BOLT | 已发布二进制 + perf 采样（x86 用 LBR，AArch64 用 BRBE） | 再排布 5–20% | 目标平台是 **x86-64 与 AArch64 ELF**（不是"仅 x86-64 成熟"）；前置约束四条见下 |
+
+BOLT 的输入要求（README 的 Input Binary Requirements，逐条都是"无需重编"之外的隐藏条件）：① 二进制须带**未剥离符号表**；② 要拿满收益要求原始链接带**重定位**（`--emit-relocs` 或 `-q`），这本身就是构建期改动——"无需重编"只在当初就为此链接过时成立；③ 与 `-freorder-blocks-and-partition` **不兼容**（GCC 8 起默认开启，须显式 `-fno-reorder-blocks-and-partition`）；④ profile 与二进制不一致会产生 **stale profile**（BOLT 会报 stale 函数数、收益下滑），发布分支必须刷新 `.fdata`。
+
+> [!warning] 更正（2026-09-13）：原写作「BOLT | 无需重编(perf LBR 采样) | 已发布二进制再排布 5–20% | 代价：仅 x86-64 Linux 成熟」。平台口径已过期——BOLT README 原文为 "BOLT operates on X86-64 and AArch64 ELF binaries."，采样也对应 x86 LBR / AArch64 BRBE 两条路径。来源：https://api.github.com/repos/llvm/llvm-project/contents/bolt/README.md
 
 组合顺序惯例：LTO 打底 → PGO 热点重排 → （存量包）BOLT 兜底。
 
@@ -110,3 +119,13 @@ bloaty lib.so -- base.so              # 体积 diff 归因到符号
 ## Related
 
 [[CS-KB-Home]] · [[LLVM编译器基础设施]] · [[LibC运行时排查-TLS与锁]] · [[CPP-核心知识]] · [[lognet-rootcause-multiagent-architecture]]
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §三 表称 BOLT「仅 x86-64 Linux 成熟」 | 改为 x86-64 **与 AArch64** ELF，并把采样路径写全（x86 LBR / AArch64 BRBE）；依据 BOLT README「BOLT operates on X86-64 and AArch64 ELF binaries.」 |
+| 补疏漏 | §三 把「无需重编」写成零前置条件 | 补 README 的四条输入要求：未剥离符号表、需 `--emit-relocs`/`-q` 重定位、与 `-freorder-blocks-and-partition` 不兼容、stale profile 需刷新 `.fdata` |
+| 加厚 | §维度2 只给 `-Wl,--icf=all` 一行，无档位与失败模式 | 补三档（`none` 默认 / `safe` 建议 / `all` 激进）、两个 unsafe 开关的归属辨析、`--keep-unique`、上 `all` 的前提与 `nm -DC` 验收；依据 ld.lld man 页 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

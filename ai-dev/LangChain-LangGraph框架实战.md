@@ -3,7 +3,7 @@ title: LangChain-LangGraph框架实战
 aliases: [LangChain实战, LangGraph实战, LCEL框架, LangChain框架实战]
 tags: [ai, ai/agent]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -98,7 +98,7 @@ status: review
 | 类型 | 拓扑 | 特点 | 代表 |
 |------|------|------|------|
 | Network（对等网络） | 全连接，Agent 互相通信 | 去中心化、易扩展 | 多 Agent 协作网络 |
-| Supervisor（主管编排） | 星型：主管调度各 worker | 集中决策、流程可控 | LangGraph supervisor |
+| Supervisor（主管编排） | 星型：主管调度各 worker | 集中决策、流程可控 | LangGraph supervisor（更正 2026-09-13：该预置库已非推荐路径，官方提供迁移指南，见下文「Supervisor 编排代码实践」） |
 | Hierarchical（层级） | 树状：父图套子图，子图内可再有主管 | 团队分工、可递归 | Magentic-One 思想 |
 
 ## 原理剖析
@@ -158,9 +158,14 @@ class State(TypedDict):
 
 `interrupt()` 是 LangGraph 的"审批窗口"：执行到某节点时抛出中断、把控制权交给人（human-in-the-loop，人在回路）。静态断点用编译参数 `interrupt_before=["tools"]`（每次执行工具前都停）；动态断点用节点内的 `interrupt({"question": ...})` 按数据决定是否停。恢复时用 `Command(resume=answer)` 把人的决定注入图继续执行。典型场景：删除文件、发邮件、付款等高风险工具调用前的人工审批。**断点机制依赖 Checkpointer**——不挂 checkpointer 的中断现场无法保存。
 
-### MCP 接入原理：load_mcp_tools
+### MCP 接入原理：load_mcp_tools（→ langchain.mcp）
 
 LangChain 接 MCP 的桥是 `langchain-mcp-adapters` 包。`load_mcp_tools(session)` 的原理：先按 MCP 协议建立 client ↔ MCP server 的连接（stdio 子进程 / SSE / Streamable HTTP 三种传输），用 `tools/list` 发现远端工具，再把每个 MCP 工具包装成 LangChain 的 `BaseTool`（把 JSON schema 转成 pydantic 参数、调用转发回 MCP 会话）。**对 LangGraph / LangChain 而言，MCP 工具与本地 `@tool` 函数毫无区别**——这是"工具来源透明"的关键。MCP 协议细节见 [[MCP协议开发实战]]。
+
+> [!warning] 更正（2026-09-13）：桥接包已迁入主包，`load_mcp_tools(session)` 不再是推荐入口
+> `langchain-mcp-adapters` 仓库 README 横幅逐字确认：**「This repository is no longer actively maintained」**，且 **「MCP support has moved into LangChain under the `langchain.mcp` namespace. Please migrate to `langchain[mcp]`」**，并给出迁移指南链接。现行示例为 `tools = await client.get_tools()`，用户侧不再访问 `client.session`——原写法在新版取不到该属性。
+> 该包降级为「历史包与迁移路径」：装 `langchain[mcp]`，MCP 支持见 `langchain.mcp`。
+> 来源：<https://raw.githubusercontent.com/langchain-ai/langchain-mcp-adapters/main/README.md>、<https://docs.langchain.com/oss/python/migrate/langchain-mcp-adapters>
 
 ### RAG 检索流程
 
@@ -306,10 +311,11 @@ rag_chain = (
 print(rag_chain.invoke("年假怎么休?"))   # 答案附带资料依据, 幻觉大幅下降
 ```
 
-### Agent 构建：create_tool_calling_agent 与多工具并联串联
+### Agent 构建：create_tool_calling_agent（v1 已迁出主包，改用 `create_agent`）与多工具并联串联
 
 ```python
 # agent_tools.py —— 工具调用 Agent + 多工具协作
+# 口径说明(2026-09-13 复核): 本节为 0.x 写法; v1 主包入口是 from langchain.agents import create_agent
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chat_models import init_chat_model
@@ -338,6 +344,10 @@ executor = AgentExecutor(agent=agent, tools=[search_web, calc], verbose=True)
 print(executor.invoke({"input": "搜索最新的 LLM 论文数量并乘以 3"})["output"])
 ```
 
+> [!warning] 更正（2026-09-13）：`create_tool_calling_agent` / `AgentExecutor` 已迁出 v1 主包
+> 原表述把 `from langchain.agents import create_tool_calling_agent, AgentExecutor` 当作标准写法。LangChain v1 迁移指南的 **Package namespace reduction** 确认：legacy chains、retrievers、indexing API、hub 等已移入 `langchain-classic`（需 `pip install langchain-classic`，并改用 `langchain_classic.*`），主包聚焦 agents / messages / tools / chat models / embeddings；v1 官方 Agents 文档给出的唯一入口是 `from langchain.agents import create_agent`，`langchain_classic` 下另有 `AGENT_DEPRECATION_WARNING` 常量。口径提示：旧导入**已迁出主包（存在 ImportError 风险）**，而非「必然报错」——装齐 `langchain-classic` 的旧环境仍能运行。
+> 来源：<https://docs.langchain.com/oss/python/migrate/langchain-v1>、<https://docs.langchain.com/oss/python/langchain/agents.md>、<https://reference.langchain.com/python/langchain-classic/agents>
+
 - **并联（并行）**：模型一次回复可同时发出多个 `tool_calls`（如同时调 `search_web` 和 `calc`），AgentExecutor / LangGraph 并发执行后一次性送回结果；
 - **串联（顺序）**：工具结果返回后模型继续决策是否再调工具——"先搜索拿到数字、再计算"就是典型的串联链。
 
@@ -345,6 +355,8 @@ print(executor.invoke({"input": "搜索最新的 LLM 论文数量并乘以 3"})[
 
 ```python
 # mcp_bridge.py —— 把远端 MCP 工具变成 LangChain 工具
+# 口径说明(2026-09-13 复核): 本节为 langchain-mcp-adapters 停止维护前的写法,
+# 现行入口是 langchain[mcp] 的 langchain.mcp, 见下方「版本坑」更正
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
@@ -356,13 +368,22 @@ async def main():
             "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
         },
     }) as client:
-        tools = await load_mcp_tools(client.session)   # 发现远端工具并包装成 BaseTool
+        tools = await load_mcp_tools(client.session)   # 发现远端工具并包装成 BaseTool（旧版写法，见下）
         llm = init_chat_model("deepseek-chat").bind_tools(tools)  # 与本地工具无差别使用
         print(llm.invoke("列出当前目录").tool_calls)
 ```
 
 > [!warning] 版本坑
 > `langchain-mcp-adapters` 早期版本直接暴露 `load_mcp_tools(session)`，新版推荐 `MultiServerMCPClient` 统一管理多 server 会话（API 以官方 README 为准）；MCP 工具均为 async，同步链里要用 `asyncio.run` 包一层。MCP Server 开发细节见 [[MCP协议开发实战]]。
+>
+> **更正（2026-09-13）**：原表述「新版推荐 `MultiServerMCPClient`」已不够——该仓库整体**不再维护**，MCP 支持移入 LangChain 主包（`langchain.mcp`）。现行写法是 `pip install "langchain[mcp]"` 后：
+
+```python
+# 现行写法（langchain.mcp）: 不再自己管 session, 直接向 client 取工具
+tools = await client.get_tools()
+```
+
+> 来源：<https://raw.githubusercontent.com/langchain-ai/langchain-mcp-adapters/main/README.md>、<https://docs.langchain.com/oss/python/migrate/langchain-mcp-adapters>
 
 ### Supervisor 编排代码实践
 
@@ -395,6 +416,11 @@ graph = builder.compile()
 
 > [!tip] 要点
 > Supervisor 的全部逻辑就是"结构化决策 + 条件边路由"：`Literal["researcher", "coder", "FINISH"]` 把主管的选择空间锁死在合法节点名上，防止模型幻觉出一个不存在的节点。worker 完成后的边全部指回 supervisor，构成"分派-执行-汇总"循环。
+
+> [!warning] 补疏漏（2026-09-13）：官方预置库 `langgraph-supervisor` 已非推荐路径
+> 本节的实现是**手写 `StateGraph` + `with_structured_output` 路由**，原文未交代官方预置库 `langgraph-supervisor` 的现状与迁移路径。事实：官方文档站设有独立迁移指南 **Migrate from `langgraph-supervisor`**（`/oss/python/migrate/langgraph-supervisor`），LangChain v1 迁移指南的导航把它与 `langchain-mcp-adapters` 并列归入「需迁移的旧方案」。口径收紧：原文「多代理架构三类型」表已把 **LangGraph supervisor** 列为 Supervisor 的代表，所以缺口是「未交代其已停用及迁移路径」，而不是「完全未提及」。
+> 结论：**手写 Supervisor 是当前推荐做法**（即本节示例），`langgraph-supervisor` 属需迁移的旧方案，不宜作为新项目默认选择。
+> 来源：<https://docs.langchain.com/oss/python/migrate/langgraph-supervisor>、<https://raw.githubusercontent.com/langchain-ai/docs/main/src/oss/python/releases/langgraph-v1.mdx>
 
 ### 混合知识库案例：向量库 + Neo4j GraphRAG 双检索
 
@@ -441,6 +467,11 @@ print(score)   # 输出四项分数
 
 四个核心指标：`faithfulness`（忠实度：答案与召回上下文是否一致，防幻觉）、`answer_relevancy`（答案相关性）、`context_precision`（上下文精度：召回的段落是否都有用）、`context_recall`（上下文召回：ground truth 是否被召回）。
 
+> [!warning] 更正（2026-09-13）：Ragas 指标命名与文档锚点已过期
+> 原参考资料给的是 **v0.1.21** 文档链接（原表述），属过期锚点。经核对 stable 文档：指标目录中 `answer_relevancy` 现名为 **Response Relevancy**，指标按 Retrieval Augmented Generation / Nvidia Metrics / Agents 等类别分组，Faithfulness、Context Precision 等并列；文档站同时存在 **From v0.1 to v0.2** 与 **From v0.3 to v0.4** 两份迁移指南，说明已跨过 0.2 / 0.3 / 0.4 三代。
+> 保守处理：本轮未能从所引页面确认「`ragas.metrics.collections` 下的小写指标对象」这一写法，故**不改动**上方示例的导入路径，只更正指标命名与文档锚点；升级前请以 stable 文档与迁移指南为准。
+> 来源：<https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/>、<https://docs.ragas.io/en/stable/howtos/migrations/migrate_from_v01_to_v02/>、<https://docs.ragas.io/en/stable/howtos/migrations/migrate_from_v03_to_v04/>
+
 ### 常见坑清单
 
 > [!bug] 高频坑（按踩中频率排序）
@@ -451,6 +482,9 @@ print(score)   # 输出四项分数
 > 5. **interrupt() 不生效**：人机交互断点必须编译时挂 checkpointer，否则中断现场无处保存；
 > 6. **结构化输出不校验**：`with_structured_output` 换模型后 schema 可能失败，生产建议加重试与 fallback；
 > 7. **版本漂移**：LangChain 与 LangGraph 均已发布 1.0 正式版（2025-10，官方博客可查）；1.0 新增 `create_agent` 入口，`init_chat_model` / `bind_tools` / `tools_condition` 的导入位置在 0.2 → 0.3 → 1.0 之间多次变动，抄旧博客代码前先 `pip show langchain langgraph` 核对版本。
+>
+> 复核备注（2026-09-13）：本条日期核对无误（官方博客署名日期 **October 22, 2025**），另确认「v1.0 要求 Python 3.10+」（Python 3.9 于 2025-10 EOL）。但坑清单不能替代正文更新——本文正文中仍属 0.x 口径的写法已逐处加 `[!warning]` 更正块（MCP 接入、Agent 构建、Supervisor 三处）。
+> 来源：<https://www.langchain.com/blog/langchain-langgraph-1dot0>、<https://raw.githubusercontent.com/langchain-ai/docs/main/src/oss/python/releases/langgraph-v1.mdx>
 
 ### 生产化建议
 
@@ -473,8 +507,32 @@ print(score)   # 输出四项分数
 - LangChain 官方文档 · Interrupts 人机交互指南：<https://docs.langchain.com/oss/python/langgraph/interrupts>
 - LangGraph API 参考 · interrupt 函数：<https://reference.langchain.com/python/langgraph/types/interrupt>；Checkpoints 持久化：<https://reference.langchain.com/python/langgraph/checkpoints>
 - LangChain & LangGraph 1.0 官方发布博客（2025-10，版本事实核实来源）：<https://www.langchain.com/blog/langchain-langgraph-1dot0>
-- langchain-mcp-adapters 官方 README（MultiServerMCPClient / load_mcp_tools 用法）：<https://github.com/langchain-ai/langchain-mcp-adapters/blob/main/README.md>；API 参考：<https://reference.langchain.com/python/langchain-mcp-adapters>
+- langchain-mcp-adapters 官方 README（MultiServerMCPClient / load_mcp_tools 用法）：<https://github.com/langchain-ai/langchain-mcp-adapters/blob/main/README.md>（更正 2026-09-13：该仓库已停止维护，MCP 支持迁入 `langchain.mcp`，迁移指南 <https://docs.langchain.com/oss/python/migrate/langchain-mcp-adapters>）；API 参考：<https://reference.langchain.com/python/langchain-mcp-adapters>
 - Microsoft GraphRAG CLI 接口文档：<https://deepwiki.com/microsoft/graphrag/8-cli-interface>；工作原理分步解析（local/global 检索）：<https://tech.bertelsmann.com/en/blog/articles/how-microsoft-graphrag-works-step-by-step-part-12>
 - LangChain 向量存储检索器 How-to（FAISS from_documents / as_retriever）：<https://python.langchain.ac.cn/docs/how_to/vectorstore_retriever/>
-- Ragas 评测入门（faithfulness / answer_relevancy / context_precision / context_recall）：<https://docs.ragas.io/en/v0.1.21/getstarted/evaluation.html>
+- Ragas 评测入门（faithfulness / answer_relevancy / context_precision / context_recall）：<https://docs.ragas.io/en/v0.1.21/getstarted/evaluation.html>（更正 2026-09-13：v0.1.21 锚点已过期，改指 stable 指标目录 <https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/>）
 - Magentic-One 的 Autogen 实现源码文档（Task Ledger / Progress Ledger）：<https://microsoft.github.io/autogen/0.4.3/_modules/autogen_agentchat/teams/_group_chat/_magentic_one/_magentic_one_group_chat.html>
+
+**版本复核来源（2026-09-13 回写补入）**：
+
+- langchain-mcp-adapters README（不再维护横幅、迁移至 `langchain.mcp`）：<https://raw.githubusercontent.com/langchain-ai/langchain-mcp-adapters/main/README.md>
+- LangChain MCP 迁移指南：<https://docs.langchain.com/oss/python/migrate/langchain-mcp-adapters>
+- LangChain v1 迁移指南（Package namespace reduction、`langchain-classic`）：<https://docs.langchain.com/oss/python/migrate/langchain-v1>
+- LangChain v1 Agents 文档（`create_agent` 唯一入口）：<https://docs.langchain.com/oss/python/langchain/agents.md>
+- `langchain-classic` Agents API 参考（`AGENT_DEPRECATION_WARNING`）：<https://reference.langchain.com/python/langchain-classic/agents>
+- `langgraph-supervisor` 迁移指南（该预置库已非推荐路径）：<https://docs.langchain.com/oss/python/migrate/langgraph-supervisor>
+- LangGraph v1 发布说明（官方发布说明源文件）：<https://raw.githubusercontent.com/langchain-ai/docs/main/src/oss/python/releases/langgraph-v1.mdx>
+- Ragas 官方指标目录（stable，Response Relevancy 命名与指标分组）：<https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/>
+- Ragas 迁移指南 v0.1 → v0.2：<https://docs.ragas.io/en/stable/howtos/migrations/migrate_from_v01_to_v02/>；v0.3 → v0.4：<https://docs.ragas.io/en/stable/howtos/migrations/migrate_from_v03_to_v04/>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 「MCP 接入原理：load_mcp_tools」整节以 `langchain-mcp-adapters` 为桥，用 `await load_mcp_tools(client.session)` | 标题补注 `→ langchain.mcp`；正文加更正块（仓库 README 横幅「no longer actively maintained」「moved into LangChain under the `langchain.mcp` namespace」），并给出现行 `tools = await client.get_tools()`；代码与「版本坑」块逐处标注旧口径 |
+| 纠错 | Agent 构建以 `create_tool_calling_agent` + `AgentExecutor` 为标准写法 | 小节标题与代码注释标注 v1 入口 `create_agent`；加更正块（Package namespace reduction → `langchain-classic`），措辞按复核结果写为「已迁出主包（ImportError 风险）」而非「必然报错」 |
+| 纠错 | Ragas 参考链接停在 v0.1.21，`answer_relevancy` 命名过期 | 加更正块：改指 stable 指标目录，标注 `answer_relevancy` 现名 **Response Relevancy**、已跨 0.2/0.3/0.4 三代；**未**采信本轮无法确认的 `ragas.metrics.collections` 写法，示例导入路径保持不动 |
+| 加厚 | 「常见坑清单」第 7 条版本漂移 —— 日期本身无误 | 追加复核备注：官方博客署名 October 22, 2025 核对无误、v1.0 要求 Python 3.10+；并注明正文三处 0.x 口径已就地加更正块 |
+| 补疏漏 | 「Supervisor 编排」整节手写 StateGraph，未交代官方预置库 `langgraph-supervisor` 现状 | 架构表该行加注更正；小节补 `[!warning]`：官方设有独立迁移指南，该库与 `langchain-mcp-adapters` 同列为「需迁移的旧方案」，手写 Supervisor 才是当前推荐做法 |
+
+> 回链：[[CORRECTIONS]] · [[AGENTS]]

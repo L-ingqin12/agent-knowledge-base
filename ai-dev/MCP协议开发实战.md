@@ -3,7 +3,7 @@ title: MCP协议开发实战
 aliases: [MCP开发, ModelContextProtocol实战, MCP Server构建]
 tags: [ai, ai/agent]
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -54,15 +54,19 @@ status: review
 | MCP Client | 与 Server 建立 1:1 连接、负责协议通信 |
 | MCP Server | 暴露 Tools（工具）/ Resources（资源）/ Prompts（提示词） |
 | Tools | 模型可调用的能力，Server 的核心资产 |
-| Transport（传输） | stdio / SSE / Streamable HTTP 三种通信方式 |
+| Transport（传输） | stdio / SSE / Streamable HTTP 三种通信方式（更正：2026-07-28 规范只定义 **stdio 与 Streamable HTTP 两种标准绑定**，SSE 自 2025-03-26 起弃用） |
 
 ### 三种传输对比
 
 | 传输 | 连接模型 | 特点 | 适用场景 |
 |------|----------|------|----------|
 | stdio | 子进程标准输入输出 | 本地、零网络、最简单 | 本地 CLI Host |
-| SSE | HTTP + Server-Sent Events 长连接推送，另一端点收消息 | 远程、单向推送 | 历史方案，正在被替代 |
-| Streamable HTTP | 单一 HTTP 端点双向流 | 现代推荐，取代旧 HTTP+SSE 双端点 | 远程生产部署 |
+| SSE | HTTP + Server-Sent Events 长连接推送，另一端点收消息 | 远程、单向推送 | 历史方案，正在被替代（更正 2026-09-13：规范弃用登记表逐字标注「Deprecated in 2025-03-26」，迁移路径为 Streamable HTTP，最早移除时间为 SEP-2596 定稿后三个月） |
+| Streamable HTTP | 单一 HTTP 端点双向流 | 现代推荐，取代旧 HTTP+SSE 双端点（更正补充：2026-07-28 起移除该绑定的协议级会话与 `Mcp-Session-Id` 头，见变更日志 Major changes 第 1 条） | 远程生产部署 |
+
+> [!warning] 更正（2026-09-13）：传输口径
+> 原表把「三种通信方式」并列。经核对官方文档：2026-07-28 版 Transports 页只列 **stdio** 与 **Streamable HTTP** 两个标准绑定，HTTP+SSE 收录在弃用登记表（`Deprecated in 2025-03-26`，迁移路径 Streamable HTTP）。补充依据：原表 SSE 行「标准传输之一」的口径，即便按本文自引的 2025-06-18 版本也不成立——该行错得比审计所述更早。
+> 来源：<https://modelcontextprotocol.io/specification/2026-07-28/basic/transports.md>、<https://modelcontextprotocol.io/specification/2026-07-28/deprecated.md>、<https://modelcontextprotocol.io/specification/2026-07-28/changelog.md>
 
 ## 原理剖析
 
@@ -76,7 +80,23 @@ status: review
 2. **JSON-RPC 2.0 是协议骨架**：`initialize` → `tools/list` → `tools/call` → `notifications`，全部走 JSON-RPC 消息，传输层只是"邮路"，协议与传输解耦。
 3. **模型不感知协议**：模型看到的只是工具名 + JSON Schema 描述，协议细节由 Host/Client 完全屏蔽——这正是与 Function Call 的差异所在：统一发生在生态层面，而非厂商私有。
 
+> [!warning] 更正（2026-09-13）：`initialize` 握手已移除
+> 要点 2 的流程（原表述为「`initialize` → `tools/list` → `tools/call` → `notifications`」）是 **2025-11-25 及更早**的口径。2026-07-28 变更日志 Major changes 第 2 条确认协议无状态化：移除 `initialize` / `notifications/initialized` 握手，每个请求经 `_meta` 携带 `io.modelcontextprotocol/protocolVersion` 与 `clientCapabilities`，版本不匹配返回 `UnsupportedProtocolVersionError`；同时新增**强制** RPC `server/discover`。握手式流程仅作为向后兼容路径保留。
+> 来源：<https://modelcontextprotocol.io/specification/2026-07-28/changelog.md>、<https://modelcontextprotocol.io/docs/learn/versioning.md>
+
 > [!info] Server 三资产：Tools（模型可调用）、Resources（模型可读的数据）、Prompts（可复用的提示模板）。当前生态最成熟的是 Tools，其余两类按需扩展。
+>
+> **补疏漏（2026-09-13）**：原表述只列服务端三资产。除服务端三类外，协议还有**客户端侧能力**与**扩展机制**，完整对照如下：
+
+| 侧 | 能力 | 引入版本 / 标识 |
+|----|------|----------------|
+| 服务端 | Tools / Resources / Prompts | 2024-11-05 起 |
+| 客户端 | Sampling（含 `tools` / `toolChoice`，2025-11-25 起） | 2025-06-18 起，2025-11-25 扩展 |
+| 客户端 | Elicitation（URL 模式、`ElicitResult` / `EnumSchema` 扩展） | 2025-11-25 |
+| 扩展 | Extensions（反向 DNS 标识，参考实现 MCP Apps） | SEP-2133，2026-07-28 起 |
+| 缓存 | Cache hints（`ttlMs` / `cacheScope`） | SEP-2549，2026-07-28 起 |
+
+> 依据：<https://modelcontextprotocol.io/specification/2025-11-25/changelog.md>、<https://modelcontextprotocol.io/specification/2026-07-28/changelog.md>、<https://py.sdk.modelcontextprotocol.io/whats-new/>
 
 报文示例（JSON-RPC 2.0）：
 
@@ -115,12 +135,17 @@ python -m venv .venv && pip install mcp fastmcp openai
 ```
 
 > [!tip] 依赖说明：`mcp` 是官方 Python SDK（写 Client 用），`fastmcp` 是官方高层封装（写 Server 用），`openai` 用于 Client 接入大模型。
+>
+> [!warning] 更正（2026-09-13）：包定位
+> 原表述为「`fastmcp` 是官方高层封装」。**FastMCP 并非官方包**——其仓库归属 Prefect（README 署名 Made with 💙 by Prefect，文档站 <https://gofastmcp.com/>），当前主线为 FastMCP 4（升级指南已到「Upgrading from FastMCP 3」）。
+> 官方 python-sdk 的变化：README 横幅确认 **v2 为当前稳定线**（`pip install mcp` 现在装 2.x），v1.x 留在 `v1.x` 分支仅收关键修复与安全补丁，官方建议未迁移前锁 `mcp>=1.28,<2`；v2 新增一等公民 Client（`async with Client("http://localhost:8000/mcp") as client`），并把高层 Server 类由 `FastMCP` 更名为 `MCPServer`、传输配置移到 `run()`、wire 类型移入 `mcp-types` 且字段统一 snake_case。
+> 来源：<https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/README.md>、<https://py.sdk.modelcontextprotocol.io/whats-new/>、<https://raw.githubusercontent.com/jlowin/fastmcp/main/README.md>
 
 ### Demo ①：FastMCP 编写天气/计算器 Server（约 20 行）
 
 ```python
 # server.py —— 一个同时提供天气与计算器的 MCP Server
-from fastmcp import FastMCP
+from fastmcp import FastMCP   # 第三方包（Prefect 维护）；官方 v2 SDK 的等价入口是 MCPServer
 
 mcp = FastMCP("demo-server")   # 创建 Server，名字会显示在 Host 的工具列表里
 
@@ -155,7 +180,7 @@ async def main():
     params = StdioServerParameters(command="python", args=["server.py"])
     async with stdio_client(params) as (read, write):      # 建立 stdio 通道
         async with ClientSession(read, write) as session:  # 初始化 MCP 会话
-            await session.initialize()                     # 握手：协商协议版本
+            await session.initialize()                     # 握手：协商协议版本（v1 SDK 口径，见下方更正）
 
             tools = await session.list_tools()             # 列出 Server 暴露的工具
             print("可用工具：", [t.name for t in tools.tools])
@@ -171,6 +196,10 @@ asyncio.run(main())
 ```
 
 > [!success] 验证路径：直接 `python client.py` 即可——stdio_client 会自动拉起 server.py 子进程，无需手动先启动 Server。
+
+> [!warning] 更正（2026-09-13）：Demo ①② 属 SDK v1 口径
+> 原 Demo ①（`from fastmcp import FastMCP`）与 Demo ②（`ClientSession` / `StdioServerParameters` / `stdio_client` / `session.list_tools()` / `session.call_tool()`）对应的是 **mcp v1.x** 写法，今天仍可跑，但不是当前稳定线的推荐入口：「`await session.initialize()` 是连接必经步骤」在 2026-07-28 协议下已不成立（握手被移除）。官方 v2 SDK 的 client 写法为 `async with Client(url) as client`，Server 侧高层类为 `MCPServer`。迁移前若要继续用 v1，官方建议锁 `mcp>=1.28,<2`。
+> 来源：<https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/README.md>、<https://py.sdk.modelcontextprotocol.io/whats-new/>
 
 ### Client 接入大模型（五步）
 
@@ -213,6 +242,17 @@ npx @modelcontextprotocol/inspector python server.py
 ```
 
 > [!tip] Inspector 是官方调试神器：可视化查看 tools/list 结果、手动构造参数试调、查看 JSON-RPC 原始报文。**一切"Client 调不通"的问题先上 Inspector 排查**，定位是 Server 侧还是 Host 侧。
+>
+> **加厚（2026-09-13）**：原小节只给了一条命令与一句定性描述。官方 Inspector 文档确认它有三种客户端形态，并会做 legacy 与 modern（2026-07-28）两个协议纪元的协商：
+
+| 形态 | 启动方式 | 适用 |
+|------|----------|------|
+| Web（默认） | `npx @modelcontextprotocol/inspector` | 人工可视化排查 |
+| CLI | `npx @modelcontextprotocol/inspector --cli` | CI / 流水线 / 编码 Agent 的脚本化验证 |
+| TUI | `npx @modelcontextprotocol/inspector --tui` | 终端内的交互式调试 |
+
+> 排查时至少留三段原始报文作判据：`tools/list` 的返回、`tools/call` 的请求与响应；若连不上，先看 Inspector 报的是「版本/纪元不匹配」还是「传输握手失败」，再决定改 Server 还是改 Host 侧配置。
+> 来源：<https://modelcontextprotocol.io/docs/tools/inspector>、<https://modelcontextprotocol.io/specification/2026-07-28/changelog.md>
 
 ### 打包发布与部署
 
@@ -281,9 +321,33 @@ npx @modelcontextprotocol/inspector http://localhost:8000/mcp
 > [!info] 以下 URL 为本文写作时实际检索核对的技术事实来源（检索日期 2026-08-25）。
 
 - MCP 官方网站：<https://modelcontextprotocol.io/>
-- MCP 规范 2025-06-18 — Transports（stdio / SSE / Streamable HTTP 三种传输定义）：<https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>
+- MCP 规范 2025-06-18 — Transports（stdio / SSE / Streamable HTTP 三种传输定义）：<https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>（更正 2026-09-13：该锚点已落后两个修订，Current 为 2026-07-28，见下方「版本复核来源」）
 - MCP Inspector 官方文档（调试方式与连接参数）：<https://modelcontextprotocol.io/docs/tools/inspector>
 - FastMCP 官方文档（`@mcp.tool()` 装饰器与 `mcp.run()` 传输参数）：<https://gofastmcp.com/>
 - FastMCP CLI — Install MCP Servers（`fastmcp install` 注册方式）：<https://gofastmcp.com/cli/install-mcp>
 - FastMCP 2.3 发布说明（Streamable HTTP 支持进展）：<https://jlowin.dev/blog/fastmcp-2-3-streamable-http>
 - MCP Python SDK（`stdio_client` / `ClientSession` / `call_tool` 用法）：<https://github.com/modelcontextprotocol/python-sdk>
+
+**版本复核来源（2026-09-13 回写补入）**：
+
+- MCP 规范当前修订 2026-07-28 · 变更日志（无状态化、`server/discover`、移除 Streamable HTTP 会话与 `Mcp-Session-Id`）：<https://modelcontextprotocol.io/specification/2026-07-28/changelog.md>
+- MCP 规范版本与协商规则（Current 版本、握手式流程的向后兼容边界）：<https://modelcontextprotocol.io/docs/learn/versioning.md>
+- MCP 规范 2026-07-28 · Transports（只列 stdio 与 Streamable HTTP 两个标准绑定）：<https://modelcontextprotocol.io/specification/2026-07-28/basic/transports.md>
+- MCP 规范 2026-07-28 · Deprecated（HTTP+SSE 弃用登记与迁移路径）：<https://modelcontextprotocol.io/specification/2026-07-28/deprecated.md>
+- MCP 规范 2025-11-25 · 变更日志（客户端侧 elicitation / sampling 能力）：<https://modelcontextprotocol.io/specification/2025-11-25/changelog.md>
+- MCP Python SDK v2 README（v2 为稳定线、一等公民 Client、v1 锁定建议）：<https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/README.md>
+- MCP Python SDK v2 更新说明（`MCPServer` 更名、传输配置移入 `run()`、`mcp-types`）：<https://py.sdk.modelcontextprotocol.io/whats-new/>
+- FastMCP 仓库 README（归属 Prefect、当前主线为 FastMCP 4）：<https://raw.githubusercontent.com/jlowin/fastmcp/main/README.md>
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | 参考资料登记「MCP 规范 2025-06-18」，正文按该修订组织 | 保留原锚点并加注更正；补入 2026-07-28 变更日志、版本页、Transports、Deprecated 四条来源。库内登记落后两个修订（2025-11-25 → 2026-07-28），非审计所述的三个 |
+| 纠错 | 「`initialize` → `tools/list` → `tools/call` → `notifications`」与 Demo ② 的 `await session.initialize()` 被写成必经步骤 | 原文旁加 `[!warning]` 更正：2026-07-28 移除握手，改由每请求 `_meta` 携带 `protocolVersion` / `clientCapabilities`，并强制 `server/discover`。Demo 标注为 SDK v1 口径 |
+| 纠错 | 传输对比表并列 stdio / SSE / Streamable HTTP「三种通信方式」 | 表内两行加注更正 + 表后更正块：2026-07-28 只定义 stdio 与 Streamable HTTP 两个标准绑定；SSE 登记为 2025-03-26 弃用 |
+| 补疏漏 | 「Server 三资产」只列服务端三类 | 增补客户端侧 Sampling / Elicitation 与 Extensions（SEP-2133）、cache hints（SEP-2549）对照表 |
+| 纠错 | 「`fastmcp` 是官方高层封装」 | 更正块：FastMCP 归 Prefect 维护、主线 FastMCP 4；官方 python-sdk v2 高层类为 `MCPServer`，并新增一等公民 Client |
+| 加厚 | Inspector 小节仅一条命令加一句描述 | 补 Web / CLI / TUI 三种形态对照表与三段原始报文判据 |
+
+> 回链：[[CORRECTIONS]] · [[AGENTS]]

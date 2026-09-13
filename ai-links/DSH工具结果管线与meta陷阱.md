@@ -3,7 +3,7 @@ title: DSH 工具结果管线与 meta 陷阱
 aliases: [tools/execute, post-execute, presentationMeta 泄漏]
 tags: [ai/tools, ai/agent, ai/skills]
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 status: review
 ---
 
@@ -174,6 +174,14 @@ meta = tool.output.presentationMeta(exec.arguments, value);                     
 > [!tip] 一句话判据
 > 判断一个结果改写策略是否真的生效，**不要看它是否报了成功**，要同时核两处：`result.content` 里还有没有命中文本，以及 `tool/result` 事件的 `data.meta` 里还有没有。只核前者，就是 [[CORRECTIONS]] C-005 的形状（自检通过 ≠ 读取端干净）。
 
+> [!note] 2026-09-13 复核：机制成立，并可写成可执行判据
+> 本机安装树 `dsh-tools` = **0.1.5-rc.2**，其 `lib/index.js:3401-3405` 正是 `return this.markCanonical(exec, { ...result, ...decision.content !== void 0 ? { content: decision.content } : {}, ... })` 的展开写法 ⇒ **`content` 与 `meta` 是同一个 value 的两条投影**，本节结论成立。
+> 可执行判据（三步，不用读源码）：
+> 1. 注册一个 `tools/post-execute` 监听器，返回 `{ kind: 'accept', content: '<哨兵文本>' }`（**只换 content**）；
+> 2. 触发任一带 `presentationMeta` 的工具（如 `web_search`）；
+> 3. 读会话日志里该 `tool/result` 事件的 `data`：`content` 应为哨兵文本，而 **`data.meta` 仍在**。
+> 同一形状也适用于第 5 号接缝：`finalizeContent` 同样是 `{...result, content}`（§3.3 末），所以它**也改不动 `meta`**——第 4、5 号接缝在这一点上完全同形，原文只在 §3.3 末点了一句，这里提为并列结论。
+
 ## 四、一次工具调用的端到端顺序
 
 每一步都给出唯一出处；括号内是「这一步之后，什么已经确定」。
@@ -208,6 +216,14 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 
 > [!info] 缺口就是位置
 > 「量大但你可能要看」→ 调 `maxInlineBytes`；「**这类字段你根本不想要**」→ 需要一条**结构化最小化**策略补在 `tools/execute`（更早，见第七节）。本机 `web` profile 的补丁层与 home 级补丁层都没有覆盖 `spill-policy`（`dsh plugin` 侧的 `profiles/web/cordis.patch.yml` 只有 `compaction-basic` 一条），故生效值就是 shipped 的 `50000`——**若启动时另有 `--patch` overlay 则不适用**。（本地插件 README 记其机器上是 `4000`，本次未复核。）
+
+> [!note] 2026-09-13 复核：结论成立，但应由 `--dump-config` 独立回查
+> 文中两句已核实：本机 `dsh-base/cordis.patch.yml:383-386` 确为 spill-policy 的 `config.maxInlineBytes: 50000`；`$DSH_HOME/cordis.patch.yml` **不存在**（`Test-Path` = False），故「没有 home 级覆盖」成立。
+> 但「生效值 = 50000」目前是由"没人覆盖"**推**出来的，缺一次独立回查。补上：
+> ```sh
+> dsh --profile web --dump-config    # 过滤 spill-policy 那一段，看最终 config.maxInlineBytes
+> ```
+> 若回查结果等于 50000，§八 的「4000 vs 50000 未复核」一项即可定案为"shipped 值生效，README 的 4000 属另一台机器/另一份组合"。
 
 ## 六、没有任何接缝能修的
 
@@ -247,6 +263,18 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 | 本地插件 README 记的 `maxInlineBytes: 4000` 与本机 shipped `50000` 的差异 | **未复核**（本机 `web` profile 与 home 级补丁层均无该行；其余 profile 与启动 overlay 未穷尽） |
 | 本文全部结论的运行期实测 | 本文**未新增**运行时实验；结论为源码直读，或引自本库已有实测报告 |
 
+### 复现配方（2026-09-13 补：把 §三 的核心结论端到端跑一遍）
+
+「`accept{content}` 保活 `meta`」是全文最重要的结论，而它有一条低成本验证路径（不必读源码）：
+
+1. 在某个 profile 的补丁层注册一个插件行，在 `tools/post-execute` 上返回 `{ kind: 'accept', content: '<哨兵文本>' }`（**只换 content**；带 `{ prepend: true }` 可保证它在外层）。
+2. 对同一会话跑一次 `web_search`（它有 `presentationMeta`，见 §3.1）。
+3. 读该会话日志里对应 `tool/result` 事件的 `data`：
+   - `data.message.content` 应为哨兵文本；
+   - **`data.meta.sources[].snippet` 仍在** ⇒ §三 成立。
+4. **对照组**：把返回值改成 `{ kind: 'accept', value: <同一个 value 的干净副本> }` 重跑；此时 `content` 与 `meta` 应**同时**变干净（§3.2）。
+5. 判据落在**读取端**（日志文件里的 `data.meta`），不是策略自己的成功报告——这正是 [[CORRECTIONS]] C-005 要求的形状。
+
 ## Related
 
 - [[DSH插件与Hook开发最佳实践]] — 工具定义字段、pre/post-execute 与 hooks 桥接的上游规范（本文只补「顺序与 meta」这一层）
@@ -257,3 +285,13 @@ shipped 的体量约束策略挂的就是 4 号接缝（`{ prepend: true }`，`:
 - [[DSH插件组合与启动中止语义]] — 插件行挂载失败如何中止整个 profile（配置校验属共享启动路径）
 - [[CORRECTIONS]] — 出结论前的回查入口（C-005 / C-009 与本主题直接相关）
 - [[AI-Links-KB-Home]] — AI 链接收藏库 MOC
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 加厚 | §三 的核心结论只有源码引用，缺可执行判据；且未把「同样适用于第 5 号接缝」提为并列结论 | 补「三步判据 + 对照组」，并明确 `finalizeContent` 与 `accept{content}` 同形；依据本机 0.1.5-rc.2 安装树 `dsh-tools/lib/index.js:3401-3405` 逐字核对 |
+| 加厚 | §五 的「生效值就是 shipped 的 50000」由"没人覆盖"推出，缺一次独立回查 | 补 `--dump-config` 回查命令与期望结果，并把 §八 的「4000 vs 50000 未复核」指向该回查；依据 `dsh-base/cordis.patch.yml:383-386` 与 home 级补丁层不存在（`Test-Path` = False） |
+| 加厚 | §八 声明「未新增运行时实验」，而核心结论有一条低成本端到端路径未使用 | 新增「复现配方」小节：注册监听器 → 跑 `web_search` → 读日志 `data.meta` → 对照组换 value 复核 |

@@ -3,7 +3,7 @@ title: 网络中断无感 v2 — 基于实际场景的修正
 aliases: []
 tags: [ai/ops, ai/agent]
 created: 2026-07-01
-updated: 2026-08-25
+updated: 2026-09-13
 status: review
 ---
 
@@ -73,6 +73,9 @@ claude --permission-mode accept-edits
 ```
 
 **覆盖范围：** 代理重试超时窗口内的所有 socket 错误（重试最长 1+3+8=12 秒）。手机网络瞬时抖动通常在 3 秒内恢复 → 代理一次重试就成功 → Claude 完全无感。
+
+> [!warning] 更正（2026-09-13）：上句的「重试最长 1+3+8=12 秒」是**文档自述的重试等待预算，且与实际实现不符**，不能当作覆盖边界。参考实现 `claude-resilience-proxy.py` 在 `attempt == MAX_RETRIES - 1` 时先 `break`，**实际只 sleep `1+3=4s`，`8s` 永不执行**（`MAX_RETRIES=3`，共发出 3 次请求）；现行部署的 Node 版 `claude-resilience-proxy.js` 默认 `RETRIES=1`、`BACKOFF=[1000ms]`、单次上游超时 `90000ms`，**最坏阻塞约 `90s×2+1s`**。（原表述为「覆盖范围：代理重试超时窗口内的所有 socket 错误（重试最长 1+3+8=12 秒）」）
+> 据此，本文其余处（§五 结论第 2/3 条、§八 遗留项）沿用的「12 秒」同为该预算口径，应按实际 4s（现行 Node 版 1s）读取。
 
 ## 四、路径 B — 自动注入重试（兜底，代理失败时用）
 
@@ -180,6 +183,40 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \
 # 完成。网络抖动不再需要你输入"继续"。
 ```
 
+> [!warning] 补疏漏（2026-09-13）：本节标题的「部署即完结」只覆盖启动三步，**缺回滚路径、部署前验证与验收判据**，因此不能作为完结判据。以下按 [[AGENTS]] 五·五 部署四规则（记录可追溯 / 部署前验证 / 逃生机制 / 日志可审计）补齐；脚本事实以 `scripts/claude-ops-deployments/root-scripts/` 下实体为准。
+
+**① 逃生机制（任一时刻可用）**
+
+| 目的 | 命令 | 期望输出 |
+|------|------|----------|
+| 停代理 | `bash /root/claude-resilience-deploy.sh stop` | `[deploy] Proxy stopped (was PID …)` |
+| 看状态 | `bash /root/claude-resilience-deploy.sh status` | `Proxy: RUNNING (PID …)` 或 `Proxy: NOT RUNNING` |
+| 完全回滚（停全部代理 + 恢复直连 DeepSeek） | `bash /root/claude-rollback.sh` | `[1/4] Stopping all proxies...` 起，结束时恢复 `https://api.deepseek.com/anthropic` |
+
+**② 部署前非生产端口验证**（不要「先上线再排错」）
+
+```bash
+# 以非生产端口起一份对照代理，确认配置无误后再切 8787
+PROXY_PORT=8795 node /root/claude-resilience-proxy.js > /root/.claude/proxy-8795.log 2>&1 &
+PROBE_PID=$!
+sleep 2
+curl -sI --connect-timeout 2 http://127.0.0.1:8795/ >/dev/null; echo "exit=$?"   # 期望 exit=0
+grep Listening /root/.claude/proxy-8795.log   # 期望 [proxy] Listening 127.0.0.1:8795 → https://api.deepseek.com/anthropic
+kill "$PROBE_PID"                             # 验证完立刻收掉，不留后台进程
+```
+
+> 端口选择注意：8788 为 permafrost 固定端口、8790 为 cache-relay 常驻端口，勿借用；详见 [[claude-port-rebind-solution]]。
+> 另注（2026-09-13）：上文第二步的 `python3 …proxy.py` 属历史阶段组件，现行部署脚本 `claude-resilience-deploy.sh` 以 `node …claude-resilience-proxy.js` 启动，故下方验证命令按 `.js` 写。
+
+**③ 验收判据（连续两次抖动仍无感）**
+
+| 步骤 | 命令 / 观察点 | 期望 |
+|------|---------------|------|
+| 制造抖动 ×2 | 断网 3-5s 后恢复，重复 2 次 | Claude 终端**不出现** `Error: The socket connection was closed unexpectedly` |
+| 代理侧 | `grep -c 'Retry in' /root/.claude/proxy.log` | ≥2（出现 `[proxy] Retry in {delay}ms ({retries} left): …`；Node 版默认 1 次重试） |
+| 会话侧 | 抖动后 Claude 是否停在等用户输入 | 不停，仍在同一会话继续；无需输入「继续」 |
+| 收尾 | 把本次组件、命令与验收输出写入 [[deployment-log]] | 可追溯到时间与版本 |
+
 ## 八、遗留项
 
 这些场景仍需要手动介入，作为已知限制：
@@ -189,3 +226,36 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic \
 | 连续断网 > 12 秒 | 代理重试耗尽，错误到达 Claude |
 | 代理进程自身崩溃 | 没有守护代理的守护 |
 | DeepSeek 服务宕机 | 不是 socket 错误，是应用层错误 (5xx) |
+
+### 8.1 代理存活检测与自愈（补，2026-09-13）
+
+上表「代理进程自身崩溃」原文只写了后果，未给可用手段。库内 [[proxy-resilience-optimization-2026-07-09]] 已有现成的存活探测口径（`curl -s -o /dev/null --max-time 2 http://127.0.0.1:8787/` 秒级判断），据此落成三步：
+
+| 步骤 | 命令 | 期望输出 |
+|------|------|----------|
+| ① 探测 | `curl -s -o /dev/null --max-time 2 http://127.0.0.1:8787/ ; echo $?` | `0`（能建立连接即算存活，返回码非 2xx 也算） |
+| ② 拉起 | `bash /root/claude-resilience-deploy.sh start` | `[deploy] Starting Node.js resilience proxy...` → `Proxy started (PID …)` → `Health check: OK` |
+| ③ 再探测 | 重复 ①，再跑 `bash /root/claude-resilience-deploy.sh status` | `0`；`Proxy: RUNNING (PID …)` |
+
+```
+loop:
+  if probe() != OK:                 # ①
+      start_proxy()                 # ②  幂等：已在跑时打印 "Proxy already running (PID …)" 并返回 0
+      if probe() != OK:             # ③
+          alert("proxy 拉不起来，检查 /root/.claude/proxy.log")
+  sleep 30
+```
+
+期望日志行：`[deploy] Proxy already running (PID …)` / `[deploy] Proxy started (PID …)` / `[proxy] Listening 127.0.0.1:8787 → https://api.deepseek.com/anthropic`。
+
+---
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|---|---|---|
+| 纠错 | §三 把「重试最长 1+3+8=12 秒」当作路径 A 的覆盖边界，与实现的重试语义不符 | 就地加注：12s 仅为文档自述预算；参考实现 `.py` 实际只 sleep `1+3=4s`（`attempt == MAX_RETRIES-1` 先 `break`，8s 不执行），现行 Node 版默认 1 次重试 /1s、单次超时 90s，最坏阻塞约 `90s×2+1s`；依据 `claude-resilience-proxy.py` :42-43/:399-406 与 `claude-resilience-proxy.js` :20-21/:31 |
+| 补疏漏 | §七「部署即完结」只给三条启动命令，无回滚路径、无验收判据 | 补逃生命令表（`deploy.sh stop/status`、`claude-rollback.sh`）、非生产端口部署前验证、连续两次抖动的验收判据、写入 [[deployment-log]]；依据 [[AGENTS]] 五·五 部署四规则与 `claude-resilience-deploy.sh` :3/:64/:82、`claude-rollback.sh` :3 |
+| 加厚 | §八 遗留项只列「代理进程自身崩溃」的后果，未给存活检测与自愈命令 | 新增 §8.1 三步自愈（探测 → 拉起 → 再探测）+ 伪代码 + 期望日志行；依据 [[proxy-resilience-optimization-2026-07-09]] :61-64/:111 与 `claude-resilience-deploy.sh` :15-32 |
+
+回链：[[CORRECTIONS]] · [[AGENTS]]

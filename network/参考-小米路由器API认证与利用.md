@@ -3,9 +3,9 @@ title: 小米路由器 API 认证与利用参考
 aliases: [小米API, 路由器漏洞, CVE-2019-18370]
 tags: [reference/router, reference, network/router]
 created: 2026-07-22
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
-source_urls: [https://github.com/acecilia/OpenWRTInvasion, https://nvd.nist.gov/vuln/detail/CVE-2019-18370, https://github.com/openwrt-xiaomi/xmir-patcher]
+source_urls: [https://github.com/acecilia/OpenWRTInvasion, https://nvd.nist.gov/vuln/detail/CVE-2019-18370, https://github.com/openwrt-xiaomi/xmir-patcher, https://services.nvd.nist.gov/rest/json/cves/2.0]
 ---
 
 # 小米路由器 API 认证与漏洞利用 — 知识参考
@@ -113,6 +113,10 @@ Step 5: POST 到 /api/xqsystem/login
 | 影响 | 所有固件版本 < 2.28.23-stable |
 | 修复 | 升级到 2.28.23-stable 或更高 |
 | 受影响型号 | R3G, R4CM, R4A, 4C, 3Gv2, 3C, R3P 等多款 |
+
+> [!warning] 更正（2026-09-13）：「受影响型号」与「影响：所有固件版本」**是页面自身的推广推断，权威库只覆盖 R3G**（原表述保留于上）。
+> 复核 NVD 与 MITRE 的描述，两处都只写：「*An issue was discovered on Xiaomi Mi WiFi **R3G** devices before 2.28.23-stable*」；NVD 的 CPE 配置亦为 `cpe:2.3:o:mi:millet_router_3g_firmware < 2.28.23`。即**上游没有把 R4CM/R4A/4C/3Gv2/3C/R3P 列入该 CVE 的受影响范围**（本页 L118 的口径说明已承认出入）。引用时应写成「权威记录 = R3G < 2.28.23-stable；同系列机型是否受影响属**实测推断**（本库在 R4CM 2.14.87 上验证过利用链）」。
+> 来源：<https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2019-18370>、<https://cveawg.mitre.org/api/cve/CVE-2019-18370>
 
 > [!note] 口径说明（2026-08-25）
 > 版本机制以复盘为准：[[2026-07-21-树莓派网络故障与路由器破解完整复盘]] §8 实测 **R4CM fw 2.14.87** 上 OpenWRTInvasion v0.0.1 有效（master 无效）。上表「修复于 2.28.23」为公开情报，与本页表「v2 PoC 需要 fw 2.30.20+」存在出入（后者暗示 2.30.20+ 仍有可利用变体）——受影响版本范围的具体边界以复盘实测记录为准。
@@ -288,9 +292,17 @@ Xiaomi 路由器所有进程以 **root** 权限运行，任意命令注入 = 完
 | **无 CVE** | — | `set_wifi_ap` | `channel` | 需要 | `channel=1%3Bnvram%20set%20ssh_en%3D1` |
 | **无 CVE** | — | `set_config_iotdev` | `ssid` | 需要 | `ssid=-h%3B%20&lt;CMD&gt;%3B` |
 
+> [!warning] 更正（2026-09-13）：上表 **CVSS 列混了评分方**，且认证列与评分向量存在需要解释的背离（原表保留于上）。
+> - **评分来源不同**：`CVE-2023-26317` 的 **7.0** 来自**厂商**（secondary，AV:N/AC:H/PR:N），而 **NVD（primary）给的是 9.8 CRITICAL**（AV:N/AC:L/PR:N）；`CVE-2023-26319` 的 **7.2** 来自 **NVD（primary）**（AV:N/AC:L/PR:H），**厂商（secondary）给的是 6.7 MEDIUM**。同一格里既有厂商分又有 NVD 分，**必须加「评分来源」列**，否则 7.0 与 7.2 会被误读为同一口径（本条为已核验结论，非猜测）。
+> - **认证 vs 评分的背离**：`CVE-2019-18370` 一行认证列为「需要」，但同表引用的 9.8 是 NVD 的 `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`——**PR:N 表示无需特权**。两者并存不矛盾但必须说明：「认证需要」指的是**本库实测的利用链要 stok**（属部署条件），而 CVSS 描述的是**漏洞本身不需要认证**；请勿据 9.8 推断可以直接无认证打。
+> 来源：<https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2023-26317>、<https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2023-26319>、<https://cveawg.mitre.org/api/cve/CVE-2023-26319>、<https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2019-18370>
+
 ### 扩展 API 端点表
 
 研究人员在固件中通过 `grep entry({"api"` 发现了 **约 500 个 API 端点**。以下为重要端点分类：
+
+> [!warning] 更正（2026-09-13）：「约 500 个」**不可复核**（原表述保留于上）。
+> 本页给了 grep 命令（这点没问题），但**缺三项使结果无法复算**：① 未记录固件版本；② 未记录 `grep` 的匹配行数；③ 未说明是否去重后计数。引用时应写「在 <固件版本> 上 `grep entry({"api" <文件>` 得到 N 行（未去重）」并保留原始输出，或直接改用下表的分类清单。
 
 #### 系统管理
 
@@ -325,6 +337,9 @@ Xiaomi 路由器所有进程以 **root** 权限运行，任意命令注入 = 完
 | 端点 | 认证 | 说明 |
 |------|:--:|------|
 | `request_smartcontroller` | 是 | **CVE-2023-26319** 注入点 |
+
+> [!warning] 补疏漏（2026-09-13）：把 `request_smartcontroller` / `mac` 直接标为 CVE-2023-26319 的注入点**缺适用型号与来源标注**。
+> 复核 NVD：该 CVE 的 `configurations` 指向 **`cpe:2.3:o:mi:xiaomi_router_ax3200_firmware`（< 2023.2）**，即**官方记录对应的是 AX3200**，而不是本库的 R4CM；NVD 描述中**也没有出现 `request_smartcontroller` 或 `mac` 参数**。因此该行的注入点信息属**库内推断/二手整理**，引用时须标注「适用型号：AX3200（NVD 记录）；注入点：库内整理，未见官方描述」。来源：<https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2023-26319>
 | `request` | 是 | 智能家居请求 |
 | `request_miio` | 是 | MiIO 设备请求 |
 
@@ -335,6 +350,9 @@ Xiaomi 路由器所有进程以 **root** 权限运行，任意命令注入 = 完
 - 在某些集成中，token 被缓存约 **10 分钟**
 - 过期后需要重新登录
 - stok 必须出现在 URL 路径中：`/cgi-bin/luci/;stok=<TOKEN>/api/...`
+
+> [!warning] 补疏漏（2026-09-13）：「缓存在某些集成中约 10 分钟」**无来源**（原表述保留于上）。
+> 上一行已自注「确切的超时时间因固件版本而异」，与该数字不等价：**10 分钟是第三方集成的缓存策略，不是固件侧 stok 生命周期**。库内可依据的只有「stok 有效期有限，超时后重新获取」（见 [[network-analysis-2026-07-28]] 的登录记录）。使用时应以**实际请求返回的 401/token 失效**为准，不要按 10 分钟硬编码刷新间隔。
 
 ### 加密模式检测
 
@@ -376,3 +394,17 @@ Xiaomi 路由器所有进程以 **root** 权限运行，任意命令注入 = 完
 - [[ROUTER-FULL-CAPABILITY]] — 路由器能力手册
 - [[2026-07-21-树莓派网络故障与路由器破解完整复盘]] — 事故复盘
 - [[参考-网络路由与代理排障]] — 网络路由与代理排障
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 纠错 | CVE 表 CVSS 列混用厂商分与 NVD 分（26317 的 7.0 / 26319 的 7.2） | 保留原表并加更正块：26317 厂商 7.0 / NVD 9.8；26319 NVD 7.2 / 厂商 6.7；要求加「评分来源」列（NVD + MITRE API） |
+| 补疏漏 | CVE-2019-18370 行「认证=需要」与所引 9.8（PR:N）并存未说明 | 加注：CVSS 描述漏洞本身无需认证，库内「需要」指实测链路要 stok，属部署条件 |
+| 纠错 | 「受影响型号 R3G, R4CM, R4A, 4C, 3Gv2, 3C, R3P」超出权威记录 | 保留原行并加更正块：NVD/MITRE 仅覆盖 R3G < 2.28.23-stable（CPE `millet_router_3g_firmware`），其余为页面推断 |
+| 纠错 | 「约 500 个 API 端点」不可复算 | 保留原句并加更正块：缺固件版本、匹配行数、去重口径三项；建议改为带原始输出的表述 |
+| 补疏漏 | CVE-2023-26319 行的适用型号/来源缺失 | 加注：NVD 对应 AX3200（<2023.2），描述中无 `request_smartcontroller`/`mac`，该注入点属库内整理 |
+| 纠错 | 「token 被缓存约 10 分钟」被当作 stok 生命周期 | 保留原句并加更正块：10 分钟是第三方集成缓存策略，固件侧只可依实际失效响应 |
+
+相关：[[CORRECTIONS]]
+

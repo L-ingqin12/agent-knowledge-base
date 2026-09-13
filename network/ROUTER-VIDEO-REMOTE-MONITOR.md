@@ -3,7 +3,7 @@ title: 路由器视频/远程/监测方案
 aliases: [QoS, 远程访问, 流量监测]
 tags: [network/router, network/optimization]
 created: 2026-07-28
-updated: 2026-08-25
+updated: 2026-09-13
 status: stable
 ---
 
@@ -44,9 +44,16 @@ netsh int tcp set global autotuninglevel=normal
 netsh int tcp set global congestionprovider=ctcp
 ```
 
+> [!warning] 补疏漏（2026-09-13）：上面两条命令**没有输出示例，也没有验收判据**；且原参考页已失效。
+> 复核发现所引 Microsoft Learn 参考页 `windows-commands/netsh-int-tcp` 返回 **HTTP 404（Content not found）**。补验收方法：执行后用 **`netsh int tcp show global`** 回读 `Receive Window Auto-Tuning Level` 与 `Congestion Provider`（`ctcp` 只在部分 Windows 版本/驱动栈下可用，回读为空或非 ctcp 即视为未生效），并以 `Get-NetTCPSetting` 交叉确认。**在拿到回读值之前，不要把这组命令计入优化收益**。来源：<https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-int-tcp>（404）、<https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/tcpip-performance-known-issues>
+
 ### 效果
 
 WMM 无法主动标记包（需要 iptables），但尊重已有的 DSCP 标记。xray/VLESS 流量不携带特定 DSCP，因此 WMM 对代理流量的视频优化效果**有限**。主要收益在于：非代理直连流量（如国内视频网站）可被正确分类。
+
+> [!warning] 补疏漏（2026-09-13）：上段结论方向成立，但**漏了「映射本身是标准化内容」这一层，因而没法验收**（原表述保留于上；注：该段实际位于「### 效果」小节，不在「WMM」小节）。
+> RFC 8325《*Mapping Diffserv to IEEE 802.11*》（Standards Track，2018-02）定义的正是 **DSCP → 802.11 用户优先级（UP）映射**与 **QoS Map** 机制——即「打标记 → 映射到 AC 队列」这条链路是有标准的，能不能生效取决于 **AP 与客户端两侧实现是否一致**。因此应把它列为**验收项**：① 在客户端标记 DSCP，② 在 AP 侧观察包是否落到 AC_VI 队列，③ 两侧不一致时优化无效。xray 侧确实不打 DSCP 标记（需要 iptables，本机缺失），所以当前对代理流量无收益的判断不变。
+> 来源：<https://www.rfc-editor.org/rfc/rfc8325.html>
 
 ## 二、远程访问
 
@@ -65,6 +72,9 @@ ssh -D 2080 -N user@your-vps
 # 方案 A3: 本地转发 (访问远程服务)
 ssh -L 8080:remote-service:80 user@your-vps
 ```
+
+> [!warning] 更正（2026-09-13）：A2 的注释「**路由器作为代理出口**」与 `ssh -D` 语义不符（原表述保留于上）。
+> `ssh -D 2080 -N user@your-vps` 是在**执行 ssh 的这台机器**（本处为 Windows 本机）上开一个 SOCKS 监听，出口是**所登录的 VPS**——整条链路与路由器无关；路由器只出现在 A1 的反向隧道里。请把注释改为「**本机开 SOCKS，出口为 VPS**」。来源：<https://man.openbsd.org/ssh>、<https://man7.org/linux/man-pages/man1/ssh.1.html>
 
 优点: 安全加密, 无需端口转发, 无需路由器存储
 缺点: 需要一台有公网 IP 的 VPS; 连接断开需重连
@@ -118,6 +128,10 @@ cd /userdisk && wget <frp-mips-url>
 
 优点: 功能完整, 支持多端口映射, 可穿透多层 NAT
 限制: 需要外部 frp 服务端; frp 二进制 ~5MB (/userdisk 只有 1.4MB, 需用 tmpfs 运行)
+
+> [!check] 已核验并更正（2026-09-13）：`~5MB` **偏小，实际约 11.4~11.9MB**；但「必须放 tmpfs」的结论**正确**（原表述保留于上）。
+> 复核 frp 最新版 `v0.71.0`（published 2026-08-14）的 MIPS 资产：`linux_mips` **11.91 MB**、`linux_mipsle` **11.71 MB**、`linux_mips64` **11.64 MB**、`linux_mips64le` **11.41 MB**。`/userdisk` 仅剩 1.4MB，**无论 5MB 还是 11.9MB 都放不下**，因此下方「下载到 `/tmp`(RAM) + 配置存 /userdisk」的推荐方案不变；引用体积时应改用实测值。
+> 来源：<https://api.github.com/repos/fatedier/frp/releases/latest>
 
 > [!tip] 推荐方案
 > 当前最优: **frp/tmpfs + 外部 frp 服务端**。frp 客户端下载到 /tmp (RAM), 每次启动时 wget 拉取, 不占用 flash。配置存 /userdisk。
@@ -187,3 +201,15 @@ tail -f /userdisk/traffic.log | busybox nc <log-server> 514 &
 - [[ROUTER-FULL-CAPABILITY]] — 路由器能力手册
 - [[ROUTER-OPTIMIZATION]] — 路由器优化分析
 - [[Network-KB-Home]] — 知识库首页
+
+## 补完记录（2026-09-13）
+
+| 类型 | 原问题 | 处置与依据 |
+|------|--------|-----------|
+| 补疏漏 | `netsh int tcp` 两条命令无输出示例/验收判据，且所引参考页已 404 | 加注：MS Learn `netsh-int-tcp` 返回 404；补 `netsh int tcp show global` / `Get-NetTCPSetting` 回读验收 |
+| 纠错 | 方案 D「frp 二进制 ~5MB」数字偏小 | 保留原句并加已核验块：v0.71.0 各 MIPS 资产实测 11.41~11.91MB；「必须 tmpfs」结论正确 |
+| 补疏漏 | 「WMM 无法主动标记包」未提 DSCP→UP 映射是标准化内容，无法验收 | 加注 RFC 8325（DSCP→802.11 UP 与 QoS Map），给出 AP/客户端一致性验收三步 |
+| 纠错 | 方案 A2 注释「路由器作为代理出口」与 `ssh -D` 语义不符 | 保留原句并加更正块：`ssh -D` 在本机开 SOCKS、出口为 VPS，路由器只出现在 A1 |
+
+相关：[[CORRECTIONS]] · [[AGENTS]]
+
