@@ -3,7 +3,7 @@ title: "PatchSAE 概念重映射——ICLR 2025"
 aliases: [PatchSAE, 概念重映射, SAE ICLR 2025]
 tags: [ai/learning, reference]
 created: 2024-12-06
-updated: 2026-09-13
+updated: 2026-09-14
 status: stable
 source: "论文"
 source_urls:
@@ -25,6 +25,8 @@ See also: [[AI-Links-KB-Home]] | [[Articles-Index]] | [[SAE-视觉特征单义�
 > 官方定位符（2026-09-13 补）：[ICLR 2025 proceedings abstract 页](https://proceedings.iclr.cc/paper_files/paper/2025/hash/3d5b603d631d595f56bc36b373458b27-Abstract-Conference.html)（hash `3d5b603d631d595f56bc36b373458b27`，页面另给官方 Paper-Conference.pdf）；标题、作者序列（Hyesu Lim, Jinho Choi, Jaegul Choo, Steffen Schneider）与 venue「ICLR 2025」四项已逐字核对无误。
 
 > [!warning] 未能核验（2026-09-13）：上方的代码仓库链接本轮**无法核验**——github.com 与 api.github.com 直连均失败（属**网络环境限制，不构成链接失效证据**），ICLR 官方 abstract 页也**未列 code 链接**，无法交叉印证。下一轮请用 `api.github.com/repos/dynamical-inference/patchsae` 做存在性与重定向检查。
+
+> [!success] 未能核验项复核（2026-09-14）：**已结——仓库存在且与论文一一对应**。按上一轮指定的判据经 SOCKS5 代理直取 `api.github.com/repos/dynamical-inference/patchsae`（HTTP 200）：`full_name` 恰为请求名 → **无重定向，即无改名**；`description` 逐字为 "Implementation of PatchSAE as presented in \"Sparse autoencoders reveal selective remapping of visual concepts during adaptation\""，与本文标题一致；`default_branch = main`、`created_at = 2024-12-02`、`pushed_at = 2026-04-22`、`archived = false`、`fork = false`、license = **MIT**。另经 `raw.githubusercontent.com/.../main/README.md`（HTTP 200）取得仓库自述：其自定位为该论文的 **reference implementation**，并另指明后继库 FastSAE。⇒ 上一轮的读不到**纯属直连受限**，非链接失效；该链接可正常引用（依据：`https://api.github.com/repos/dynamical-inference/patchsae`，代理取回于 2026-09-14）。
 
 **角色定位**：把 SAE 当作分析仪器，回答「adaptation 到底改了什么」——而不是把 SAE 本身当作研究对象。
 
@@ -187,5 +189,6 @@ PatchSAE (Lim et al.):
 | 补疏漏 | §三「跨数据集泛化（细粒度动植物等）」只有结论 | 标注官方摘要只能确证三条（CLIP ViT 上训练 / ImageNet 数据 / 分类 + prompt-based adaptation），数据集与评估协议需回原文补；依据 ICLR 官方摘要页 |
 | 纠错 | §七 局限 1 称「NeurIPS 那篇已证明 BatchTopK 比 L1 好」 | 改用官方口径「sparsity and wide latents being the most influential factors」；并指出本文未给 ε 与隐层宽度，该局限无法自证；依据 ICLR 与 NeurIPS 两个官方页 |
 | 补疏漏 | §2.2 钩子层写「ViT 中间层」过于模糊，直接影响局限 3 | 标注需写明第几层 / 每层是否各一个 SAE，并给出对照组的内存粒度（L11/17/22/23 + 投影层）作为可比性要求 |
+| 未能核验项复核 | 上一条「代码仓库链接无法判断是否失效」 | **已结**：按上轮指定的 API 判据经代理直取 `api.github.com/repos/dynamical-inference/patchsae`（HTTP 200）——`full_name` 无重定向、description 与论文标题一致、MIT、`archived=false`、`pushed_at=2026-04-22`；README 自述为论文 reference implementation。原「直连失败」确属环境限制（代理取回于 2026-09-14） |
 
 - 回链：[[CORRECTIONS]]｜[[AGENTS]]

@@ -3,7 +3,7 @@ title: "Agent 系统韧性架构深度剖析：容错 · 成本 · 认证 · 观
 aliases: [Agent韧性架构, Claude Code韧性, 错误处理与成本控制]
 tags: [ai/links, reference, ai/agent]
 created: 2026-06-13
-updated: 2026-09-13
+updated: 2026-09-14
 status: stable
 source: "微信公众号"
 source_urls:
@@ -130,6 +130,8 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Syst
 
 > [!warning] 未能核验（2026-09-13）：上述「连续 3 次续跑 / 每次新增不到 500 token」两组数字本库**未能核验**——官方 costs 文档页（code.claude.com/docs/en/costs）可打开但正文未取到；6551Team 的 error-recovery 文档已完整取回，其中只有 `MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3`（指**输出 token 恢复次数**，与本文描述的「收益递减检测」不是同一机制），未见 500 token 阈值。引用时应标注「据源码分析，未独立验证」。
 
+> [!success] 未能核验项复核（2026-09-14）：**阻塞原因已消除；复核结论为否定——三处来源逐一检索均无此阈值，维持不可采信**。上轮的理由是「官方 costs 页可打开但正文未取到」（属抓取受阻）。本轮经代理直取该页并**取得正文全文**（`code.claude.com/docs/en/costs`，HTTP 200，约 3.6 万字符正文），在其中检索 `500 token` / `diminish` / `consecutive` / `diminished` 等，**「每次新增不到 500 token」这一收益递减阈值零命中**；另补取上轮列出的另一条上游分析 learn-from-claudecode「07. Retry & Resilience」（`raw.githubusercontent.com/.../claude_code_07_retry_resilience.md`，HTTP 200），其全文 9 处「500」**无一例外**是 `BASE_DELAY_MS = 500ms` 一类的退避毫秒值，同样没有 token 阈值。⇒ 结论：该数字**至今无任何可引用出处**，本库不得采信（原有「本库未能核验」的判定维持不变，但依据已从「正文取不到」升级为「三处来源逐一检索均无」）。依据：上述两条 URL，代理取回于 2026-09-14。
+
 ### 渐进式速率限制预警
 
 三级预警系统：
@@ -138,6 +140,8 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Syst
 3. **100% 触达**：明确告知重置时间，提供 Overage 选项
 
 > [!warning] 未能核验（2026-09-13）：70% / 85% / 100% 这组三级阈值在可访问的两份来源（官方 costs 页取不到正文；6551Team error-recovery 全文）中**均未出现**，本库未能证真；引用时请标注来源与核验日。
+
+> [!success] 未能核验项复核（2026-09-14）：**阻塞原因已消除，且判据升级为「跨越三个时点均不存在」**——可判定为「**从未存在**」而非「后被删改」。上轮卡在「官方 costs 页取不到正文」（抓取受阻）。本轮除现网版外，另取 **Wayback 两个历史快照**做对照：2025-11-06 与 2026-03-10（该站自 2025-11 起有连续快照；两份均 HTTP 200 且**正文完整可读**，含 `Manage costs` / `auto-compact` 等本页特征串）。检索结果：**三个时点的正文中，`70%` / `85%` / `utilization` 一律零命中**；现网版 `100%` 亦零命中，2025-11 快照中仅有 6 处「100%」经逐条查看**全部是 Tailwind 类名** `min-w-[calc(100%+3rem)]`，与本主题无关。⇒ 结论：该三级预警阈值**不曾在官方 costs 页出现过**，本库不得将其作为官方机制引用（原有「本库未能核验」的判定维持不变，依据升级为「现网 + 两个历史快照三时点零命中」）。依据：`https://code.claude.com/docs/en/costs` 与 `https://web.archive.org/web/20251106153754/https://code.claude.com/docs/en/costs`、`https://web.archive.org/web/20260310062200/https://code.claude.com/docs/en/costs`，代理取回于 2026-09-14。
 
 > 💡 **用户体验本质**：渐进式预警让用户在接近限制时主动调整行为，而不是在突然被中断时手足无措。成本可见性是 Agent 可信度的基石——用户不会信任一个他们无法监控消耗的 Agent。
 
@@ -258,5 +262,6 @@ logEvent('tengu_api_query', {
 | 补疏漏 | 「Opus 连续 529 → 回退 Sonnet」缺边界条件 | 补 529-only 触发（前台连续 3 次）、回退前清理 `StreamingToolExecutor` 与 thinking signature、两条停止条件（输出恢复上限 3 次 / reactive compact 每轮一次）；依据 learn-from-claudecode 与 6551Team error-recovery |
 | 补疏漏 | 分层日志表没有「用户可控开关」，且审计曾把社区文档站误当官方页 | 加四条用户侧事实（诊断日志存本地且仅显式上报、`_PROTO_` 前缀剥离 PII、`/privacy-settings`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`），并更正出处为社区源码文档站 |
 | 补疏漏 | 「连续 3 次续跑 / 每次 <500 token」与「70% / 85% / 100% 三级预警」无出处 | 两处均标注**本库未能核验**（可访问来源中不存在），引用需标来源与核验日 |
+| 未能核验项复核 | 上一条两处「本库未能核验」的阻塞理由是「官方 costs 页正文取不到」 | **阻塞已消除，判定维持**：经代理取得 costs 页正文全文（约 3.6 万字符）＋ 上轮另一来源 learn-from-claudecode 07 全文，`500 token` / `diminish` / `consecutive` **零命中**（该文 9 处「500」全是 `500ms` 退避值）；三级阈值另取 Wayback **2025-11-06 与 2026-03-10** 两个历史快照对照，`70%` / `85%` / `utilization` **三时点零命中** ⇒ 判定为「从未存在」而非「后被删改」，不得作官方机制引用（代理取回于 2026-09-14） |
 
 - 回链：[[CORRECTIONS]]｜[[AGENTS]]

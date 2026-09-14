@@ -3,7 +3,7 @@ title: "SAE 视觉特征单义性——NeurIPS 2025"
 aliases: [SAE单义性, SAE NeurIPS 2025, 稀疏自编码器单义特征]
 tags: [ai/learning, reference]
 created: 2025-04-03
-updated: 2026-09-13
+updated: 2026-09-14
 status: stable
 source: "论文 + 微信公众号解读"
 source_urls:
@@ -140,6 +140,11 @@ LLaVA-1.5 的视觉管道：图片 → CLIP ViT-L/14 → 576 个 patch token（�
 > [!warning] 未能核验（2026-09-13）：上表 5 个数字（71 人 / 1000 次 / 82.8% / 56.6% / 100%）**本库未能核验**——两个可打开的官方页（NeurIPS poster 摘要只说「we propose a benchmark derived from a large-scale user study」；EML Munich 摘要只提 hierarchical representations 与 iNaturalist taxonomy）均未给出人数、比较次数与一致率；arXiv 全文与 OpenReview 在本轮不可达 / 需验证。引用时请注明「数字取自原文，核验日 2026-09-13；全文当前不可达」。
 > 可作为真值确证的相邻结论：官方摘要「with sparsity and wide latents being the most influential factors」——它直接支撑本文 §2.2 的「稀疏性 + 宽隐层是两个最强因子」。
 
+> [!success] 未能核验项复核（2026-09-14）：**5 项中 4 项已结，仅「总体一致率 82.8%」未能复现、维持存疑**。上轮标注的阻塞原因是「arXiv 全文不可达」，本轮经代理直取 `arxiv.org/html/2504.02821v2`（HTTP 200）后逐项复核：
+> - **71 人 / 1000 次 —— 逐字证实 ✅**：正文原句 "This study resulted in a total of 1000 questions across **71 unique users**, with 3 answers per question aggregated through **majority voting**."（题数、人数、「每题 3 答 + 多数表决」三项均与本表一致）。
+> - **56.6% 与 100% —— 由官方 Table A1 印证 ✅**：该附录表把 1000 对问题按 MS 距离分 9 桶，「Number of pairs」逐桶为 126 / 134 / 116 / 125 / 116 / 114 / 122 / 84 / 63（**合计恰为 1000**，与正文互证）；「AS」行在 **0.0–0.1 桶 = 0.56**（DINOv2）/ 0.60（CLIP），在 **0.8–0.9 桶 = 1.00**（两种编码器皆然）⇒ 支撑本表的「δ<0.1 → ≈56%」与「δ>0.8 → 100%」。唯 56.6% 与表内 0.56 差在末位小数，属四舍五入可容范围。
+> - **82.8%（总体一致率）—— 未能复现，保持存疑 ⚠**：该值在正文与 Table A1 中**均不出现**；Figure 4 是 paths-only SVG（`user_study_plot_ylim.svg`），其机器可读标签只有坐标轴（x：0.0-0.1…0.8-0.9；y：0.5–1.0），**柱高无任何文字标注**，无法程序化读值。按 Table A1 的桶计数对 AS 行做加权复算得 **80.6%（DINOv2）/ 81.1%（CLIP）**，与 82.8% 不符。⇒ 建议按「**读图值、待人工核对 Figure 4**」对待，不宜作定值引用（依据：`https://arxiv.org/html/2504.02821v2` 之正文、Table A1 与 Figure 4 SVG，代理取回于 2026-09-14）。
+
 ### 4.3 裁判模型鲁棒性
 
 用 DINOv2 ViT-B 和 CLIP ViT-B 分别做裁判，结果一致性很高——MS 不依赖某个特定裁判模型的怪癖。
@@ -255,6 +260,8 @@ MS 量化指标 → 人类对齐（MTurk）→ 因果干预（改特征改输出
 > - **CaFE (arXiv:2509.00749)**：本轮**未能核验**——eXCV Workshop 的该 publication URL 返回 **404**（站点在线，accepted papers 列表中无此条），IEEE Xplore 返回 HTTP 202 空响应，arxiv.org 直连失败。因此「arXiv:2509.00749 = CaFE」既不能证实也不能证伪；**该行只写缩写 + 编号，读者无法据此检索，故标「编号待核」**，应补可解析的标题与作者后再引用。
 > - **DeepStack**：项目页已核，规范引用为《DeepStack: Deeply Stacking Visual Tokens is Surprisingly Simple and Effective for LMMs》（Lingchen Meng 等，NeurIPS 2024，arXiv:2406.04334，BibTeX `booktitle={NeurIPS}, year={2024}`），方向描述「ViT 特征多粒度」成立，可保留。
 
+> [!success] 未能核验项复核（2026-09-14）：**CaFE 一行已结——编号映射证实，「编号待核」应撤销**。上轮的卡点是「arxiv.org 直连失败」（属环境限制），本轮经代理直取 `arxiv.org/abs/2509.00749`（HTTP 200）取回：标题《**Causal Interpretation of Sparse Autoencoder Features in Vision**》，作者 **Sangyu Han / Yearim Kim / Nojun Kwak**，提交日 2025-08-31；摘要逐字含 "We propose **Causal Feature Explanation (CaFE)**, which leverages **Effective Receptive Field (ERF)**." ⇒ **arXiv:2509.00749 = CaFE 成立**，该行现可给出可解析的标题与作者序列（原先「只有缩写 + 编号、读者无法检索」的问题已消除）。**说明**：上轮记录的 eXCV Workshop 页 404 与 IEEE Xplore 202 空响应属**另一条路径**，不构成本编号的证伪，此处一并保留。**残留**：审计对邻近工作的描述仍未获证实，维持不写入（依据：`https://arxiv.org/abs/2509.00749`，代理取回于 2026-09-14）。
+
 ---
 
 ## 九、一句话记忆标签
@@ -272,5 +279,7 @@ MS 量化指标 → 人类对齐（MTurk）→ 因果干预（改特征改输出
 | 纠错 | §八 把「DeepStack (203 期引用)」当出处 | 换成规范引用《DeepStack: Deeply Stacking Visual Tokens…》（Lingchen Meng 等，NeurIPS 2024，arXiv:2406.04334），并保留原表述说明「203 期」是公众号期号 |
 | 补疏漏 | §八 CaFE 行只有缩写 + 编号，读者无法据此检索 | 标「**编号待核**」并记录证据状态（eXCV 页 404、IEEE 202 空响应、arxiv 不可达）；审计对邻近工作的描述未获证实，不写入 |
 | 补疏漏 | §6.2「576 个 patch token」被写成与分辨率无关的常数 | 补「576 = (336/14)²，换 224px 即 256（+1 CLS）」；依据 CLIP ViT-L/14-336px 的 patch 数计算 |
+| 未能核验项复核 | §4.2 MTurk 表 5 个数字上轮标注「本库未能核验（arXiv 全文不可达）」 | **4/5 已结，1 项存疑**：代理直取 arXiv v2 全文后——71 人 / 1000 次与正文原句**逐字一致**；56.6% 与 100% 由 Table A1 的 0.56（0.0–0.1 桶）与 1.00（0.8–0.9 桶）印证，且各桶「Number of pairs」合计恰为 1000；**「总体一致率 82.8%」在正文与表格中均不出现**，Figure 4 为无文字标注的 SVG，按 Table A1 加权复算得 80.6% / 81.1%，**维持存疑、建议按读图值对待**（代理取回于 2026-09-14） |
+| 未能核验项复核 | §八 CaFE (arXiv:2509.00749)「编号待核」 | **已结**：代理直取 `arxiv.org/abs/2509.00749`（HTTP 200）得《Causal Interpretation of Sparse Autoencoder Features in Vision》（Sangyu Han / Yearim Kim / Nojun Kwak，2025-08-31），摘要逐字定义 "Causal Feature Explanation (CaFE)" 与 ERF ⇒ 编号映射成立，「编号待核」可撤销；eXCV 页 404 属另一路径，不构成证伪（代理取回于 2026-09-14） |
 
 - 回链：[[CORRECTIONS]]｜[[AGENTS]]

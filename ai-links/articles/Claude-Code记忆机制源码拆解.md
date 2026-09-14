@@ -3,7 +3,7 @@ title: "Claude Code 记忆机制源码级拆解"
 aliases: [CLAUDE.md记忆机制, Memory机制拆解, Claude Code记忆系统]
 tags: [ai/agent, ai/learning]
 created: 2026-06-02
-updated: 2026-09-13
+updated: 2026-09-14
 status: stable
 source: "微信公众号"
 source_urls:
@@ -151,6 +151,8 @@ This memory was saved 5 days ago. Verify it's still accurate before acting on it
 > [!success] 残余复核（2026-09-13 补录）：上一条「无独立来源」的判断**已被推翻**——独立源码分析 [lhl/agentic-memory — ANALYSIS-claude-code-memory.md](https://raw.githubusercontent.com/lhl/agentic-memory/a26d9df2e1f93cfc0a80900ccd98d25b681bef27/ANALYSIS-claude-code-memory.md)（本次经代理直取 HTTP 200）记：`memoryAge(mtimeMs)` 返回 "today / yesterday / N days ago"，`memoryFreshnessText()` 对**超过 1 天**的记忆注入 "This memory is N days old. Memories are point-in-time observations… Verify against current code before asserting as fact."——按整天粒度折算即「今天/昨天不警告、第 2 天起警告」，**与本节的「2 天」一致**，且验证提示语与本节的「先检查文件是否存在 / 先 grep 一下」同义。因此该阈值**有独立来源**，可摘掉 `unverifiable`，改标「两路独立源码分析一致」。
 > 唯一仍未独立确认的是**注入的包裹形态**：本节写作 `<system-reminder>`，该独立分析只写「注入到 user context」（"Inject selected memories with staleness caveats into user context"），未见该标签。引用时建议写成「随记忆一并注入提醒文本（本库所记形态为 `<system-reminder>`，未经第二来源确认）」。
 
+> [!success] 未能核验项复核（2026-09-14）：**上一条所列的「唯一残留」（`<system-reminder>` 包裹形态未经第二来源确认）现已结案**。本轮经代理直取另一份**互相独立**的源码分析 [cablate/claude-code-research — `02-memdir-system.md`](https://raw.githubusercontent.com/cablate/claude-code-research/master/source-code-analysis/phase-05-memory-context/02-memdir-system.md)（HTTP 200），其「記憶年齡系統（memoryAge.ts）」一节逐条列出：`memoryAgeDays()` = `Math.max(0, Math.floor((Date.now() - mtimeMs) / 86_400_000))`；`memoryAge()` = "today / yesterday / N days ago"；`memoryFreshnessText()` 注为「**過期警告文字（>1 天才顯示）**」；以及 **`memoryFreshnessNote()` 注为「包在 `<system-reminder>` 的過期警告」**——即老化提醒确实以 `<system-reminder>` 包裹。⇒ **「2 天起警告」与「以 `<system-reminder>` 包裹」两项均由两路互相独立的源码分析印证**，本节写法可保留，引用时无须再加「未经第二来源确认」的但书（依据：上述 URL，代理取回于 2026-09-14）。
+
 ---
 
 ## 四、可迁移的设计原则
@@ -175,5 +177,6 @@ This memory was saved 5 days ago. Verify it's still accurate before acting on it
 | 加厚 | 「不用向量数据库」与「截断双保险」两个关键论断缺独立出处 | 各补一条独立源码分析印证；197KB 极端案例标注「原文案例，未独立核验」 |
 | 补疏漏 | 「2 天 stale 阈值」只有单一来源链 | 标注本库未能核验（unverifiable），引用需注明核验日 |
 | 残余复核 | 上一条「2 天阈值无独立来源」的判断 | **已推翻并结案**：lhl/agentic-memory 独立源码分析（本次直取 200）记 `memoryAge` = today/yesterday/N days ago、`memoryFreshnessText()` 对 >1 天记忆注入 "This memory is N days old… Verify against current code"，与「2 天起警告」一致 → 该阈值有独立来源；残留仅 `<system-reminder>` 包裹形态未经第二来源确认 |
+| 未能核验项复核 | 上一条的残留：`<system-reminder>` 包裹形态「未经第二来源确认」 | **已结**：经代理直取第二份互相独立的源码分析 `cablate/claude-code-research` 之 `02-memdir-system.md`（HTTP 200），其明列 `memoryFreshnessNote()` 注为「包在 `<system-reminder>` 的過期警告」、`memoryFreshnessText()` 注为「>1 天才顯示」⇒ 包裹形态与「2 天起警告」两项均获两路独立印证，可摘掉但书（代理取回于 2026-09-14） |
 
 - 回链：[[CORRECTIONS]]｜[[AGENTS]]
