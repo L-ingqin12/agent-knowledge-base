@@ -17,7 +17,7 @@ import time
 
 import requests
 
-OLLAMA = r"C:\Users\28064\AppData\Local\Programs\Ollama\ollama.exe"
+OLLAMA = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe")
 W = r"D:\OllamaModels\bench"
 API = "http://127.0.0.1:11434/api"
 H = {"Content-Type": "application/json"}
