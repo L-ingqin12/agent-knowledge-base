@@ -37,14 +37,24 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:11434"
 
-# 用途 -> (模型, 默认上下文, 默认开思考?)
+# 用途 -> (模型, 默认上下文, 默认开思考?, 能力标签)
+# 标签来自本机实测（见知识库 ai-dev/本地模型能力矩阵与任务路由），不是抄 benchmark。
 ROLES = {
-    "fast":   ("qwen3.5:0.8b",     16384, False),
-    "chat":   ("granite4:micro-h", 32768, False),
-    "smart":  ("qwen3.5:2b",       16384, False),
-    "coder":  ("qwen2.5-coder:3b", 16384, False),
-    "moe":    ("granite4:tiny-h",   8192, False),
-    "vision": ("qwen3-vl:2b",       8192, True),   # 该模型强制思考
+    "gen":    ("qwen3.5:0.8b",     16384, False,
+               "长文草稿/扩写最强：3000tok 重复率仅1.2%、67tok/s；但长上下文检索 0/3"),
+    "fast":   ("qwen3.5:0.8b",     16384, False, "同 gen，最快"),
+    "chat":   ("granite4:micro-h", 32768, False,
+               "结构化输出/工具调用/FIM 有厂商背书；分类抽取摘要"),
+    "retrie": ("qwen3.5:2b",       16384, False,
+               "受控实验里捞针 3/3 的两个之一（另一个是 coder）"),
+    "coder":  ("qwen2.5-coder:3b", 16384, False,
+               "代码 + 长上下文检索 3/3"),
+    "smart":  ("qwen3.5:2b",       16384, False,
+               "比 0.8B 通用更强；且是捞针 3/3 的两个之一"),
+    "en":     ("llama3.2:3b",       8192, False, "英文稠密 3B；但 8K 捞针 0/3，别拿它读长文"),
+    "moe":    ("granite4:tiny-h",   8192, False, "7B-A1B MoE，CPU 跑，慢"),
+    "vision": ("qwen3-vl:2b",       8192, True,
+               "图像/GUI/OCR；纯文本知识最弱（0/8），别拿它答题"),
 }
 DEFAULT_ROLE = "fast"
 
@@ -143,7 +153,7 @@ def main(argv=None):
     if args.list:
         _out("用途     模型                 上下文   思考   说明")
         _out("-" * 68)
-        for k, (m, c, th) in ROLES.items():
+        for k, (m, c, th, tag) in ROLES.items():
             ok = "✅" if model_available(m) else "❌未装"
             # 思考列要区分三种：真开 / 真关 / 「靠 prefill 补丁关」
             if any(m.startswith(t) for t in NEEDS_PREFILL):
@@ -152,17 +162,18 @@ def main(argv=None):
                 mark = "低档"
             else:
                 mark = "开" if th else "关"
-            _out("%-8s %-20s %-8d %-6s %s %s" %
-                  (k, m, c, mark, ok, "← 默认" if k == DEFAULT_ROLE else ""))
+            _out("%-8s %-20s %-8d %-6s %-8s %s" %
+                  (k, m, c, mark, ok, tag))
         _out("")
         _out("思考列：关=真关 / 补丁=模型模板写死思考，靠预填空think块绕过 / 低档=gpt-oss 用 think=low")
+        _out("选中建议：长文草稿→gen  长文检索/代码→retrie  工具调用/抽取→chat  看图→vision")
         return 0
 
     if not alive():
         return 2
 
     role = args.role
-    model, ctx, think = ROLES[role]
+    model, ctx, think, _tag = ROLES[role]
     if args.model:
         model = args.model
     if args.ctx:

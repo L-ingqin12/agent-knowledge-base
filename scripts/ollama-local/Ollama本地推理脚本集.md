@@ -23,6 +23,8 @@ status: review
 | `apply_sampling.py` | 同上 | 烤入各厂商模型卡的**官方推荐采样参数**（Qwen3.5 / Qwen3-VL / gpt-oss） |
 | `verify_tuning.py` | 改完参数后 | 不指定 `num_ctx` 复测各模型实际驻留的上下文、GPU 占比与 decode 速度 |
 | `tune_ctx_speed.py` | 定上下文档位时 | **上下文扫描**：同一模型在 4K/8K/16K/32K 下的 decode 与 GPU% |
+| `test_needle_controlled.py` | 跨模型比较 | **受控捞针对照**：固定 num_ctx、同一套题与埋点，让模型间可比（架构/规模都不能预测检索能力，只能实测） |
+| `test_accuracy.py` | 选准确性敏感任务前 | 8 题客观可判定的知识题，分档暴露「术语全称编造」 |
 | `test_longrun.py` | 评估可用性 | **长输出 + 长上下文捞针**：测是否自然收尾、是否退化成复读机、能否从长文档里捞出唯一事实 |
 | `bench_model.py` | 新增模型时 | 通用基准：驻留 + decode（自动/强制满 GPU）+ 长提示 prefill |
 | `stress_chat.py` | 评估聊天体感 | 多轮对话压测，看随上下文增长的首字延迟与单轮耗时劣化 |
