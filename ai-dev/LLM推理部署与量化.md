@@ -14,6 +14,12 @@ status: review
 > [!abstract] 摘要
 > 本文档覆盖大语言模型（Large Language Model, LLM）私有化部署全链路：第 4 章以数据安全、成本、延迟三个维度对比云 API、Ollama、vLLM 三条路线；第 5 章详解 Ollama（llama.cpp GGUF 量化内核）的参数配置与 API 实践，以及 vLLM 的 PagedAttention 分页显存、Continuous Batching 连续批处理两大核心机制；第 6 章给出 Ray 集群多机多卡分布式推理的完整落地清单。原理部分用 [[Training-vs-Inference.excalidraw]] 对比训练并行与推理并行，Demo 覆盖 Ollama 命令行/REST、vLLM OpenAI 兼容服务、Ray 集群启动三套可直接复制的脚本。
 
+> [!tip] 实测补充（2026-09-22）
+> 本文是**方法论与选型**层。在 **4GB 显存消费级卡上的实测账本**——7 个模型跑分、`num_gpu` 调优、
+> thinking 吃光 token 预算的坑、长对话体感、多模态实测、接入 Agent Harness 的做法——见
+> [[本地LLM部署与显存实测-4GB卡]]；能力选型见 [[本地模型能力矩阵与任务路由]]；
+> 探针与调优方法见 [[本地推理栈探测与调优方法论]]。
+
 ## 核心概念
 
 ### 术语速查表

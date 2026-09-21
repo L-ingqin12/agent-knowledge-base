@@ -3,7 +3,7 @@ title: AI Dev KB Home — LLM 应用开发实战专题库
 aliases: [AI开发MOC, LLM应用开发首页, AI-Dev-KB]
 tags: [ai, moc, ai/learning]
 created: 2026-08-25
-updated: 2026-09-13
+updated: 2026-09-22
 status: review
 ---
 
@@ -43,6 +43,22 @@ status: review
 | 13 | [[Agent-Skills技能开发实战]] | SKILL.md 规范与渐进式披露：给 Agent 写"说明书"（课程第13章补齐） | — |
 | 14 | [[多模态Agent平台实战]] | 语音/视觉管线四层架构与延迟预算（课程第21章补齐） | — |
 | 15 | [[LLM架构进阶-从注意力变体到推理引擎]] | MHA/GQA/MLA 演化账本、RoPE 外推、MoE 工程真相、连续批处理/PagedAttention/投机解码机制级（2026-08-26 新增） | — |
+| 16 | [[本地LLM部署与显存实测-4GB卡]] | **4GB 显存卡上哪些本地模型真能跑、跑多快、坑在哪**——7 模型实测基准 + 长对话体感 + 多模态 + 本地 API/DSH 接入（2026-09-22 新增） | — |
+| 17 | [[本地推理栈探测与调优方法论]] | **怎么问一个不透明的推理栈**——探针设计、录包法、测量纪律、调优策略、失败模式速查（2026-09-22 新增） | — |
+| 18 | [[本地模型能力矩阵与任务路由]] | **哪个任务给哪个模型**——7 模型实测能力矩阵 + 任务标签表 + 输出成本路由规则 + 证据弱点（2026-09-22 新增） | — |
+
+## 脚本清单
+
+本子库涉及的脚本集中在 [[Ollama本地推理脚本集|scripts/ollama-local/]]：
+
+| 用途 | 脚本 |
+|---|---|
+| 一行式推理入口 | `llm.py` / `llm.cmd` |
+| 烤入调优参数 | `apply_tuning.py` · `apply_sampling.py` |
+| 基准与验证 | `verify_tuning.py` · `tune_ctx_speed.py` · `bench_model.py` · `stress_chat.py` · `test_longrun.py` · `test_accuracy.py` |
+| 多模态验证 | `test_vision.py` + `make_testimage.py` |
+| **逃生机制** | `modelfiles_backup/`（7 份原始 Modelfile，唯一还原依据） |
+
 
 ## 课程外增补雷达（2026 时效性缺口）
 
