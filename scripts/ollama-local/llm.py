@@ -51,7 +51,10 @@ ROLES = {
                "代码 + 长上下文检索 3/3"),
     "smart":  ("qwen3.5:2b",       16384, False,
                "比 0.8B 通用更强；且是捞针 3/3 的两个之一"),
-    "en":     ("llama3.2:3b",       8192, False, "英文稠密 3B；但 8K 捞针 0/3，别拿它读长文"),
+    "en":     ("llama3.2:3b",       8192, False,
+               "多语言对话/改写；已烤 repeat_penalty=1.2 抑制其复读；但 8K 捞针 0/3、知识 4/8"),
+    "math":   ("phi4-mini:latest",  8192, False,
+               "数学/逻辑推理：官方 GSM8K 88.6 / MATH 64.0；本角色会传 temperature=0"),
     "moe":    ("granite4:tiny-h",   8192, False, "7B-A1B MoE，CPU 跑，慢"),
     "vision": ("qwen3-vl:2b",       8192, True,
                "图像/GUI/OCR；纯文本知识最弱（0/8），别拿它答题"),
@@ -235,9 +238,13 @@ def main(argv=None):
         if model.startswith(fam):
             think = level if not args.think else "high"
 
+    # math 角色用贪心解码 —— 实测同一个数学题 temp=0.0 得 2/3、temp=0.7 只有 1/3
+    # （0.7 时它把「进水管3小时/排水管5小时」推成「3/3=1小时」，推理链直接崩）
+    temp = 0.0 if role == "math" else 0.7
+
     body = {"model": model, "messages": messages, "stream": False,
             "think": think,
-            "options": {"num_ctx": ctx, "num_predict": args.num_predict, "temperature": 0.7}}
+            "options": {"num_ctx": ctx, "num_predict": args.num_predict, "temperature": temp}}
 
     t0 = time.time()
     try:
