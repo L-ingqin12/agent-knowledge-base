@@ -34,7 +34,7 @@ status: review
 
 | 项 | 值 |
 |---|---|
-| 运行时 | Ollama **0.34.1**，per-user 装 `%LOCALAPPDATA%\Programs\Ollama` |
+| 运行时 | Ollama **0.34.2**（装时 0.34.1，后自动更新），per-user 装 `%LOCALAPPDATA%\Programs\Ollama` |
 | 模型目录 | **`D:\OllamaModels`**（环境变量 `OLLAMA_MODELS` 改的，默认在 C 盘） |
 | 基准脚本 | `D:\OllamaModels\bench\`（含 README、客户端、压测脚本） |
 
@@ -50,6 +50,20 @@ OLLAMA_NUM_PARALLEL=1             OLLAMA_FLASH_ATTENTION=1
 > `OllamaSetup.exe /S` **不会把安装目录写进 PATH**，导致托盘程序 `ollama app.exe` 找不到 `ollama.exe` 去 spawn 服务端子进程，
 > 日志永远报 `ollama server not ready`、11434 零监听——而手动 `ollama serve` 却秒起，极易误判为「Ollama 坏了」。
 > 修复=把安装目录追加进用户 PATH。**改 PATH 必须用 `[Environment]::SetEnvironmentVariable('Path',$v,'User')`，不能用 `setx`（1024 字符处会截断）。**
+
+> [!danger] 安装途径：本机 **winget 装不上**，但那不代表 Ollama 装不上
+> winget 装 Ollama 报 **`0x80072efd`**——它的下载源指向 GitHub，被墙。
+> 可靠路径是三步，**缺一不可**：
+> 1. 走本机 SOCKS 代理下载官方安装包
+>    （`curl --socks5-hostname 127.0.0.1:10808 -L -o OllamaSetup.exe <官方 release url>`）
+> 2. **必须校验 SHA256**：从 `api.github.com` 取该 release 的 digest 做比对，不要凭大小猜
+> 3. 再执行安装，然后处理上面那条 PATH 坑
+>
+> ⚠️ **403 / 连不上 ≠ 资源不存在**，八成只是没走代理。本机多次因为"默认抓不到"而误判过。
+
+> [!info] 模型下载
+> `ollama pull <模型名>`。模型落在 `OLLAMA_MODELS` 指向的目录（本机 **`D:\OllamaModels`**，不是 C 盘默认位置）。
+> 下载慢或超时同样与网络有关，处理方式同上。拉下来的清单见 [[本地模型能力矩阵与任务路由]]。
 
 ## 三、实测性能总表
 

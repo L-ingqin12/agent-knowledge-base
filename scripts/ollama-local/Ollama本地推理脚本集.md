@@ -51,10 +51,73 @@ echo "PARAMETER num_ctx 32768" >> /tmp/mf
 ollama create granite4:micro-h -f /tmp/mf
 ```
 
+## 一键启停与学习入口（2026-09-22 新增）
+
+> [!tip] 日常只需要记三个命令（都在 `D:\OllamaModels\bin\`，该目录已在 PATH 里，可裸命令调用）
+> | 命令 | 作用 |
+> |---|---|
+> | `llm-start` | 拉起 Ollama 服务（幂等，已在跑就跳过） |
+> | `llm-stop` | 完整停止并**回收残留**（含 Python 客户端、校验端口） |
+> | `llm-learn` | 一条命令进入学习实践台：先起服务，再进菜单 |
+
+**为什么 `llm-stop` 要单独写**：`taskkill ollama.exe` **不会**杀掉它的子进程 `llama-server.exe`。
+实测残留 2 个孤儿占 \7 GB 内存 + 3802 MiB 显存，模型 GPU 占比掉到 8%、解码速度腰斩。
+所以必须按 **app → ollama → llama-server** 的顺序杀整棵树。
+
+> [!warning] 三个实测出来的坑（都实际踩过）
+> 1. **验证不能用 `Get-Process ollama,llama-server`** —— 这是**精确匹配**，**看不见 `ollama app.exe`**。
+>    实测：`Get-Process ollama` 只返回 `ollama`；`Get-Process *ollama*` 才返回 `ollama` + `ollama app`。
+>    用精确匹配时的「已清理干净」是**假通过**。
+> 2. **`llm-start lab` 里 `%PY%` 必须写成 `!PY!`** —— 在 `if (...)` 块内 `%VAR%` 在**解析期**就展开，
+>    而同一块里的 `set PY=` 那时还没执行，会展开成空 → **静默失败**。
+> 3. **`llm-learn.cmd` 必须存成 GBK** —— cmd 按 ANSI(936) 读批处理文件，存 UTF-8 菜单会乱码。
+>    （`llm-start.cmd` / `llm-stop.cmd` 是纯 ASCII，不受影响。）
+
+**实测速度**：`llm-stop` **3.3 s**、`llm-start` 冷启动 **11.3 s**。
+早期版本 `llm-stop` 要 **6.2 s**——多出来的时间全花在一个「有界端口轮询」上：
+curl 探**已停止**的端口要 **1178 ms**（连接被丢弃而非拒绝），所以轮询**从不提前跳出**。
+`taskkill /F` 本来就是同步的，等待纯属多余，已删除。
+
+> [!info] `llm-stop` 的端口检查为什么**只报告、不作判据**
+> 早期版本拿「11434 与 3000 都已释放」当验收条件，错了两处：
+> 实测发现 `ollama app.exe` **可以在运行而 3000 没有监听**（"app 常驻占 3000"的假设不成立）；
+> 而 3000 是最常见的开发端口之一，任何无关程序占用它都会让脚本**误报失败并 exit 1**。
+> 现在的验收判据是**进程检查**，端口只打印出来供人核对。
+
+## 学习实践台（2026-09-22 新增）
+
+| 脚本 | 位置 | 学什么 |
+|---|---|---|
+| `agent-lab.py` | `bin\` | **裸 API + 手写 ReAct 循环**：每一轮的工具名 / 参数 / 返回值都打印出来 |
+| `lg-lab.py` | `lab\` | **LangGraph 6 节课**：最小图 → 条件边 → ReAct agent → reducer → checkpointer → 自由实践 |
+| `test_langgraph_skill.py` | `lab\` | **能力自测**：先 stub 验图接线，再测模型（结果见 [[本地模型能力矩阵与任务路由]] 四·九） |
+
+`lab\` 用**独立 venv**（`lab\.venv`），不污染 miniconda base：
+
+```bash
+D:\ProgramData\miniconda3\python.exe -m venv D:\OllamaModels\lab\.venv
+D:\OllamaModels\lab\.venv\Scripts\python.exe -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple langchain==1.4.2 langgraph==1.2.12 langchain-ollama==1.1.0
+```
+
+> [!note] 为什么 venv 必须钉版本
+> `lg-lab.py` 依赖 `from langchain.agents import create_agent`（**langchain 1.x 才有**；
+> 旧的 `langgraph.prebuilt.create_react_agent` 已废弃，参数也从 `prompt=` 改成了 `system_prompt=`）。
+> 不钉版本，将来装到 2.x 会在 import 处直接失败。
+
+## 补登：本表此前未收录的脚本
+
+| 脚本 | 用途 |
+|---|---|
+| `test_toolcall_skill.py` | 工具调用合法性 + 工具选择（能不能学 Agent 的分水岭） |
+| `test_faithful_writeup.py` | 忠实扩写**初测**（5 素材 × 4 模型） |
+| `test_faithful_ext.py` / `test_faithful_ext2.py` | 忠实扩写**扩测**（8 素材 × 6 模型）；**v2 修掉了 v1 的「600 字」假阳性** |
+| `faithful_ext2_raw.json` | v2 的**原始输出落盘**，可逐条人工复核 |
+| `test_longrun_new.py` | 新稠密模型长输出 / 复读复测 |
+
 ## 关联
 
 - [[本地LLM部署与显存实测-4GB卡]] —— 这些脚本量出来的**实测账本**（性能表、坑位、选型）
 - [[本地推理栈探测与调优方法论]] —— 这些脚本**为什么这么写**：探针设计、对照原则、录包法
-- [[CORRECTIONS]] —— 本次实测中判错的结论（C-026~C-028 测量类、C-029 同一故障三次误判）
+- [[CORRECTIONS]] —— 本次实测中判错的结论（C-026\C-028 测量类、C-029 同一故障三次误判）
 - [[AGENTS]] —— 知识库协作规范（脚本归档要求、部署四规则）
 - [[AI-Dev-KB-Home]] —— 所属子库 MOC
